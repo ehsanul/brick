@@ -11,6 +11,7 @@ extern crate lazy_static;
 
 pub mod game_data;
 pub mod game_data_grpc;
+pub mod state;
 
 use std::io::prelude::*;
 use std::fs::File;
@@ -20,24 +21,11 @@ use std::f32;
 
 use game_data::*;
 use game_data_grpc::*;
+use state::*;
 
 use na::{Vector3, Translation3, UnitQuaternion};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
-
-struct GameState {
-    ball: BallState,
-    player: PlayerState,
-}
-
-struct PlayerState {
-    position: Vector3<f32>,
-    rotation: UnitQuaternion<f32>,
-}
-
-struct BallState {
-    position: Vector3<f32>,
-}
 
 static BALL_RADIUS: f32 = 93.143;
 
