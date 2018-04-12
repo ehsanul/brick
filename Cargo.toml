@@ -12,6 +12,7 @@ tls-api = "0.1"
 kiss3d = "0.13"
 nalgebra = "0.14"
 lazy_static = "1.0"
+dynamic_reload = "0.3.*"
 
 [build-dependencies]
 protoc-rust-grpc = "0.2"

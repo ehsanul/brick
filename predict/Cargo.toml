@@ -1,0 +1,10 @@
+[package]
+name = "predict"
+version = "0.1.0"
+authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
+
+[dependencies]
+nalgebra = "0.14"
+
+[lib]
+crate-type = ["dylib"]

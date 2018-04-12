@@ -5,6 +5,7 @@ extern crate futures_cpupool;
 extern crate tls_api;
 extern crate kiss3d;
 extern crate nalgebra as na;
+extern crate dynamic_reload;
 
 #[macro_use]
 extern crate lazy_static;
@@ -16,16 +17,19 @@ pub mod state;
 use std::io::prelude::*;
 use std::fs::File;
 use std::thread;
-use std::sync::{RwLock};
+use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
 
 use game_data::*;
 use game_data_grpc::*;
-use state::*;
+use state::*; // TODO separate crate? need to share with predict crate!
+use std::time::Duration;
 
 use na::{Vector3, Translation3, UnitQuaternion};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
+
+use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
 
 static BALL_RADIUS: f32 = 93.143;
 
@@ -40,6 +44,24 @@ lazy_static! {
             ball: BallState { position: Vector3::new(0.0, 0.0, 0.0) },
             player: PlayerState { position: Vector3::new(0.0, 0.0, 0.0), rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0) },
         })
+    };
+
+    static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
+        Mutex::new(
+            DynamicReload::new(Some(vec!["predict/target/debug"]),
+                               Some("target/debug"),
+                               Search::Default)
+        )
+    };
+
+    static ref PREDICT: Mutex<PredictPlugin> = {
+        let lib = match RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER").add_library("predict", PlatformName::Yes) {
+            Ok(lib) => lib,
+            Err(e) => {
+                panic!("Unable to load dynamic lib, err {:?}", e);
+            }
+        };
+        Mutex::new(PredictPlugin { lib: Some(lib) })
     };
 
     static ref FILE: RwLock<File> = {
@@ -102,6 +124,28 @@ impl Bot for BotImpl {
     }
 }
 
+struct PredictPlugin {
+    lib: Option<Arc<Lib>>
+}
+
+impl PredictPlugin {
+    fn unload_plugin(&mut self, lib: &Arc<Lib>) {
+        self.lib = None;
+    }
+
+    fn reload_plugin(&mut self, lib: &Arc<Lib>) {
+        self.lib = Some(lib.clone());
+    }
+
+    fn reload_callback(&mut self, state: UpdateState, lib: Option<&Arc<Lib>>) {
+        match state {
+            UpdateState::Before => Self::unload_plugin(self, lib.unwrap()),
+            UpdateState::After => Self::reload_plugin(self, lib.unwrap()),
+            UpdateState::ReloadFailed(_) => println!("Failed to reload"),
+        }
+    }
+}
+
 fn main() {
     // visualization
     thread::spawn(move || {
@@ -120,7 +164,27 @@ fn main() {
         floor.set_surface_rendering_activation(false);
         floor.set_points_size(0.1);
         floor.set_lines_width(0.1);
+
         while window.render() {
+
+            // FIXME is there a way to unlock without a made up scope?
+            {
+                // XXX there must be a reason why this happens, but PREDICT must be locked before
+                // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+                let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
+                let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+                rh.update(PredictPlugin::reload_callback, &mut p);
+            }
+
+            if let Some(ref x) = PREDICT.lock().unwrap().lib {
+                // TODO cache
+                let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
+                    x.lib.get(b"predict_test\0").unwrap()
+                };
+                thread::sleep(Duration::from_millis(1000));
+                println!("predict test: {}", predict_test());
+            }
+
             let game_state = &GAME_STATE.read().unwrap();
 
             // we're dividing position by 1000 until we can set the camera up to be more zoomed out
