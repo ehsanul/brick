@@ -63,6 +63,7 @@ dependencies = [
  "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "protobuf 1.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "protoc-rust-grpc 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "state 0.1.0",
  "tls-api 0.1.14 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
@@ -960,6 +961,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "slab"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "state"
+version = "0.1.0"
+dependencies = [
+ "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
 
 [[package]]
 name = "target_build_utils"

@@ -1,3 +1,5 @@
+extern crate nalgebra as na;
+
 use na::{Vector3, UnitQuaternion};
 
 pub struct GameState {

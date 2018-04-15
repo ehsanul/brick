@@ -1,3 +1,4 @@
 /target/
 /predict/target/
+/state/target/
 **/*.rs.bk

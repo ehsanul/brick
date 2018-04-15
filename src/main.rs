@@ -6,13 +6,13 @@ extern crate tls_api;
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate dynamic_reload;
+extern crate state;
 
 #[macro_use]
 extern crate lazy_static;
 
 pub mod game_data;
 pub mod game_data_grpc;
-pub mod state;
 
 use std::io::prelude::*;
 use std::fs::File;
@@ -22,7 +22,7 @@ use std::f32;
 
 use game_data::*;
 use game_data_grpc::*;
-use state::*; // TODO separate crate? need to share with predict crate!
+use state::*;
 use std::time::Duration;
 
 use na::{Vector3, Translation3, UnitQuaternion};

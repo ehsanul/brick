@@ -1,13 +1,7 @@
 [package]
-name = "predict"
+name = "state"
 version = "0.1.0"
 authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 nalgebra = "0.14"
-
-[dependencies.state]
-path = "../state"
-
-[lib]
-crate-type = ["dylib"]

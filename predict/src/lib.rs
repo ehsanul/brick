@@ -1,8 +1,8 @@
 extern crate nalgebra as na;
+extern crate state;
 
 use na::{Vector3, Translation3, UnitQuaternion};
-// TODO figure this out // use state::*;
-
+use state::*;
 use std::f32;
 
 #[no_mangle]
