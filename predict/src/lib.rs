@@ -6,6 +6,8 @@ use state::*;
 use std::f32;
 use std::f32::consts::{PI, E};
 
+static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
+
 enum PredictionCategory {
     /// Wheels on ground
     Ground,
@@ -70,14 +72,16 @@ fn next_player_info_grounded(current: &PlayerState, controller: &BrickController
             next_speed = k * (1.0 - E.powf(-t2));
         },
         Throttle::Rest => {
-            let k = 100.0; // deceleration constant FIXME get actual value from graph and make it a static/constant
+            let speed_delta = NO_INPUT_DECELERATION * time_step;
 
-            if current_speed <= k * time_step {
+            if current_speed <= speed_delta {
                 next_speed = 0.0;
+                let time_to_rest = current_speed / NO_INPUT_DECELERATION;
+                distance = current_speed * time_to_rest / 2.0;
             } else {
-                next_speed = current_speed - k * time_step;
+                next_speed = current_speed - speed_delta;
+                distance = (current_speed + next_speed) * time_step / 2.0;
             }
-            distance = (current_speed + next_speed) * time_step / 2.0;
         },
     }
 
@@ -111,11 +115,9 @@ fn next_player_info_grounded(current: &PlayerState, controller: &BrickController
             if next_speed > max_throttle_speed {
                 next_speed = max_throttle_speed;
             }
-            println!("next_speed: {}, value: {}", next_speed, controller.throttle.value());
             next.velocity = next_heading * next_speed * controller.throttle.value();
         },
         Throttle::Rest => {
-            let k = 100.0; // FIXME get actual value from graph
             next.velocity = next_heading * next_speed;
         },
     }
@@ -309,6 +311,20 @@ mod tests {
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(0.0, 1445.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
+
+    #[test]
+    fn no_input_roll_to_a_stop() {
+        let mut current = resting_player_info();
+        current.velocity.y = 50.0;
+        let controller = BrickControllerState::new();
+        let next = next_player_state(&current, &controller, 1.0);
+
+        // FIXME reference static/constant
+        assert_eq!(round(next.position), Vector3::new(0.0, 12.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(next.rotation, current.rotation);
+        assert_eq!(round(next.velocity), Vector3::new(0.0, 0.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+    }
+
 
     // TODO need to graph/model this first
     // #[test]
