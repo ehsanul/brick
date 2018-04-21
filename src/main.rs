@@ -41,8 +41,15 @@ lazy_static! {
 
     static ref GAME_STATE: RwLock<GameState> = {
         RwLock::new(GameState {
-            ball: BallState { position: Vector3::new(0.0, 0.0, 0.0) },
-            player: PlayerState { position: Vector3::new(0.0, 0.0, 0.0), rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0) },
+            ball: BallState {
+                position: Vector3::new(0.0, 0.0, 0.0),
+                velocity: Vector3::new(0.0, 0.0, 0.0),
+            },
+            player: PlayerState {
+                position: Vector3::new(0.0, 0.0, 0.0),
+                velocity: Vector3::new(0.0, 0.0, 0.0),
+                rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0)
+            },
         })
     };
 
@@ -88,11 +95,15 @@ impl Bot for BotImpl {
         let player = &packet.players[packet.player_index as usize];
 
         let bl = ball.get_location();
+        let bv = ball.get_velocity();
         game_state.ball.position = Vector3::new(-bl.x, bl.y, bl.z); // x should be positive towards right, it only makes sense
+        game_state.ball.velocity = Vector3::new(-bv.x, bv.y, bv.z); // x should be positive towards right, it only makes sense
 
         let pl = player.get_location();
+        let pv = player.get_velocity();
         let pr = player.get_rotation();
         game_state.player.position = Vector3::new(-pl.x, pl.y, pl.z); // x should be positive towards right, it only makes sense
+        game_state.player.velocity = Vector3::new(-pv.x, pv.y, pv.z); // x should be positive towards right, it only makes sense
         game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.roll, pr.pitch, -pr.yaw);
 
         let mut file = FILE.write().unwrap();
