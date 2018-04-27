@@ -15,7 +15,6 @@ pub mod game_data;
 pub mod game_data_grpc;
 
 use std::io::prelude::*;
-use std::fs::File;
 use std::thread;
 use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
@@ -70,10 +69,6 @@ lazy_static! {
         };
         Mutex::new(PredictPlugin { lib: Some(lib) })
     };
-
-    static ref FILE: RwLock<File> = {
-        RwLock::new(File::create("foo.csv").unwrap())
-    };
 }
 
 static mut record: bool = true;
@@ -105,28 +100,6 @@ impl Bot for BotImpl {
         game_state.player.position = Vector3::new(-pl.x, pl.y, pl.z); // x should be positive towards right, it only makes sense
         game_state.player.velocity = Vector3::new(-pv.x, pv.y, pv.z); // x should be positive towards right, it only makes sense
         game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.roll, pr.pitch, -pr.yaw);
-
-        let mut file = FILE.write().unwrap();
-        unsafe {
-            if record {
-                file.write_all(format!("{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
-                    packet.get_game_info().seconds_elapsed,
-                    -bl.x,
-                    bl.y,
-                    bl.z,
-                    -ball.get_velocity().x,
-                    ball.get_velocity().y,
-                    ball.get_velocity().z,
-                    -ball.get_acceleration().x,
-                    ball.get_acceleration().y,
-                    ball.get_acceleration().z,
-                    -ball.get_angular_velocity().x,
-                    ball.get_angular_velocity().y,
-                    ball.get_angular_velocity().z,
-                ).as_bytes());
-                //println!("ball z: {}", bl.z);
-            }
-        }
 
         controller_state.throttle = 1.0;
         //controller_state.steer = 1.0;
