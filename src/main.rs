@@ -22,7 +22,6 @@ use std::f32;
 use game_data::*;
 use game_data_grpc::*;
 use state::*;
-use std::time::Duration;
 
 use na::{Vector3, Translation3, UnitQuaternion};
 use kiss3d::window::Window;
@@ -30,8 +29,8 @@ use kiss3d::light::Light;
 
 use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
 
-static BALL_RADIUS: f32 = 93.143;
 
+static BALL_RADIUS: f32 = 93.143;
 
 lazy_static! {
     // batmobile
@@ -71,7 +70,28 @@ lazy_static! {
     };
 }
 
-static mut record: bool = true;
+
+struct PredictPlugin {
+    lib: Option<Arc<Lib>>
+}
+
+impl PredictPlugin {
+    fn unload_plugin(&mut self, lib: &Arc<Lib>) {
+        self.lib = None;
+    }
+
+    fn reload_plugin(&mut self, lib: &Arc<Lib>) {
+        self.lib = Some(lib.clone());
+    }
+
+    fn reload_callback(&mut self, state: UpdateState, lib: Option<&Arc<Lib>>) {
+        match state {
+            UpdateState::Before => Self::unload_plugin(self, lib.unwrap()),
+            UpdateState::After => Self::reload_plugin(self, lib.unwrap()),
+            UpdateState::ReloadFailed(_) => println!("Failed to reload"),
+        }
+    }
+}
 
 
 struct BotImpl;
@@ -101,32 +121,25 @@ impl Bot for BotImpl {
         game_state.player.velocity = Vector3::new(-pv.x, pv.y, pv.z); // x should be positive towards right, it only makes sense
         game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.roll, pr.pitch, -pr.yaw);
 
-        controller_state.throttle = 1.0;
-        //controller_state.steer = 1.0;
+        // FIXME is there a way to unlock without a made up scope?
+        {
+            // XXX there must be a reason why this happens, but PREDICT must be locked before
+            // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+            let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
+            let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+            rh.update(PredictPlugin::reload_callback, &mut p);
+        }
+
+        // TODO get extra visualization data and desired controller state from PREDICT
+        if let Some(ref x) = PREDICT.lock().unwrap().lib {
+            // TODO cache
+            let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
+                x.lib.get(b"predict_test\0").unwrap()
+            };
+            println!("predict test: {}", predict_test());
+        }
 
         grpc::SingleResponse::completed(controller_state)
-    }
-}
-
-struct PredictPlugin {
-    lib: Option<Arc<Lib>>
-}
-
-impl PredictPlugin {
-    fn unload_plugin(&mut self, lib: &Arc<Lib>) {
-        self.lib = None;
-    }
-
-    fn reload_plugin(&mut self, lib: &Arc<Lib>) {
-        self.lib = Some(lib.clone());
-    }
-
-    fn reload_callback(&mut self, state: UpdateState, lib: Option<&Arc<Lib>>) {
-        match state {
-            UpdateState::Before => Self::unload_plugin(self, lib.unwrap()),
-            UpdateState::After => Self::reload_plugin(self, lib.unwrap()),
-            UpdateState::ReloadFailed(_) => println!("Failed to reload"),
-        }
     }
 }
 
@@ -150,25 +163,6 @@ fn main() {
         floor.set_lines_width(0.1);
 
         while window.render() {
-
-            // FIXME is there a way to unlock without a made up scope?
-            {
-                // XXX there must be a reason why this happens, but PREDICT must be locked before
-                // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-                let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
-                let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-                rh.update(PredictPlugin::reload_callback, &mut p);
-            }
-
-            if let Some(ref x) = PREDICT.lock().unwrap().lib {
-                // TODO cache
-                let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
-                    x.lib.get(b"predict_test\0").unwrap()
-                };
-                thread::sleep(Duration::from_millis(1000));
-                println!("predict test: {}", predict_test());
-            }
-
             let game_state = &GAME_STATE.read().unwrap();
 
             // we're dividing position by 1000 until we can set the camera up to be more zoomed out
