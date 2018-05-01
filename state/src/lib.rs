@@ -14,6 +14,7 @@ pub struct PlayerState {
     pub rotation: UnitQuaternion<f32>,
 }
 
+#[derive(Clone)]
 pub struct BallState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
