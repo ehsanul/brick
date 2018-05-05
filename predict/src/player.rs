@@ -29,7 +29,7 @@ fn find_prediction_category(current: &PlayerState) -> PredictionCategory {
 
 /// for now, doesn't handle landing sideways or at any angle really, nor drifting. collision with
 /// arena is also not handled. collisions with other players or ball will never be handled here
-fn next_player_info_grounded(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
+fn next_player_state_grounded(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
     let mut next = (*current).clone();
     let mut next_speed;
     let distance;
@@ -130,8 +130,8 @@ pub extern fn predict_test() -> Vector3<f32> {
 
 #[no_mangle]
 pub extern fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
-    match find_prediction_category(&current) { // whoops, borrowed it.. new let binding?
-        PredictionCategory::Ground => next_player_info_grounded(&current, &controller, time_step),
+    match find_prediction_category(&current) {
+        PredictionCategory::Ground => next_player_state_grounded(&current, &controller, time_step),
         //PredictionCategory::Ground2 => next_velocity_grounded2(&current, &controller, time_step),
         //PredictionCategory::Wall => next_velocity_walled(&current, &controller, time_step),
         //PredictionCategory::Ceiling => next_velocity_ceilinged(&current, &controller, time_step),
@@ -148,7 +148,7 @@ mod tests {
     fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_rotation() -> UnitQuaternion<f32> { UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0) }
 
-    fn resting_player_info() -> PlayerState {
+    fn resting_player_state() -> PlayerState {
         PlayerState {
             position: resting_position(),
             velocity: resting_velocity(),
@@ -158,7 +158,7 @@ mod tests {
 
     fn max_throttle_velocity() -> Vector3<f32> { Vector3::new(0.0, 1545.0, 0.0) } // FIXME reference constant/static
 
-    fn max_throttle_player_info() -> PlayerState {
+    fn max_throttle_player_state() -> PlayerState {
         PlayerState {
             position: resting_position(),
             velocity: max_throttle_velocity(),
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     fn no_input_from_resting() {
-        let current = resting_player_info();
+        let current = resting_player_state();
         let controller = BrickControllerState::new();
         let next = next_player_state(&current, &controller, 1.0);
 
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn throttle_from_resting() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn reverse_from_resting() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Reverse;
         let next = next_player_state(&current, &controller, 1.0);
@@ -207,7 +207,7 @@ mod tests {
 
     #[test]
     fn throttle_from_resting_backwards() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn reverse_from_resting_backwards() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Reverse;
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn throttle_from_resting_q1_angle() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI*3.0/4.0);
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
@@ -246,7 +246,7 @@ mod tests {
 
     #[test]
     fn throttle_from_resting_q2_angle() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI*3.0/4.0);
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
@@ -259,7 +259,7 @@ mod tests {
 
     #[test]
     fn throttle_from_resting_q3_angle() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI*1.0/4.0);
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
@@ -272,7 +272,7 @@ mod tests {
 
     #[test]
     fn throttle_from_resting_q4_angle() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI*1.0/4.0);
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn throttle_at_max_throttle() {
-        let mut current = max_throttle_player_info();
+        let mut current = max_throttle_player_state();
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
@@ -299,7 +299,7 @@ mod tests {
 
     #[test]
     fn no_input_at_max_throttle() {
-        let mut current = max_throttle_player_info();
+        let mut current = max_throttle_player_state();
         let controller = BrickControllerState::new();
         let next = next_player_state(&current, &controller, 1.0);
 
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn no_input_roll_to_a_stop() {
-        let mut current = resting_player_info();
+        let mut current = resting_player_state();
         current.velocity.y = 50.0;
         let controller = BrickControllerState::new();
         let next = next_player_state(&current, &controller, 1.0);
@@ -326,7 +326,7 @@ mod tests {
     // TODO need to graph/model this first
     // #[test]
     // fn reverse_at_max_throttle() {
-    //     let mut current = max_throttle_player_info();
+    //     let mut current = max_throttle_player_state();
     //     let mut controller = BrickControllerState::new();
     //     controller.throttle = Throttle::Reverse;
     //     let next = next_player_state(&current, &controller, 1.0);
