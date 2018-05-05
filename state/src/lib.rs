@@ -2,6 +2,8 @@ extern crate nalgebra as na;
 
 use na::{Vector3, UnitQuaternion};
 
+pub static BALL_RADIUS: f32 = 93.143;
+
 pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,

@@ -18,6 +18,7 @@ use std::io::prelude::*;
 use std::thread;
 use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
+use std::path::Path;
 
 use game_data::*;
 use game_data_grpc::*;
@@ -26,11 +27,9 @@ use state::*;
 use na::{Vector3, Translation3, UnitQuaternion};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
+use kiss3d::resource::MeshManager;
 
 use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
-
-
-static BALL_RADIUS: f32 = 93.143;
 
 lazy_static! {
     // batmobile
@@ -152,15 +151,24 @@ fn main() {
         let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
         let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
 
+        let arena_mesh = MeshManager::load_obj(
+                            Path::new("./assets/arena.obj"),
+                            Path::new("./assets/"),
+                            "arena"
+                        ).expect("Can't load arena obj file")
+                        .pop().expect("Missing arena mesh")
+                        .1
+                        .clone();
+        let mut arena = window.add_mesh(arena_mesh, Vector3::new(0.0, 0.0, 0.0));
+        arena.set_surface_rendering_activation(false);
+        arena.set_points_size(0.1);
+        arena.set_lines_width(0.1);
+        arena.set_local_scale(0.001, 0.001, 0.001);
+
         sphere.set_color(0.8, 0.8, 0.8);
         car.set_color(0.1, 0.4, 1.0);
 
         window.set_light(Light::StickToCamera);
-
-        let mut floor = window.add_cube(8.0, 10.0, 0.001);
-        floor.set_surface_rendering_activation(false);
-        floor.set_points_size(0.1);
-        floor.set_lines_width(0.1);
 
         while window.render() {
             let game_state = &GAME_STATE.read().unwrap();
