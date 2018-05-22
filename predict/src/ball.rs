@@ -1,7 +1,13 @@
-use na::{Vector3, Translation3, UnitQuaternion, Rotation3};
-use state::*;
 use std::f32;
 use std::f32::consts::{PI, E};
+
+use na::{self, Isometry3, Point3, Vector3, Translation3, UnitQuaternion, Rotation3, Unit};
+use ncollide;
+use ncollide::query::{self, Proximity};
+
+use state::*;
+use arena::ARENA;
+
 
 static SIDE_WALL_DISTANCE: f32 = 4096.0;
 static BACK_WALL_DISTANCE: f32 = 5140.0;
@@ -57,8 +63,8 @@ fn next_ball_state_dt(current: &BallState, time_step: f32) -> BallState {
 fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState {
     let mut next = (*current).clone();
 
-    if arena_will_collide(current) {
-        let bounced = calculate_bounce(&current);
+    if let Some(normal) = arena_contact_normal(&current) {
+        let bounced = calculate_bounce(&current, &normal);
         next.position = bounced.position;
         next.velocity = bounced.velocity;
     }
@@ -68,14 +74,28 @@ fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState 
     next
 }
 
-/// true if the arena is going to be in collision with the ball in the next tick, and isn't already
-/// bouncing away having collided
-fn arena_will_collide(current: &BallState) -> bool {
-    false // FIXME
+
+// returns pair of (contact_point, normal). contact point is on the arena, and normal is towards
+// inside of arena
+#[no_mangle]
+pub extern fn arena_contact_normal(current: &BallState) -> Option<Unit<Vector3<f32>>> {
+    let ball = ncollide::shape::Ball::new(BALL_RADIUS);
+    let ball_pos = Isometry3::new(current.position.clone(), na::zero()); // TODO if we want to handle cube ball, track and pass on the rotation
+    let arena_pos = Isometry3::new(na::zero(), na::zero());
+
+    let margin = 0.0;
+    let contact = ncollide::query::contact(&arena_pos, &(*ARENA), &ball_pos, &ball, margin);
+
+    match contact {
+        Some(c) => Some(c.normal),
+        None => None,
+    }
 }
 
-fn calculate_bounce(current: &BallState) -> BallState {
-    // FIXME
+fn calculate_bounce(current: &BallState, normal: &Unit<Vector3<f32>>) -> BallState {
     let mut bounced = (*current).clone();
+
+    // TODO implement!
+
     bounced
 }
