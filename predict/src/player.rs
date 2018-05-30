@@ -1,7 +1,7 @@
 use na::{Vector3, Translation3, UnitQuaternion, Rotation3};
 use state::*;
 use std::f32;
-use std::f32::consts::{PI, E};
+use std::f32::consts::E;
 
 static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
 
@@ -47,7 +47,6 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
             let k = match controller.steer {
                 Steer::Straight => 1575.0,
                 Steer::Right | Steer::Left => 1200.0, // TODO get this and confirm velocity curve while steering
-                _ => panic!("Steering values other than 1.0, -1.0 and 0.0 are not supported!")
             };
 
             let t1 = f32::ln(k) - f32::ln(k - current_speed); // confirm this, forgot
@@ -102,7 +101,6 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
             // next.position = current.position + translation;
             // next.rotation = current.rotation * rotation;
         }
-        _ => panic!("Steering values other than 1.0, -1.0 and 0.0 are not supported!")
     }
 
     let next_heading = next.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
@@ -143,6 +141,7 @@ pub extern fn next_player_state(current: &PlayerState, controller: &BrickControl
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::f32::consts::PI;
 
     fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }

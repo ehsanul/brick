@@ -1,7 +1,7 @@
 use std::f32;
-use std::f32::consts::{PI, E};
+use std::f32::consts::E;
 
-use na::{self, Isometry3, Point3, Vector3, Translation3, UnitQuaternion, Rotation3, Unit};
+use na::{self, Isometry3, Vector3, Unit};
 use ncollide;
 use ncollide::query::{self, Proximity};
 
@@ -19,13 +19,13 @@ static GOAL_Z: f32 = 640.0;
 static RESTITUION: f32 = 0.6; // was: C_R = 0.6
 
 static Y: f32 = 2.0; // parallel bounce friction constant
-static mu: f32 = 0.285; // parallel bounce friction constant
+static MU: f32 = 0.285; // parallel bounce friction constant
 static A: f32 = 0.0003; // friction -> angular velocity factor
 
 static GRAVITY: f32 = 650.0; // uu/s2
 static AIR_RESISTANCE: f32 = 0.0305; // % loss per second
-static BALL_MAX_SPEED: f32 = 6000.0;
-static BALL_MAX_ROTATION_SPEED: f32 = 6.0;
+static BALL_MAX_SPEED: f32 = 6000.0; // uu/s
+static BALL_MAX_ROTATION_SPEED: f32 = 6.0; // rad/s
 
 static TICK: f32 = 1.0 / 120.0; // matches RL's internal fixed physics tick rate
 
@@ -76,23 +76,13 @@ fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState 
         next = (*current).clone();
     }
 
-    //// calculate a
-    //a = np.array([0, 0, -self.gravity]) - self.air_resistance * v
     let acceleration = Vector3::new(0.0, 0.0, -GRAVITY) - AIR_RESISTANCE * next.velocity;
 
-    //// if v > max speed: v = v
-    //if v.dot(v) > self.ball_max_speed ** 2:
-    //    v = v / np.sqrt(v.dot(v)) * self.ball_max_speed
     if next.velocity.norm() > BALL_MAX_SPEED {
         // TODO is there a better to_unit_vector method or something?
         next.velocity = (next.velocity / next.velocity.norm()) * BALL_MAX_SPEED;
     }
 
-    //// if ang_vel > max rotation: normalise to 6
-    //ang_vel = self.sim_vars['ang_vel']
-    //if ang_vel.dot(ang_vel) > self.ball_max_rotation_speed ** 2:
-    //    ang_vel = ang_vel / np.sqrt(ang_vel.dot(ang_vel)) * self.ball_max_rotation_speed
-    //    self.sim_vars['ang_vel'] = ang_vel
     if next.angular_velocity.norm() > BALL_MAX_ROTATION_SPEED {
         // TODO is there a better to_unit_vector method or something?
         next.angular_velocity = (next.angular_velocity / next.angular_velocity.norm()) * BALL_MAX_ROTATION_SPEED;
@@ -105,8 +95,7 @@ fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState 
 }
 
 
-// returns pair of (contact_point, normal). contact point is on the arena, and normal is towards
-// inside of arena
+/// returns normal at contact point if ball is currently colliding with the arena
 #[no_mangle]
 pub extern fn arena_contact_normal(current: &BallState) -> Option<Unit<Vector3<f32>>> {
     let ball = ncollide::shape::Ball::new(BALL_RADIUS);
@@ -122,26 +111,16 @@ pub extern fn arena_contact_normal(current: &BallState) -> Option<Unit<Vector3<f
 fn calculate_bounce(current: &BallState, normal: &Unit<Vector3<f32>>) -> BallState {
     let mut bounced = (*current).clone();
 
-    //  v_perp = np.dot(vel, normal) * normal
     let v_perp = na::dot(&current.velocity, &normal.unwrap()) * normal.unwrap();
-    //  v_para = vel - v_perp
     let v_para = current.velocity - v_perp;
-    //  v_spin = R * np.cross(normal, ang_vel)
     let v_spin = BALL_RADIUS * normal.cross(&current.angular_velocity); // velocity of edge of ball, relative to ball center
-    //  s = v_para + v_spin
     let s = v_para + v_spin; // this is the velocity at point of impact (edge of ball) in global coords
 
-    //  ratio = np.sqrt(v_perp.dot(v_perp)) / np.sqrt(s.dot(s))
     let ratio = v_perp.norm() / s.norm();
 
-    //  delta_v_perp = - (1.0 + C_R) * v_perp
     let delta_v_perp = - (1.0 + RESTITUION) * v_perp;
-    //  delta_v_para = - min(1.0, Y * ratio) * mu * s
-    let delta_v_para = - f32::min(1.0, Y * ratio) * mu * s;
+    let delta_v_para = - f32::min(1.0, Y * ratio) * MU * s;
 
-    //  new_state = (vel + delta_v_perp + delta_v_para,
-    //               ang_vel + A * R * np.cross(delta_v_para, normal))
-    //  return new_state
     bounced.velocity += delta_v_perp + delta_v_para;
     bounced.angular_velocity += A * BALL_RADIUS * delta_v_para.cross(&normal);
 
