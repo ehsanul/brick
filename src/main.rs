@@ -41,6 +41,7 @@ lazy_static! {
             ball: BallState {
                 position: Vector3::new(0.0, 0.0, 0.0),
                 velocity: Vector3::new(0.0, 0.0, 0.0),
+                angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             },
             player: PlayerState {
                 position: Vector3::new(0.0, 0.0, 0.0),

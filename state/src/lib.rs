@@ -2,6 +2,8 @@ extern crate nalgebra as na;
 
 use na::{Vector3, UnitQuaternion};
 
+// XXX must confirm. this might include height of the ball in free play when it first starts
+// floating above the ground, which would be no good. 91.25 has been seen in RLBounce
 pub static BALL_RADIUS: f32 = 93.143;
 
 pub struct GameState {
@@ -16,10 +18,11 @@ pub struct PlayerState {
     pub rotation: UnitQuaternion<f32>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct BallState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
+    pub angular_velocity: Vector3<f32>,
 }
 
 #[derive(PartialEq)]
