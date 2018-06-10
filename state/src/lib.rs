@@ -11,11 +11,12 @@ pub struct GameState {
     pub player: PlayerState,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct PlayerState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
-    pub rotation: UnitQuaternion<f32>,
+    pub rotation: UnitQuaternion<f32>, // FIXME switch to Rotation3!
+    //pub rotation: Rotation3<f32>,
 }
 
 #[derive(Clone, Debug)]
@@ -25,7 +26,7 @@ pub struct BallState {
     pub angular_velocity: Vector3<f32>,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Steer {
     Right,
     Left,
@@ -43,11 +44,11 @@ impl Steer {
 }
 
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Debug)]
 pub enum Throttle {
     Forward,
     Reverse,
-    Rest,
+    Idle,
 }
 
 impl Throttle {
@@ -55,12 +56,13 @@ impl Throttle {
         match *self {
             Throttle::Forward => 1.0,
             Throttle::Reverse => -1.0,
-            Throttle::Rest => 0.0,
+            Throttle::Idle => 0.0,
         }
     }
 }
 
 // XXX this was copied from the grpc generated game_data.rs file, from the ControllerState struct
+#[derive(Debug)]
 pub struct BrickControllerState {
     pub throttle: Throttle,
     pub steer: Steer,
@@ -75,7 +77,7 @@ pub struct BrickControllerState {
 impl BrickControllerState {
     pub fn new() -> BrickControllerState {
         BrickControllerState {
-            throttle: Throttle::Rest,
+            throttle: Throttle::Idle,
             steer: Steer::Straight,
             pitch: 0.0,
             yaw: 0.0,

@@ -1,9 +1,12 @@
-use na::{Vector3, Translation3, UnitQuaternion, Rotation3};
+use na::{self, Vector3, Translation3, UnitQuaternion, Rotation3};
+use std;
 use state::*;
+use sample;
 use std::f32;
 use std::f32::consts::E;
 
 static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
+static MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
 
 enum PredictionCategory {
     /// Wheels on ground
@@ -39,8 +42,6 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
     // TODO look at code from main.rs with this stuff to confirm it's right
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
 
-    let max_throttle_speed = 1545.0; // FIXME get exact known value from graph, make it a static?
-
     match controller.throttle {
         Throttle::Forward | Throttle::Reverse => {
             // the acceleration factor is different if you are turning
@@ -54,12 +55,12 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
             let t_intercept = 3.294; // FIXME get exact known value from graph. could also calculate: ln(1575) - ln(1575 - max_speed)
             // FIXME doesn't handle braking, nor accelerating forwards when moving backwards
             if current_speed > 1544.0 { // FIXME reference constant, find exact variance from RL
-                distance = (t2 - t1) * max_throttle_speed;
+                distance = (t2 - t1) * MAX_THROTTLE_SPEED;
             } else if t2 > t_intercept {
                 // we are hitting max speed, so have to calculate distance in two sections for the two
                 // different curves
                 let d1 = k*t_intercept + k*E.powf(-t_intercept) - k*t1 - k*E.powf(-t1);
-                let d2 = (t2 - t_intercept) * max_throttle_speed;
+                let d2 = (t2 - t_intercept) * MAX_THROTTLE_SPEED;
                 distance = d1 + d2;
             } else {
                 distance = k*t2 + k*E.powf(-t2) - k*t1 - k*E.powf(-t1);
@@ -67,7 +68,7 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
 
             next_speed = k * (1.0 - E.powf(-t2));
         },
-        Throttle::Rest => {
+        Throttle::Idle => {
             let speed_delta = NO_INPUT_DECELERATION * time_step;
 
             if current_speed <= speed_delta {
@@ -94,30 +95,88 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
 
             next.position = current.position + translation;
             next.rotation = current.rotation.clone(); // if we clone from current, this becomes no-op
-        }
+        },
         Steer::Right | Steer::Left => {
-            unimplemented!()
-            // let (translation, rotation) = ground_turn_prediction(current.velocity, controller.steer, time_step);
-            // next.position = current.position + translation;
-            // next.rotation = current.rotation * rotation;
-        }
+            let (translation, acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
+            next.position = current.position + translation;
+            next.velocity = current.velocity + acceleration;
+            next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
+        },
     }
 
     let next_heading = next.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
 
     match controller.throttle {
         Throttle::Forward | Throttle::Reverse => {
-            if next_speed > max_throttle_speed {
-                next_speed = max_throttle_speed;
+            if next_speed > MAX_THROTTLE_SPEED {
+                next_speed = MAX_THROTTLE_SPEED;
             }
             next.velocity = next_heading * next_speed * controller.throttle.value();
         },
-        Throttle::Rest => {
+        Throttle::Idle => {
             next.velocity = next_heading * next_speed;
         },
     }
 
     next
+}
+
+/// returns tuple of (translation, acceleration, rotation)
+// should we return angular acceleration too?
+fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
+    let translation = Vector3::new(0.0, 0.0, 0.0);
+    let rotation = Rotation3::new(Vector3::new(0.0, 0.0, 0.0));
+
+    // based on steer, throttle and boost, gets the right samples
+    let samples: &'static Vec<PlayerState> = sample::get_relevant_turn_samples(&controller);
+
+    // find index of closest matching player state
+    let current_speed = current.velocity.norm();
+    let start_index = samples.binary_search_by(|player_state| {
+        let sample_speed = player_state.velocity.norm();
+        // `std::cmp::Ord` is not implemented for `f32`
+        // that's due to NaN and such. we don't care about that, so just do it.
+        if sample_speed == current_speed {
+            std::cmp::Ordering::Equal
+        } else if sample_speed < current_speed { // uh this might not work when decelerating
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+    let start_index = match start_index {
+        Ok(i) => i,
+        Err(i) => {
+            // i is point we can insert into the tree. the value at i is lesser and the next value
+            // is greater. we just want the closest one for our purposes
+            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction samples missing for: {:?} {:?}", current.velocity, controller));
+            let candidate2 = samples.get(i + 1).expect(&format!("ground_turn_prediction samples missing for: {:?} {:?}", current.velocity, controller));
+            if candidate1.velocity.norm() - current_speed <= candidate2.velocity.norm() - current_speed {
+                i
+            } else {
+                i + 1
+            }
+        },
+    };
+    let end_index = start_index + (time_step / ::TICK).floor() as usize;
+
+    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, {:?}", start_index, controller));
+    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, {:?}", end_index, controller));
+
+    // TODO use Rotation3 instead of UnitQuaternion for player.rotation
+    // get rotation that when multiplied with sample_start_state.rotation, gives us current_rotation
+    // normalization_rotation . sample_start_state.rotation = current_rotation
+    let normalization_rotation = current.rotation.to_rotation_matrix() * na::inverse(&sample_start_state.rotation.to_rotation_matrix());
+
+    // relative position is translation. same for velocity -> acceleration
+    let non_normalized_translation = sample_end_state.position - sample_start_state.position;
+    let non_normalized_acceleration = sample_end_state.velocity - sample_start_state.velocity;
+
+    (
+        normalization_rotation * non_normalized_translation,
+        normalization_rotation * non_normalized_acceleration,
+        normalization_rotation * sample_end_state.rotation.to_rotation_matrix(),
+    )
 }
 
 
@@ -336,5 +395,17 @@ mod tests {
     // }
 
 
+    #[test]
+    fn throttle_and_turn_from_resting() {
+        let mut current = resting_player_state();
+        let mut controller = BrickControllerState::new();
+        controller.throttle = Throttle::Forward;
+        controller.steer = Steer::Right;
+        let next = next_player_state(&current, &controller, 1.0);
+
+        assert_eq!(round(next.position), Vector3::new(100.0, 0.0, 0.0)); // FIXME actual values
+        assert_eq!(next.rotation, current.rotation * Rotation3::new(Vector3::new(1.0, 0.0, 0.0))); // FIXME actual values
+        assert_eq!(round(next.velocity), Vector3::new(100.0, 0.0, 0.0)); // FIXME actual values
+    }
 
 }
