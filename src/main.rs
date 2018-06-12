@@ -7,6 +7,7 @@ extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate dynamic_reload;
 extern crate state;
+extern crate predict;
 
 #[macro_use]
 extern crate lazy_static;
@@ -19,12 +20,14 @@ use std::thread;
 use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
 use std::path::Path;
+use std::time::{Duration, Instant}; // FIXME
+
 
 use game_data::*;
 use game_data_grpc::*;
 use state::*;
 
-use na::{Vector3, Translation3, UnitQuaternion};
+use na::{Point3, Vector3, Translation3, UnitQuaternion, Unit};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
@@ -53,8 +56,8 @@ lazy_static! {
 
     static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
         Mutex::new(
-            DynamicReload::new(Some(vec!["predict/target/debug"]),
-                               Some("target/debug"),
+            DynamicReload::new(Some(vec!["predict/target/release"]),
+                               Some("target/release"),
                                Search::Default)
         )
     };
@@ -111,8 +114,10 @@ impl Bot for BotImpl {
 
         let bl = ball.get_location();
         let bv = ball.get_velocity();
+        let bav = ball.get_angular_velocity();
         game_state.ball.position = Vector3::new(-bl.x, bl.y, bl.z); // x should be positive towards right, it only makes sense
         game_state.ball.velocity = Vector3::new(-bv.x, bv.y, bv.z); // x should be positive towards right, it only makes sense
+        game_state.ball.angular_velocity = Vector3::new(-bav.x, bav.y, bav.z); // x should be positive towards right, it only makes sense
 
         let pl = player.get_location();
         let pv = player.get_velocity();
@@ -145,7 +150,7 @@ impl Bot for BotImpl {
 
 fn main() {
     // visualization
-    thread::spawn(move || {
+    //thread::spawn(move || {
         let mut window = Window::new("Rocket League Visualization");
 
         // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
@@ -171,18 +176,80 @@ fn main() {
 
         window.set_light(Light::StickToCamera);
 
+        let start = Instant::now();
         while window.render() {
             let game_state = &GAME_STATE.read().unwrap();
 
             // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-            sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
+            // FIXME // sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
+            let dur = start.elapsed();
+            let t = (dur.as_secs() * 1000 + (dur.subsec_nanos() as u64 / 1_000_000)) as f32;
+            let fake_ball = BallState {
+                position: Vector3::new(4050.0 * (t / 3000.0).sin(), 5050.0 * (t / 3000.0).sin(), 1800.0 * (t / 2700.0).sin().abs() + BALL_RADIUS),
+                velocity: Vector3::new(
+                    2500.0 * (t / 3000.0).sin() + 2500.0 * (t / 1500.0).sin(),
+                    2500.0 * (t / 2300.0).sin() + 2500.0 * (t / 1150.0).sin(),
+                    2500.0 * (t / 2500.0).sin() + 2500.0 * (t / 1250.0).sin(),
+                ),
+                //position: Vector3::new(0.0, 0.0, 100.0 + BALL_RADIUS),
+                //velocity: Vector3::new(200.0 * (t / 10000.0).cos(), 0.0, 500.0 * (t / 11000.0).cos()),
+                angular_velocity: Vector3::new(0.0, 0.0, 0.0),
+            };
+            sphere.set_local_translation(Translation3::from_vector(fake_ball.position.map(|c| c / 1000.0)));
+
+            //        // update real time
+            //        {
+            //            // XXX there must be a reason why this happens, but PREDICT must be locked before
+            //            // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+            //            let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
+            //            let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+            //            rh.update(PredictPlugin::reload_callback, &mut p);
+            //        }
+            //        if let Some(ref x) = PREDICT.lock().unwrap().lib {
+            //            // // TODO cache
+            //            // let contact_normal: Symbol<extern "C" fn(&BallState) -> Option<Unit<Vector3<f32>>>> = unsafe {
+            //            //     x.lib.get(b"arena_contact_normal\0").unwrap()
+            //            // };
+
+            //            // if let Some(normal) = contact_normal(&fake_ball) {
+            //            //     let scaled_ball = Point3::new(fake_ball.position.x / 1000.0, fake_ball.position.y / 1000.0, fake_ball.position.z / 1000.0);
+            //            //     let scaled_to = scaled_ball + normal.unwrap();
+            //            //     window.draw_line(
+            //            //         &scaled_ball ,
+            //            //         &Point3::new(scaled_to.x, scaled_to.y, scaled_to.z),
+            //            //         &Point3::new(0.0, 1.0, 0.0),
+            //            //     );
+            //            // }
+
+            //            let get_ball_trajectory: Symbol<extern "C" fn(&BallState, duration: f32) -> Vec<BallState>> = unsafe {
+            //                x.lib.get(b"ball_trajectory\0").unwrap()
+            //            };
+            //            let trajectory = get_ball_trajectory(&fake_ball, 1.0/200.0);
+            //            for state in trajectory.iter() {
+            //                let pos = state.position;
+            //                window.draw_point(
+            //                    &Point3::new(pos.x, pos.y, pos.z),
+            //                    &Point3::new(1.0, 1.0, 1.0),
+            //                );
+            //            }
+            //        }
+            let trajectory = predict::ball::ball_trajectory(&fake_ball, 10.0);
+
+            for state in trajectory.iter() {
+                let pos = state.position;
+                let pos_point = Point3::new(pos.x / 1000.0, pos.y / 1000.0, pos.z / 1000.0);
+                window.draw_point(
+                    &pos_point,
+                    &Point3::new(1.0, 1.0, 1.0),
+                );
+            }
 
             // we're dividing position by 1000 until we can set the camera up to be more zoomed out
             let hitbox_position = game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
             car.set_local_translation(Translation3::from_vector(hitbox_position));
             car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
         }
-    });
+    //});
 
     // server
     let mut server = grpc::ServerBuilder::new_plain();

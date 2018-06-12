@@ -17,5 +17,8 @@ dynamic_reload = "0.3.*"
 [dependencies.state]
 path = "./state"
 
+[dependencies.predict]
+path = "./predict"
+
 [build-dependencies]
 protoc-rust-grpc = "0.2"
