@@ -6,8 +6,8 @@ use na::{Vector3, Translation3, UnitQuaternion};
 use std::f32;
 
 #[no_mangle]
-pub extern fn predict_test() -> Vector3<f32> {
-    Vector3::new(0.0, 0.0, 0.0)
+pub extern fn predict_test() -> f32 {
+    3.0
 }
 
 #[cfg(test)]
