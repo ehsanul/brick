@@ -1,63 +1,17 @@
-extern crate protobuf;
-extern crate grpc;
-extern crate futures;
-extern crate futures_cpupool;
-extern crate tls_api;
-extern crate kiss3d;
-extern crate nalgebra as na;
 extern crate dynamic_reload;
-extern crate state;
-extern crate predict;
 
 #[macro_use]
 extern crate lazy_static;
 
-pub mod game_data;
-pub mod game_data_grpc;
-
-use std::io::prelude::*;
-use std::thread;
-use std::sync::{Arc, RwLock, Mutex};
+use std::sync::{Arc, Mutex};
 use std::f32;
-use std::path::Path;
-use std::time::{Duration, Instant}; // FIXME
-
-
-use game_data::*;
-use game_data_grpc::*;
-use state::*;
-
-use na::{Point3, Vector3, Translation3, UnitQuaternion, Unit};
-use kiss3d::window::Window;
-use kiss3d::light::Light;
-use kiss3d::resource::MeshManager;
-
 use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
 
 lazy_static! {
-    // batmobile
-    static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.82, 84.67, 29.39);
-    static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
-
-    static ref GAME_STATE: RwLock<GameState> = {
-        RwLock::new(GameState {
-            ball: BallState {
-                position: Vector3::new(0.0, 0.0, 0.0),
-                velocity: Vector3::new(0.0, 0.0, 0.0),
-                angular_velocity: Vector3::new(0.0, 0.0, 0.0),
-            },
-            player: PlayerState {
-                position: Vector3::new(0.0, 0.0, 0.0),
-                velocity: Vector3::new(0.0, 0.0, 0.0),
-                rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0)
-            },
-        })
-    };
-
     static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
         Mutex::new(
-            DynamicReload::new(Some(vec!["predict/target/release"]),
-                               Some("target/release"),
+            DynamicReload::new(Some(vec!["predict/target/debug"]),
+                               Some("target/debug"),
                                Search::Default)
         )
     };
@@ -97,36 +51,10 @@ impl PredictPlugin {
 }
 
 
-struct BotImpl;
-
-impl Bot for BotImpl {
-    fn get_controller_state(&self, _m: grpc::RequestOptions, packet: GameTickPacket) -> grpc::SingleResponse<ControllerState> {
-        let mut game_state = GAME_STATE.write().unwrap();
-        let mut controller_state = ControllerState::new();
-
-        // no players, ie game hasn't started or has ended, or just in menus, etc
-        if packet.players.len() == 0usize {
-            return grpc::SingleResponse::completed(controller_state);
-        }
-
-        let ball = packet.get_ball();
-        let player = &packet.players[packet.player_index as usize];
-
-        let bl = ball.get_location();
-        let bv = ball.get_velocity();
-        let bav = ball.get_angular_velocity();
-        game_state.ball.position = Vector3::new(-bl.x, bl.y, bl.z); // x should be positive towards right, it only makes sense
-        game_state.ball.velocity = Vector3::new(-bv.x, bv.y, bv.z); // x should be positive towards right, it only makes sense
-        game_state.ball.angular_velocity = Vector3::new(-bav.x, bav.y, bav.z); // x should be positive towards right, it only makes sense
-
-        let pl = player.get_location();
-        let pv = player.get_velocity();
-        let pr = player.get_rotation();
-        game_state.player.position = Vector3::new(-pl.x, pl.y, pl.z); // x should be positive towards right, it only makes sense
-        game_state.player.velocity = Vector3::new(-pv.x, pv.y, pv.z); // x should be positive towards right, it only makes sense
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.roll, pr.pitch, -pr.yaw);
-
-        // FIXME is there a way to unlock without a made up scope?
+fn main() {
+    // visualization
+    loop {
+        // update real time
         {
             // XXX there must be a reason why this happens, but PREDICT must be locked before
             // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
@@ -134,130 +62,12 @@ impl Bot for BotImpl {
             let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
             rh.update(PredictPlugin::reload_callback, &mut p);
         }
-
-        // TODO get extra visualization data and desired controller state from PREDICT
         if let Some(ref x) = PREDICT.lock().unwrap().lib {
-            // TODO cache
-            let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
-                x.lib.get(b"predict_test\0").unwrap()
+            let test_it: Symbol<extern "C" fn() -> f32> = unsafe {
+                x.lib.get(b"test_it\0").unwrap()
             };
-            println!("predict test: {}", predict_test());
+            let v = test_it();
+            println!("test_it: {}", v);
         }
-
-        grpc::SingleResponse::completed(controller_state)
-    }
-}
-
-fn main() {
-    // visualization
-    //thread::spawn(move || {
-        let mut window = Window::new("Rocket League Visualization");
-
-        // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
-        let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
-        let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
-
-        let arena_mesh = MeshManager::load_obj(
-                            Path::new("./assets/arena.obj"),
-                            Path::new("./assets/"),
-                            "arena"
-                        ).expect("Can't load arena obj file")
-                        .pop().expect("Missing arena mesh")
-                        .1
-                        .clone();
-        let mut arena = window.add_mesh(arena_mesh, Vector3::new(0.0, 0.0, 0.0));
-        arena.set_surface_rendering_activation(false);
-        arena.set_points_size(0.1);
-        arena.set_lines_width(0.1);
-        arena.set_local_scale(0.001, 0.001, 0.001);
-
-        sphere.set_color(0.8, 0.8, 0.8);
-        car.set_color(0.1, 0.4, 1.0);
-
-        window.set_light(Light::StickToCamera);
-
-        let start = Instant::now();
-        while window.render() {
-            let game_state = &GAME_STATE.read().unwrap();
-
-            // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-            // FIXME // sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
-            let dur = start.elapsed();
-            let t = (dur.as_secs() * 1000 + (dur.subsec_nanos() as u64 / 1_000_000)) as f32;
-            let fake_ball = BallState {
-                position: Vector3::new(4050.0 * (t / 3000.0).sin(), 5050.0 * (t / 3000.0).sin(), 1800.0 * (t / 2700.0).sin().abs() + BALL_RADIUS),
-                velocity: Vector3::new(
-                    2500.0 * (t / 3000.0).sin() + 2500.0 * (t / 1500.0).sin(),
-                    2500.0 * (t / 2300.0).sin() + 2500.0 * (t / 1150.0).sin(),
-                    2500.0 * (t / 2500.0).sin() + 2500.0 * (t / 1250.0).sin(),
-                ),
-                //position: Vector3::new(0.0, 0.0, 100.0 + BALL_RADIUS),
-                //velocity: Vector3::new(200.0 * (t / 10000.0).cos(), 0.0, 500.0 * (t / 11000.0).cos()),
-                angular_velocity: Vector3::new(0.0, 0.0, 0.0),
-            };
-            sphere.set_local_translation(Translation3::from_vector(fake_ball.position.map(|c| c / 1000.0)));
-
-            //        // update real time
-            //        {
-            //            // XXX there must be a reason why this happens, but PREDICT must be locked before
-            //            // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-            //            let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
-            //            let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-            //            rh.update(PredictPlugin::reload_callback, &mut p);
-            //        }
-            //        if let Some(ref x) = PREDICT.lock().unwrap().lib {
-            //            // // TODO cache
-            //            // let contact_normal: Symbol<extern "C" fn(&BallState) -> Option<Unit<Vector3<f32>>>> = unsafe {
-            //            //     x.lib.get(b"arena_contact_normal\0").unwrap()
-            //            // };
-
-            //            // if let Some(normal) = contact_normal(&fake_ball) {
-            //            //     let scaled_ball = Point3::new(fake_ball.position.x / 1000.0, fake_ball.position.y / 1000.0, fake_ball.position.z / 1000.0);
-            //            //     let scaled_to = scaled_ball + normal.unwrap();
-            //            //     window.draw_line(
-            //            //         &scaled_ball ,
-            //            //         &Point3::new(scaled_to.x, scaled_to.y, scaled_to.z),
-            //            //         &Point3::new(0.0, 1.0, 0.0),
-            //            //     );
-            //            // }
-
-            //            let get_ball_trajectory: Symbol<extern "C" fn(&BallState, duration: f32) -> Vec<BallState>> = unsafe {
-            //                x.lib.get(b"ball_trajectory\0").unwrap()
-            //            };
-            //            let trajectory = get_ball_trajectory(&fake_ball, 1.0/200.0);
-            //            for state in trajectory.iter() {
-            //                let pos = state.position;
-            //                window.draw_point(
-            //                    &Point3::new(pos.x, pos.y, pos.z),
-            //                    &Point3::new(1.0, 1.0, 1.0),
-            //                );
-            //            }
-            //        }
-            let trajectory = predict::ball::ball_trajectory(&fake_ball, 10.0);
-
-            for state in trajectory.iter() {
-                let pos = state.position;
-                let pos_point = Point3::new(pos.x / 1000.0, pos.y / 1000.0, pos.z / 1000.0);
-                window.draw_point(
-                    &pos_point,
-                    &Point3::new(1.0, 1.0, 1.0),
-                );
-            }
-
-            // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-            let hitbox_position = game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
-            car.set_local_translation(Translation3::from_vector(hitbox_position));
-            car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
-        }
-    //});
-
-    // server
-    let mut server = grpc::ServerBuilder::new_plain();
-    server.http.set_port(34865);
-    server.add_service(BotServer::new_service_def(BotImpl));
-    server.http.set_cpu_pool_threads(4);
-    let _server = server.build().expect("server");
-    loop {
-        thread::park();
     }
 }

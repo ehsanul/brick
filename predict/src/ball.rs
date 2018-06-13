@@ -37,6 +37,11 @@ fn find_prediction_category(current: &BallState) -> PredictionCategory {
     PredictionCategory::Soaring
 }
 
+#[no_mangle]
+pub extern fn test_it() -> f32 {
+    1.0
+}
+
 
 #[no_mangle]
 pub extern fn ball_trajectory(current: &BallState, duration: f32) -> Vec<BallState> {
