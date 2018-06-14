@@ -4,8 +4,7 @@ version = "0.1.0"
 authors = ["Ehsanul"]
 
 [dependencies]
-lazy_static = "1.0"
-dynamic_reload = "0.3.*"
+libloading = "0.3"
 
 [build-dependencies]
 protoc-rust-grpc = "0.2"
