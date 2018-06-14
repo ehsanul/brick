@@ -55,19 +55,21 @@ fn main() {
     // visualization
     loop {
         // update real time
-        {
-            // XXX there must be a reason why this happens, but PREDICT must be locked before
-            // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-            let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
-            let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-            rh.update(PredictPlugin::reload_callback, &mut p);
-        }
+        //{
+        //    // XXX there must be a reason why this happens, but PREDICT must be locked before
+        //    // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+        //    let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
+        //    let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        //    rh.update(PredictPlugin::reload_callback, &mut p);
+        //}
         if let Some(ref x) = PREDICT.lock().unwrap().lib {
-            let test_it: Symbol<extern "C" fn() -> f32> = unsafe {
+            let test_it: Symbol<extern "C" fn() -> Vec<f32>> = unsafe {
                 x.lib.get(b"test_it\0").unwrap()
             };
-            let v = test_it();
-            println!("test_it: {}", v);
+            loop {
+                let v = test_it();
+                println!("test_it: {:?}", v);
+            }
         }
     }
 }
