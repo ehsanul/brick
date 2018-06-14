@@ -4,7 +4,6 @@ version = "0.1.0"
 authors = ["Ehsanul"]
 
 [dependencies]
-nalgebra = "0.14"
 lazy_static = "1.0"
 dynamic_reload = "0.3.*"
 
