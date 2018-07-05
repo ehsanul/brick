@@ -65,3 +65,16 @@ pub fn update_live_data_packet(packet: &mut LiveDataPacket) -> Result<(), RLBotC
         }
     }
 }
+
+// DLL_EXPORT RLBotCoreStatus RLBOT_CORE_API UpdatePlayerInput(PlayerInput playerInput, int playerIndex);
+type UpdatePlayerInputFunc = unsafe extern fn(PlayerInput, ::std::os::raw::c_int) -> RLBotCoreStatus;
+pub fn update_player_input(player_input: PlayerInput, player_index: i32) -> Result<(), RLBotCoreStatus> {
+    unsafe {
+        // TODO cache func
+        let func = RLBOT_INTERFACE.get::<UpdatePlayerInputFunc>(b"UpdatePlayerInput").expect("Couldn't find UpdatePlayerInput");
+        match func(player_input, player_index) {
+            RLBotCoreStatus::Success => Ok(()),
+            e => Err(e),
+        }
+    }
+}
