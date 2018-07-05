@@ -7,7 +7,7 @@ pub const CONST_CALLBACK_INPUT_SIZE: u32 = 65536;
 pub const CONST_MaxBoosts: u32 = 50;
 pub const CONST_MaxPlayers: u32 = 10;
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct ScoreInfo {
     pub Score: ::std::os::raw::c_int,
     pub Goals: ::std::os::raw::c_int,
@@ -101,7 +101,7 @@ fn bindgen_test_layout_ScoreInfo() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PyStruct_Vector3 {
     pub X: f32,
     pub Y: f32,
@@ -151,7 +151,7 @@ fn bindgen_test_layout_PyStruct_Vector3() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PyStruct_Rotator {
     pub Pitch: f32,
     pub Yaw: f32,
@@ -201,7 +201,7 @@ fn bindgen_test_layout_PyStruct_Rotator() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PyStruct_Color {
     pub B: ::std::os::raw::c_uchar,
     pub G: ::std::os::raw::c_uchar,
@@ -262,7 +262,7 @@ fn bindgen_test_layout_PyStruct_Color() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Physics {
     pub Location: PyStruct_Vector3,
     pub Rotation: PyStruct_Rotator,
@@ -323,7 +323,7 @@ fn bindgen_test_layout_Physics() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PlayerInfo {
     pub Physics: Physics,
     pub Score: ScoreInfo,
@@ -461,7 +461,7 @@ fn bindgen_test_layout_PlayerInfo() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct BoostInfo {
     pub Active: bool,
     pub Timer: f32,
@@ -500,7 +500,7 @@ fn bindgen_test_layout_BoostInfo() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct Touch {
     pub PlayerName: [u16; 32usize],
     pub TimeSeconds: f32,
@@ -561,7 +561,7 @@ fn bindgen_test_layout_Touch() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct BallInfo {
     pub Physics: Physics,
     pub LatestTouch: Touch,
@@ -600,7 +600,7 @@ fn bindgen_test_layout_BallInfo() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct GameInfo {
     pub TimeSeconds: f32,
     pub GameTimeRemaining: f32,
@@ -777,7 +777,7 @@ fn bindgen_test_layout_LiveDataPacket() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct GoalInfo {
     pub TeamNum: ::std::os::raw::c_uchar,
     pub Location: PyStruct_Vector3,
@@ -827,7 +827,7 @@ fn bindgen_test_layout_GoalInfo() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct BoostPad {
     pub Location: PyStruct_Vector3,
     pub FullBoost: bool,
@@ -927,7 +927,7 @@ fn bindgen_test_layout_FieldInfo() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PlayerConfiguration {
     pub Bot: bool,
     pub RLBotControlled: bool,
@@ -1226,7 +1226,7 @@ pub const BoostOption_Rapid_Recharge: BoostOption = 3;
 pub const BoostOption_No_Boost: BoostOption = 4;
 pub type BoostOption = u32;
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct MutatorSettings {
     pub MatchLength: MatchLength,
     pub BoostOptions: BoostOption,
@@ -1265,7 +1265,7 @@ fn bindgen_test_layout_MutatorSettings() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct MatchSettings {
     pub PlayerConfiguration: [PlayerConfiguration; 10usize],
     pub NumPlayers: ::std::os::raw::c_int,
@@ -1361,7 +1361,7 @@ fn bindgen_test_layout_MatchSettings() {
     );
 }
 #[repr(C)]
-#[derive(Debug, Copy, Clone)]
+#[derive(Default, Debug, Copy, Clone)]
 pub struct PlayerInput {
     pub Throttle: f32,
     pub Steer: f32,
