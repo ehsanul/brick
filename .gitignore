@@ -1,4 +1,5 @@
 /target/
 /predict/target/
 /state/target/
+/rlbot/target/
 **/*.rs.bk
