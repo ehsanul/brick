@@ -6,6 +6,8 @@ extern crate state;
 #[macro_use]
 extern crate lazy_static;
 
+use std::fs::File;
+use std::net::TcpListener;
 use std::io::prelude::*;
 use std::thread;
 use std::sync::{Arc, RwLock, Mutex};
@@ -21,10 +23,13 @@ use kiss3d::resource::MeshManager;
 
 use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
 
+
 lazy_static! {
     // batmobile
     static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.82, 84.67, 29.39);
     static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
+
+    static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
 
     static ref GAME_STATE: RwLock<GameState> = {
         RwLock::new(GameState {
@@ -176,8 +181,41 @@ fn main() {
         }
     });
 
-    // server
-    loop {
-        thread::park();
+
+    thread::spawn(|| {
+        loop {
+            println!("player index: {:?}", *PLAYER_INDEX.lock().unwrap());
+            thread::sleep_ms(1000); // TODO measure time taken by bot and do diff
+        }
+    });
+
+    // obtain port to communicate with python agent. must match the port the python agent is configured to send to!
+    let mut port_file = File::open("port.cfg").expect("port.cfg file not found");
+    let mut contents = String::new();
+    port_file.read_to_string(&mut contents).expect("something went wrong reading the port.cfg file");
+    let port = contents.trim().parse::<u16>().expect(&format!("couldn't parse port: {}", contents));
+
+    // super basic tcp server. only used to get the right index from the python agent for now.
+    let listener = TcpListener::bind(("127.0.0.1", port)).expect(&format!("Failed to bind port {}", port));
+    let mut message = String::new();
+    for stream in listener.incoming() {
+        let mut stream = stream.expect("Failed to accept connection");
+        stream.read_to_string(&mut message).expect("Couldn't read tcp message to utf8 string");
+        let mut split_message = message.split_whitespace();
+
+        let cmd = split_message.next().expect("Missing cmd");
+        let _name = split_message.next().expect("Missing name");
+        let _team = split_message.next().expect("Missing team");
+        let index = split_message.next().expect("Missing index");
+        let index = index.trim().parse::<usize>().expect(&format!("Couldn't parse index {}", index));
+
+        // TODO use this
+        let dllPath = split_message.next().expect("Missing dllPath");
+
+        match cmd {
+            "add" => *PLAYER_INDEX.lock().unwrap() = Some(index),
+            "remove" => *PLAYER_INDEX.lock().unwrap() = None,
+            _ => unimplemented!(),
+        };
     }
 }
