@@ -103,38 +103,6 @@ impl Bot for BotImpl {
             return grpc::SingleResponse::completed(controller_state);
         }
 
-        let ball = packet.get_ball();
-        let player = &packet.players[packet.player_index as usize];
-
-        let bl = ball.get_location();
-        let bv = ball.get_velocity();
-        game_state.ball.position = Vector3::new(-bl.x, bl.y, bl.z); // x should be positive towards right, it only makes sense
-        game_state.ball.velocity = Vector3::new(-bv.x, bv.y, bv.z); // x should be positive towards right, it only makes sense
-
-        let pl = player.get_location();
-        let pv = player.get_velocity();
-        let pr = player.get_rotation();
-        game_state.player.position = Vector3::new(-pl.x, pl.y, pl.z); // x should be positive towards right, it only makes sense
-        game_state.player.velocity = Vector3::new(-pv.x, pv.y, pv.z); // x should be positive towards right, it only makes sense
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.roll, pr.pitch, -pr.yaw);
-
-        // FIXME is there a way to unlock without a made up scope?
-        {
-            // XXX there must be a reason why this happens, but PREDICT must be locked before
-            // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-            let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
-            let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-            rh.update(PredictPlugin::reload_callback, &mut p);
-        }
-
-        // TODO get extra visualization data and desired controller state from PREDICT
-        if let Some(ref x) = PREDICT.lock().unwrap().lib {
-            // TODO cache
-            let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
-                x.lib.get(b"predict_test\0").unwrap()
-            };
-            println!("predict test: {}", predict_test());
-        }
 
         grpc::SingleResponse::completed(controller_state)
     }
@@ -182,6 +150,7 @@ fn run_visualization(){
 
 /// main bot playing loop
 fn run_bot() {
+    let mut packet = rlbot::LiveDataPacket::default();
     loop {
         let player_index = *PLAYER_INDEX.lock().unwrap();
         //println!("player index: {:?}", player_index);
@@ -193,17 +162,61 @@ fn run_bot() {
             }
         };
 
-        let mut packet = rlbot::LiveDataPacket::default();
         rlbot::update_live_data_packet(&mut packet);
         //println!("{:?}", packet.GameBall);
 
-        let mut input = rlbot::PlayerInput::default();
-        input.Steer = 1.0;
-        input.Throttle = 0.5;
+        let input = get_bot_input(&packet, player_index);
         rlbot::update_player_input(input, player_index as i32);
 
         thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
     }
+}
+
+/// updates our game state, which is a representation of the packet, but with our own data types etc
+fn update_game_state(packet: &rlbot::LiveDataPacket, player_index: usize) {
+    let mut game_state = GAME_STATE.write().unwrap();
+
+    let ball = packet.GameBall;
+    let player = packet.GameCars[player_index];
+
+    let bl = ball.Physics.Location;
+    let bv = ball.Physics.Velocity;
+    game_state.ball.position = Vector3::new(-bl.X, bl.Y, bl.Z); // x should be positive towards right, it only makes sense
+    game_state.ball.velocity = Vector3::new(-bv.X, bv.Y, bv.Z); // x should be positive towards right, it only makes sense
+
+    let pl = player.Physics.Location;
+    let pv = player.Physics.Velocity;
+    let pr = player.Physics.Rotation;
+    game_state.player.position = Vector3::new(-pl.X, pl.Y, pl.Z); // x should be positive towards right, it only makes sense
+    game_state.player.velocity = Vector3::new(-pv.X, pv.Y, pv.Z); // x should be positive towards right, it only makes sense
+    game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.Roll, pr.Pitch, -pr.Yaw);
+}
+
+fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
+    let mut input = rlbot::PlayerInput::default();
+    update_game_state(&packet, player_index);
+
+    // FIXME is there a way to unlock without a made up scope?
+    {
+        // XXX there must be a reason why this happens, but PREDICT must be locked before
+        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+        let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
+        let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        rh.update(PredictPlugin::reload_callback, &mut p);
+    }
+
+    // TODO get extra visualization data and desired controller state from PREDICT
+    if let Some(ref x) = PREDICT.lock().unwrap().lib {
+        // TODO cache
+        let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
+            x.lib.get(b"predict_test\0").unwrap()
+        };
+        println!("predict test: {}", predict_test());
+    }
+
+    input.Steer = 0.0;
+    input.Throttle = 0.5;
+    input
 }
 
 // obtain port to communicate with python agent. must match the port the python agent is configured to send to!
