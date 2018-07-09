@@ -1,8 +1,3 @@
-extern crate protobuf;
-extern crate grpc;
-extern crate futures;
-extern crate futures_cpupool;
-extern crate tls_api;
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate dynamic_reload;
@@ -11,17 +6,12 @@ extern crate state;
 #[macro_use]
 extern crate lazy_static;
 
-pub mod game_data;
-pub mod game_data_grpc;
-
 use std::io::prelude::*;
 use std::thread;
 use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
 use std::path::Path;
 
-use game_data::*;
-use game_data_grpc::*;
 use state::*;
 
 use na::{Vector3, Translation3, UnitQuaternion};
@@ -93,7 +83,8 @@ impl PredictPlugin {
     }
 }
 
-
+// TODO refactor for no reliance on grpc
+/*
 struct BotImpl;
 
 impl Bot for BotImpl {
@@ -142,6 +133,7 @@ impl Bot for BotImpl {
         grpc::SingleResponse::completed(controller_state)
     }
 }
+*/
 
 fn main() {
     // visualization
@@ -185,11 +177,6 @@ fn main() {
     });
 
     // server
-    let mut server = grpc::ServerBuilder::new_plain();
-    server.http.set_port(34865);
-    server.add_service(BotServer::new_service_def(BotImpl));
-    server.http.set_cpu_pool_threads(4);
-    let _server = server.build().expect("server");
     loop {
         thread::park();
     }

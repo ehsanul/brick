@@ -1,18 +1,7 @@
-extern crate protoc_rust_grpc;
-
 use std::env;
-use std::path::Path;
 use std::process::Command;
 
 fn main() {
-    println!("Generating grpc code");
-    protoc_rust_grpc::run(protoc_rust_grpc::Args {
-        out_dir: "src",
-        includes: &["."],
-        input: &["game_data.proto"],
-        rust_protobuf: true,
-    }).expect("protoc-rust-grpc");
-
     // copied from https://github.com/emoon/dynamic_reload/blob/master/build.rs
     let profile = env::var("PROFILE").unwrap_or("Debug".to_string());
 
