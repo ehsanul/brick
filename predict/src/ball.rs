@@ -9,12 +9,6 @@ use state::*;
 use arena::ARENA;
 
 
-static SIDE_WALL_DISTANCE: f32 = 4096.0;
-static BACK_WALL_DISTANCE: f32 = 5140.0;
-static CEILING_DISTANCE: f32 = 2044.0;
-static GOAL_X: f32 = 892.75;
-static GOAL_Z: f32 = 640.0;
-
 // static BALL_RADIUS: f32 = 93.143 is imported from state, was: R = 91.25
 static RESTITUION: f32 = 0.6; // was: C_R = 0.6
 

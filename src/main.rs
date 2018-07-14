@@ -7,6 +7,7 @@ extern crate rlbot;
 #[macro_use]
 extern crate lazy_static;
 
+use std::panic;
 use std::fs::File;
 use std::net::TcpListener;
 use std::io::prelude::*;
@@ -17,7 +18,7 @@ use std::path::Path;
 
 use state::*;
 
-use na::{Vector3, Translation3, UnitQuaternion};
+use na::{Vector3, Point3, Translation3, UnitQuaternion};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
@@ -39,39 +40,39 @@ lazy_static! {
                 velocity: Vector3::new(0.0, 0.0, 0.0),
                 angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             },
-            player: PlayerState {
-                position: Vector3::new(0.0, 0.0, 0.0),
-                velocity: Vector3::new(0.0, 0.0, 0.0),
-                rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0)
-            },
+            player: PlayerState::default(),
         })
+    };
+
+    static ref VISUALIZE_LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
+        RwLock::new(vec![])
     };
 
     static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
         Mutex::new(
-            DynamicReload::new(Some(vec!["predict/target/debug"]),
+            DynamicReload::new(Some(vec!["brain/target/debug"]),
                                Some("target/debug"),
                                Search::Default)
         )
     };
 
-    static ref PREDICT: Mutex<PredictPlugin> = {
-        let lib = match RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER").add_library("predict", PlatformName::Yes) {
+    static ref BRAIN: Mutex<BrainPlugin> = {
+        let lib = match RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER").add_library("brain", PlatformName::Yes) {
             Ok(lib) => lib,
             Err(e) => {
                 panic!("Unable to load dynamic lib, err {:?}", e);
             }
         };
-        Mutex::new(PredictPlugin { lib: Some(lib) })
+        Mutex::new(BrainPlugin { lib: Some(lib) })
     };
 }
 
 
-struct PredictPlugin {
+struct BrainPlugin {
     lib: Option<Arc<Lib>>
 }
 
-impl PredictPlugin {
+impl BrainPlugin {
     fn unload_plugin(&mut self, lib: &Arc<Lib>) {
         self.lib = None;
     }
@@ -137,6 +138,7 @@ fn run_visualization(){
 
     while window.render() {
         let game_state = &GAME_STATE.read().unwrap();
+        let lines = &VISUALIZE_LINES.read().unwrap();
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
         sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
@@ -145,6 +147,11 @@ fn run_visualization(){
         let hitbox_position = game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
         car.set_local_translation(Translation3::from_vector(hitbox_position));
         car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
+
+        for l in lines.iter() {
+            window.draw_line(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &Point3::new(l.1.x / 1000.0, l.1.y / 1000.0, l.1.z / 1000.0), &l.2);
+            window.draw_point(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &l.2);
+        }
     }
 }
 
@@ -172,6 +179,19 @@ fn run_bot() {
     }
 }
 
+fn run_test() {
+    use std::f32::consts::PI;
+    let mut packet = rlbot::LiveDataPacket::default();
+    packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0;
+    packet.GameCars[0].Physics.Location.Y = -1000.0;
+    loop {
+        println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
+        let player_index = 0;
+        let input = get_bot_input(&packet, player_index);
+        thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
+    }
+}
+
 /// updates our game state, which is a representation of the packet, but with our own data types etc
 fn update_game_state(packet: &rlbot::LiveDataPacket, player_index: usize) {
     let mut game_state = GAME_STATE.write().unwrap();
@@ -190,28 +210,45 @@ fn update_game_state(packet: &rlbot::LiveDataPacket, player_index: usize) {
     game_state.player.position = Vector3::new(-pl.X, pl.Y, pl.Z); // x should be positive towards right, it only makes sense
     game_state.player.velocity = Vector3::new(-pv.X, pv.Y, pv.Z); // x should be positive towards right, it only makes sense
     game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.Roll, pr.Pitch, -pr.Yaw);
+    game_state.player.team = match player.Team {
+        0 => Team::Blue,
+        1 => Team::Orange,
+        _ => unimplemented!(),
+    };
 }
 
+type HybridAStarFunc = extern fn (current: &PlayerState, desired: &PlayerState, step_duration: f32) -> (Option<Vec<(PlayerState, BrickControllerState)>>, Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>);
+
+/// this is the entry point for custom logic for this specific bot
 fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
     let mut input = rlbot::PlayerInput::default();
+    println!("packet player location: {:?}", packet.GameCars[0].Physics.Location);
     update_game_state(&packet, player_index);
 
     // FIXME is there a way to unlock without a made up scope?
     {
-        // XXX there must be a reason why this happens, but PREDICT must be locked before
+        // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = PREDICT.lock().expect("Failed to get lock on PREDICT");
+        let mut p = BRAIN.lock().expect("Failed to get lock on BRAIN");
         let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(PredictPlugin::reload_callback, &mut p);
+        rh.update(BrainPlugin::reload_callback, &mut p);
     }
 
-    // TODO get extra visualization data and desired controller state from PREDICT
-    if let Some(ref x) = PREDICT.lock().unwrap().lib {
+    // TODO get extra visualization data and desired controller state from BRAIN
+    if let Some(ref x) = BRAIN.lock().unwrap().lib {
         // TODO cache
-        let predict_test: Symbol<extern "C" fn() -> Vector3<f32>> = unsafe {
-            x.lib.get(b"predict_test\0").unwrap()
+        let hybrid_a_star: Symbol<HybridAStarFunc> = unsafe {
+            x.lib.get(b"hybrid_a_star\0").unwrap()
         };
-        println!("predict test: {}", predict_test());
+
+
+        let game_state = &GAME_STATE.read().unwrap();
+        //println!("player: {:?}", game_state.player);
+        let (mut path, mut lines) = hybrid_a_star(&game_state.player, &PlayerState::default(), 0.25);
+        let mut visualize_lines = VISUALIZE_LINES.write().unwrap();
+        //println!("path: {:?}, lines: {:?}", path, lines);
+        visualize_lines.clear();
+        visualize_lines.append(&mut lines);
     }
 
     input.Steer = 0.0;
@@ -259,7 +296,17 @@ fn run_server() {
 }
 
 fn main() {
-    thread::spawn(run_visualization);
-    thread::spawn(run_bot);
-    run_server();
+    //thread::spawn(run_bot);
+    //thread::spawn(run_visualization);
+    //run_server();
+    thread::spawn(|| {
+        loop {
+            let t = thread::spawn(|| {
+                panic::catch_unwind(run_test);
+            });
+            t.join();
+            thread::sleep_ms(1000);
+        }
+    });
+    run_visualization();
 }

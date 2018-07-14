@@ -2,4 +2,5 @@
 /predict/target/
 /state/target/
 /rlbot/target/
+/brain/target/
 **/*.rs.bk

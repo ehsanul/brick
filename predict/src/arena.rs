@@ -5,6 +5,12 @@ use obj::*;
 use ncollide::shape::TriMesh3;
 use na::Point3;
 
+pub static SIDE_WALL_DISTANCE: f32 = 4096.0;
+pub static BACK_WALL_DISTANCE: f32 = 5140.0;
+pub static CEILING_DISTANCE: f32 = 2044.0;
+pub static GOAL_X: f32 = 892.75;
+pub static GOAL_Z: f32 = 640.0;
+
 lazy_static! {
     pub static ref ARENA: TriMesh3<f32> = {
         let file = File::open("./assets/arena.obj").expect("Couldn't open arena.obj file");

@@ -5,10 +5,13 @@ use sample;
 use std::f32;
 use std::f32::consts::E;
 
-static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
-static MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
+pub static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
+pub static THROTTLE_ACCELERATION_FACTOR: f32 = 1575.0;
+pub static BOOST_ACCELERATION_FACTOR: f32 = 1000.0; // FIXME get actula value from graph
+pub static MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
+pub static MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph
 
-enum PredictionCategory {
+pub enum PredictionCategory {
     /// Wheels on ground
     Ground,
     /* TODO
@@ -25,7 +28,7 @@ enum PredictionCategory {
     */
 }
 
-fn find_prediction_category(current: &PlayerState) -> PredictionCategory {
+pub fn find_prediction_category(current: &PlayerState) -> PredictionCategory {
     // hard-coded the only thing we can handle right now
     PredictionCategory::Ground
 }
@@ -42,11 +45,12 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
     // TODO look at code from main.rs with this stuff to confirm it's right
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
 
+    // TODO handle boost
     match controller.throttle {
         Throttle::Forward | Throttle::Reverse => {
             // the acceleration factor is different if you are turning
             let k = match controller.steer {
-                Steer::Straight => 1575.0,
+                Steer::Straight => THROTTLE_ACCELERATION_FACTOR,
                 Steer::Right | Steer::Left => 1200.0, // TODO get this and confirm velocity curve while steering
             };
 
@@ -149,8 +153,8 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
         Err(i) => {
             // i is point we can insert into the tree. the value at i is lesser and the next value
             // is greater. we just want the closest one for our purposes
-            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction samples missing for: {:?} {:?}", current.velocity, controller));
-            let candidate2 = samples.get(i + 1).expect(&format!("ground_turn_prediction samples missing for: {:?} {:?}", current.velocity, controller));
+            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction sample first missing for: {:?} {:?}", current.velocity, controller));
+            let candidate2 = samples.get(i + 1).expect(&format!("ground_turn_prediction sample last missing for: {:?} {:?}", current.velocity, controller));
             if candidate1.velocity.norm() - current_speed <= candidate2.velocity.norm() - current_speed {
                 i
             } else {
@@ -211,6 +215,7 @@ mod tests {
             position: resting_position(),
             velocity: resting_velocity(),
             rotation: resting_rotation(),
+            team: Team::Blue,
         }
     }
 
@@ -221,6 +226,7 @@ mod tests {
             position: resting_position(),
             velocity: max_throttle_velocity(),
             rotation: resting_rotation(),
+            team: Team::Blue,
         }
     }
 

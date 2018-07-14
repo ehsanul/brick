@@ -1,0 +1,20 @@
+[package]
+name = "brain"
+version = "0.1.0"
+authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
+
+[dependencies]
+nalgebra = "0.14"
+lazy_static = "1.0"
+fnv = "1.0"
+indexmap = "1.0"
+itertools = "0.7"
+
+[dependencies.state]
+path = "../state"
+
+[dependencies.predict]
+path = "../predict"
+
+[lib]
+crate-type = ["dylib"]

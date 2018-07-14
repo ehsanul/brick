@@ -35,6 +35,8 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
                          record.get(7).expect("Invalid row?").parse().expect("Can't convert pitch to f32"),
                          record.get(8).expect("Invalid row?").parse().expect("Can't convert yaw to f32"),
                       ),
+
+            team: Team::Blue, // doesn't matter
         }
     }).collect()
 }
