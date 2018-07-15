@@ -584,93 +584,93 @@ mod tests {
         assert!(failures.len() == 0);
     }
 
-    #[test]
-    fn just_drive_straight_more1() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -500..0 {
-            for tick_portion in 1..121 {
-                let step_duration = (tick_portion as f32) / predict::FPS;
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(path.is_some());
-                if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
+    // #[test]
+    // fn just_drive_straight_fuzz1() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     for distance in -500..0 {
+    //         for tick_portion in 1..121 {
+    //             let step_duration = (tick_portion as f32) / predict::FPS;
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = resting_player_state();
+    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(path.is_some());
+    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.len() == 0);
+    // }
 
-    #[test]
-    fn just_drive_straight_more2() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -1000..-500 {
-            for tick_portion in 1..121 {
-                let step_duration = (tick_portion as f32) / predict::FPS;
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(path.is_some());
-                if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
+    // #[test]
+    // fn just_drive_straight_fuzz2() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     for distance in -1000..-500 {
+    //         for tick_portion in 1..121 {
+    //             let step_duration = (tick_portion as f32) / predict::FPS;
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = resting_player_state();
+    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(path.is_some());
+    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.len() == 0);
+    // }
 
-    #[test]
-    fn just_drive_straight_more3() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -2000..-1000 {
-            for tick_portion in 1..121 {
-                let step_duration = (tick_portion as f32) / predict::FPS;
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(path.is_some());
-                if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
+    // #[test]
+    // fn just_drive_straight_fuzz3() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     for distance in -2000..-1000 {
+    //         for tick_portion in 1..121 {
+    //             let step_duration = (tick_portion as f32) / predict::FPS;
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = resting_player_state();
+    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(path.is_some());
+    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.len() == 0);
+    // }
 
-     #[test]
-     fn just_drive_straight_more4() {
-         let mut count = 0;
-         let mut failures = vec![];
-         for distance in -4000..-2000 {
-             for tick_portion in 1..121 {
-                 let step_duration = (tick_portion as f32) / predict::FPS;
-                 let mut current = resting_player_state();
-                 current.position.y = distance as f32;
-                 let desired = resting_player_state();
-                 let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-                 //assert!(path.is_some());
-                 if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-             }
-         }
-         println!("WORKED {} TIMES", count);
-         println!("FAILURES: {:?}", failures);
-         println!("FAILED {} TIMES", failures.len());
-         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-         assert!(failures.len() == 0);
-     }
+    // #[test]
+    // fn just_drive_straight_fuzz4() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     for distance in -4000..-2000 {
+    //         for tick_portion in 1..121 {
+    //             let step_duration = (tick_portion as f32) / predict::FPS;
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = resting_player_state();
+    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(path.is_some());
+    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILURES: {:?}", failures);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     assert!(failures.len() == 0);
+    // }
 
     #[test]
     fn unreachable() {
