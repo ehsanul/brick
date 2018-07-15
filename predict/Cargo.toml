@@ -12,6 +12,3 @@ csv = "1"
 
 [dependencies.state]
 path = "../state"
-
-[lib]
-crate-type = ["dylib"]
