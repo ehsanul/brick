@@ -404,6 +404,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 //
 // however, we want this to be really cheap! and ideally it is not used at all for small step
 // durations, we should have good enough control over the grid there to avoid this completely.
+//
+// XXX: nvm, looks like tuning the rounded_speed used for the grid size made a pretty big impact on
+// how often we find a goal state no matter the step duration etc, at least for the really basic
+// drive straight case. we'll probably have to revisit this as we add way more ways to move..
 fn player_goal_reached(candidate: &PlayerState, desired: &PlayerState, step_duration: f32) -> bool {
     //println!("exact player goal reached\ncandidate: {:?}\ndesired: {:?}", candidate, desired);
     let candidate = round_player_state(&candidate, step_duration);
@@ -431,29 +435,12 @@ fn round_player_state(player: &PlayerState, step_duration: f32) -> RoundedPlayer
     // we're using the rounded speed to determine the grid size. we want a good bit of tolerance for
     // this, if we relax the rounded velocity equality check. or some other logic that will ensure
     // same grid for different player states that we want to match
-    //
-    // FIXME the discontinuity in grid size going from a rounded speed of 400 to 800 is not
-    // a problem since these are divisible. but 800 to 1200 is an issue. So we should instead
-    // double the grid size, to at least help with the case where velocities are around 950 to
-    // 1050, resulting in completely non-overlapping grid cells. with doubling, we will at least
-    // overlap in half of the boundaries, and thus prune more branches in this case
-    //
     let speed = player.velocity.norm();
-    let mut rounded_speed = (speed / 400.0).round(); // TODO tune
+    let mut rounded_speed = (speed / 10.0).round(); // TODO tune. for both correctness AND speed!
     if rounded_speed == 0.0 {
-        if speed > 200.0 {
-            rounded_speed = 0.5;
-        } else if speed > 100.0 {
-            rounded_speed = 0.25;
-        } else if speed > 50.0 {
-            rounded_speed = 0.0125;
-        } else if speed > 25.0 {
-            rounded_speed = 0.00625;
-        } else {
-            rounded_speed = 0.003125;
-        }
+        rounded_speed = 0.5;
     }
-    let rounded_speed = rounded_speed * 400.0;
+    let rounded_speed = rounded_speed * 10.0;
 
     let mut grid_size = step_duration * rounded_speed;
     let velocity_margin = 250.0; // TODO tune
@@ -593,7 +580,7 @@ mod tests {
         println!("WORKED {} TIMES", count);
         println!("FAILED {} TIMES", failures.len());
         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
+        println!("FAILURES: {:?}", failures);
         assert!(failures.len() == 0);
     }
 
@@ -601,7 +588,7 @@ mod tests {
     fn just_drive_straight_more1() {
         let mut count = 0;
         let mut failures = vec![];
-        for distance in -500..-100 {
+        for distance in -500..0 {
             for tick_portion in 1..121 {
                 let step_duration = (tick_portion as f32) / predict::FPS;
                 let mut current = resting_player_state();
@@ -663,45 +650,39 @@ mod tests {
         assert!(failures.len() == 0);
     }
 
-    // #[test]
-    // fn just_drive_straight_more4() {
-    //     let mut count = 0;
-    //     let mut failures = vec![];
-    //     for distance in -4000..-2000 {
-    //         for tick_portion in 1..121 {
-    //             let step_duration = (tick_portion as f32) / predict::FPS;
-    //             let mut current = resting_player_state();
-    //             current.position.y = distance as f32;
-    //             let desired = resting_player_state();
-    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //             //assert!(path.is_some());
-    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-    //         }
-    //     }
-    //     println!("WORKED {} TIMES", count);
-    //     println!("FAILURES: {:?}", failures);
-    //     println!("FAILED {} TIMES", failures.len());
-    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-    //     assert!(failures.len() == 0);
-    // }
+     #[test]
+     fn just_drive_straight_more4() {
+         let mut count = 0;
+         let mut failures = vec![];
+         for distance in -4000..-2000 {
+             for tick_portion in 1..121 {
+                 let step_duration = (tick_portion as f32) / predict::FPS;
+                 let mut current = resting_player_state();
+                 current.position.y = distance as f32;
+                 let desired = resting_player_state();
+                 let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+                 //assert!(path.is_some());
+                 if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
+             }
+         }
+         println!("WORKED {} TIMES", count);
+         println!("FAILURES: {:?}", failures);
+         println!("FAILED {} TIMES", failures.len());
+         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+         assert!(failures.len() == 0);
+     }
 
-    //#[test]
-    //fn just_drive_straight_more() {
-    //    let mut count = 0;
-    //    let mut failures = vec![];
-    //    for distance in -4000..-100 {
-    //        for tick_portion in 1..121 {
-    //            let step_duration = (tick_portion as f32) / predict::FPS;
-    //            let mut current = resting_player_state();
-    //            current.position.y = distance as f32;
-    //            let desired = resting_player_state();
-    //            let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //            //assert!(path.is_some());
-    //            if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-    //        }
-    //    }
-    //    println!("WORKED {} TIMES", count);
-    //    println!("FAILURES: {:?}", failures);
-    //    assert!(failures.len() == 0);
-    //}
+    #[test]
+    fn unreachable() {
+        let mut count = 0;
+        let distance = -10_000;
+        for tick_portion in 1..121 {
+            let step_duration = (tick_portion as f32) / predict::FPS;
+            let mut current = resting_player_state();
+            current.position.y = distance as f32;
+            let desired = resting_player_state();
+            let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+            assert!(path.is_none());
+        }
+    }
 }
