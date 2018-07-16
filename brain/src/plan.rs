@@ -64,8 +64,8 @@ lazy_static! {
             //straight_boost,
 
             //left_throttle,
-            //right_throttle,
-            straight_throttle,
+            right_throttle,
+            //straight_throttle,
 
             //left_idle,
             //right_idle,

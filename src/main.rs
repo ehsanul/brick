@@ -235,7 +235,7 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
 
         let game_state = &GAME_STATE.read().unwrap();
         //println!("player: {:?}", game_state.player);
-        let (mut path, mut lines) = hybrid_a_star(&game_state.player, &PlayerState::default(), 1.0/120.0);
+        let (mut path, mut lines) = hybrid_a_star(&game_state.player, &PlayerState::default(), 20.0/120.0);
         let mut visualize_lines = VISUALIZE_LINES.write().unwrap();
         //println!("path: {:?}, lines: {:?}", path, lines);
         visualize_lines.clear();
