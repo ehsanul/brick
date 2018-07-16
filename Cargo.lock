@@ -800,6 +800,7 @@ name = "state"
 version = "0.1.0"
 dependencies = [
  "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rlbot 0.1.0",
 ]
 
 [[package]]

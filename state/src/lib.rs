@@ -1,4 +1,5 @@
 extern crate nalgebra as na;
+extern crate rlbot;
 
 use na::{Vector3, UnitQuaternion};
 use std::f32::consts::PI;
@@ -7,6 +8,7 @@ use std::f32::consts::PI;
 // floating above the ground, which would be no good. 91.25 has been seen in RLBounce
 pub static BALL_RADIUS: f32 = 93.143;
 
+#[derive(Debug, Default)]
 pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,
@@ -40,11 +42,22 @@ impl Default for PlayerState {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Copy, Clone, Debug)]
 pub struct BallState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
     pub angular_velocity: Vector3<f32>,
+}
+
+impl Default for BallState {
+    fn default() -> BallState {
+        BallState {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            velocity: Vector3::new(0.0, 0.0, 0.0),
+            angular_velocity: Vector3::new(0.0, 0.0, 0.0),
+            //rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),
+        }
+    }
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -117,3 +130,25 @@ pub struct DesiredState {
     pub ball: Option<BallState>,
 }
 
+/// updates our game state, which is a representation of the packet, but with our own data types etc
+pub fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
+    let ball = packet.GameBall;
+    let player = packet.GameCars[player_index];
+
+    let bl = ball.Physics.Location;
+    let bv = ball.Physics.Velocity;
+    game_state.ball.position = Vector3::new(-bl.X, bl.Y, bl.Z); // x should be positive towards right, it only makes sense
+    game_state.ball.velocity = Vector3::new(-bv.X, bv.Y, bv.Z); // x should be positive towards right, it only makes sense
+
+    let pl = player.Physics.Location;
+    let pv = player.Physics.Velocity;
+    let pr = player.Physics.Rotation;
+    game_state.player.position = Vector3::new(-pl.X, pl.Y, pl.Z); // x should be positive towards right, it only makes sense
+    game_state.player.velocity = Vector3::new(-pv.X, pv.Y, pv.Z); // x should be positive towards right, it only makes sense
+    game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.Roll, pr.Pitch, -pr.Yaw);
+    game_state.player.team = match player.Team {
+        0 => Team::Blue,
+        1 => Team::Orange,
+        _ => unimplemented!(),
+    };
+}

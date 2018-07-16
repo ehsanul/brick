@@ -3,4 +3,5 @@
 /state/target/
 /rlbot/target/
 /brain/target/
+/temp/target/
 **/*.rs.bk

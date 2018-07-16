@@ -34,14 +34,7 @@ lazy_static! {
     static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
 
     static ref GAME_STATE: RwLock<GameState> = {
-        RwLock::new(GameState {
-            ball: BallState {
-                position: Vector3::new(0.0, 0.0, 0.0),
-                velocity: Vector3::new(0.0, 0.0, 0.0),
-                angular_velocity: Vector3::new(0.0, 0.0, 0.0),
-            },
-            player: PlayerState::default(),
-        })
+        RwLock::new(GameState::default())
     };
 
     static ref VISUALIZE_LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
@@ -193,9 +186,7 @@ fn run_test() {
 }
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
-fn update_game_state(packet: &rlbot::LiveDataPacket, player_index: usize) {
-    let mut game_state = GAME_STATE.write().unwrap();
-
+fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
     let ball = packet.GameBall;
     let player = packet.GameCars[player_index];
 
@@ -223,7 +214,7 @@ type HybridAStarFunc = extern fn (current: &PlayerState, desired: &PlayerState, 
 fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
     let mut input = rlbot::PlayerInput::default();
     println!("packet player location: {:?}", packet.GameCars[0].Physics.Location);
-    update_game_state(&packet, player_index);
+    update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
 
     // FIXME is there a way to unlock without a made up scope?
     {
@@ -244,7 +235,7 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
 
         let game_state = &GAME_STATE.read().unwrap();
         //println!("player: {:?}", game_state.player);
-        let (mut path, mut lines) = hybrid_a_star(&game_state.player, &PlayerState::default(), 0.25);
+        let (mut path, mut lines) = hybrid_a_star(&game_state.player, &PlayerState::default(), 1.0/120.0);
         let mut visualize_lines = VISUALIZE_LINES.write().unwrap();
         //println!("path: {:?}, lines: {:?}", path, lines);
         visualize_lines.clear();
