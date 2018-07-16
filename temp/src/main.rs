@@ -100,7 +100,7 @@ fn write_records(records: &Vec<(f32, PlayerState)>) {
     for (t, player) in records {
         let pos = player.position;
         let vel = player.velocity;
-        let (roll, yaw, pitch) = player.rotation.to_euler_angles();
+        let (roll, pitch, yaw) = player.rotation.to_euler_angles();
         wtr.write_record(&[*t, pos.x, pos.y, pos.z, vel.x, vel.y, vel.z, roll, pitch, yaw].iter().map(|x| x.to_string()).collect::<Vec<_>>()).expect("csv write failed");
     }
 }

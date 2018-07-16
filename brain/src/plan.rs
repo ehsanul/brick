@@ -8,6 +8,7 @@ use indexmap::map::Entry::{Occupied, Vacant};
 use indexmap::IndexMap;
 use std::usize;
 use itertools;
+use itertools::Itertools;
 
 use std::hash::BuildHasherDefault;
 use fnv::FnvHasher;
@@ -63,9 +64,9 @@ lazy_static! {
             //right_boost,
             //straight_boost,
 
-            //left_throttle,
+            left_throttle,
             right_throttle,
-            //straight_throttle,
+            straight_throttle,
 
             //left_idle,
             //right_idle,
@@ -156,12 +157,12 @@ struct RoundedPlayerState {
     x: i16,
     y: i16,
     z: i16,
-    vx: i16,
-    vy: i16,
-    vz: i16,
-    roll: i16,
-    pitch: i16,
-    yaw: i16,
+    //vx: i16,
+    //vy: i16,
+    //vz: i16,
+    //roll: i16,
+    //pitch: i16,
+    //yaw: i16,
 }
 
 
@@ -186,7 +187,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         parent_is_secondary: false,
     };
 
-    parents.insert(round_player_state(&current, step_duration), (start, None));
+    parents.insert(round_player_state(&current, step_duration, false), (start, None));
 
     let mut i = 0.0f32;
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
@@ -248,7 +249,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
         for new_vertex in new_vertices {
             // DEBUG // println!(" - - - - - - - - - - - - - - - - -");
-            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration);
+            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, true);
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
@@ -281,7 +282,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                             let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
                                 new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
-                            } else if e.index() == new_vertex.parent_index {
+                            } else if e.index() == new_vertex.parent_index || new_vertex.parent_index == existing_secondary_vertex.parent_index {
                                 // same cell expansion. due to the consistent nature of the heuristic, a new
                                 // vertex that is closer to the goal will have a higher cost-so-far than its
                                 // parent, even if in the same cell. so this is the workaround from
@@ -300,10 +301,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                                 // the grandchild. we could generalize this to n expansions and store an
                                 // array instead, but it doesn't seem necessary.
 
-                                // as at this point, we've determined that our parent is from here. if the
-                                // parent was a secondary though, we want to ignore as there's no spot to
-                                // put ourselves in
-                                if new_vertex.parent_is_secondary {
+                                // if we're expanding in the same cell as the parent, but. the
+                                // parent was already a secondary, we want to ignore as there's no
+                                // spot to put ourselves in
+                                if e.index() == new_vertex.parent_index && new_vertex.parent_is_secondary {
                                     // DEBUG // println!("parent is secondary, so i can't insert and leaving it be");
                                     continue;
                                 }
@@ -335,8 +336,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                                 // DEBUG // println!("new cost is NOT lower");
                                 // show pruned as grey
                                 visualization_lines.push((
-                                    Point3::new(line_start.x, line_start.y, line_start.z),
-                                    Point3::new(line_end.x, line_end.y, line_end.z),
+                                    Point3::new(line_start.x, line_start.y, line_start.z - 100.0),
+                                    Point3::new(line_end.x, line_end.y, line_end.z - 100.0),
                                     Point3::new(0.3, 0.3, 0.3),
                                 ));
                                 continue;
@@ -372,7 +373,80 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
             });
         }
     }
+
     // DEBUG // println!("omg failed {}", visualization_lines.len());
+    // DEBUG // println!("Desired\n========================");
+    // DEBUG // let speed = desired.velocity.norm();
+    // DEBUG // println!("speed: {}", speed);
+    // DEBUG // let pruning = false;
+    // DEBUG // let rounding_factor = if pruning { 10.0 } else { 20.0 };
+    // DEBUG // println!("rounding_factor: {}", rounding_factor);
+    // DEBUG // let grid_factor = if pruning { 1.0 } else { 2.0 };
+    // DEBUG // println!("grid_factor: {}", grid_factor);
+    // DEBUG // let mut rounded_speed = (speed / rounding_factor).round();
+    // DEBUG // if rounded_speed == 0.0 {
+    // DEBUG //     rounded_speed = 0.5;
+    // DEBUG // }
+    // DEBUG // let rounded_speed = rounded_speed * rounding_factor;
+    // DEBUG // println!("rounded_speed: {}", rounded_speed);
+
+    // DEBUG // let mut grid_size = grid_factor * step_duration * rounded_speed;
+    // DEBUG // println!("grid_size: {}", grid_size);
+    // DEBUG // println!("round: {:?}\nval: {:?}", round_player_state(&desired, step_duration, false), desired);
+    // DEBUG // println!("========================");
+
+    // DEBUG // parents.iter().sorted_by(|(k1, v1), (k2, v2)| {
+    // DEBUG //     let mut v1_h = heuristic_cost(&v1.0.player, &desired);
+    // DEBUG //     let mut v2_h = heuristic_cost(&v2.0.player, &desired);
+    // DEBUG //     if let Some(ref x1) = v1.1 {
+    // DEBUG //         v1_h = v1_h.min(heuristic_cost(&x1.player, &desired));
+    // DEBUG //     }
+    // DEBUG //     if let Some(ref x2) = v2.1 {
+    // DEBUG //         v2_h = v2_h.min(heuristic_cost(&x2.player, &desired));
+    // DEBUG //     }
+    // DEBUG //     if v1_h == v2_h {
+    // DEBUG //         Ordering::Equal
+    // DEBUG //     } else if v1_h > v2_h {
+    // DEBUG //         Ordering::Greater
+    // DEBUG //     } else {
+    // DEBUG //         Ordering::Less
+    // DEBUG //     }
+    // DEBUG // }).iter().take(10).for_each(|(k, v)| {
+    // DEBUG //     println!("--");
+
+    // DEBUG //     let player = if let Some(ref x) = v.1 {
+    // DEBUG //         if heuristic_cost(&v.0.player, &desired) < heuristic_cost(&x.player, &desired) {
+    // DEBUG //             v.0.player
+    // DEBUG //         } else {
+    // DEBUG //             x.player
+    // DEBUG //             //println!("val: {:?}", x.player);
+    // DEBUG //         }
+    // DEBUG //     } else {
+    // DEBUG //         v.0.player
+    // DEBUG //         //println!("val: {:?}", v.0.player);
+    // DEBUG //     };
+
+    // DEBUG //     let speed = player.velocity.norm();
+    // DEBUG //     println!("speed: {}", speed);
+    // DEBUG //     let pruning = false;
+    // DEBUG //     let rounding_factor = if pruning { 10.0 } else { 20.0 };
+    // DEBUG //     println!("rounding_factor: {}", rounding_factor);
+    // DEBUG //     let grid_factor = if pruning { 1.0 } else { 2.0 };
+    // DEBUG //     println!("grid_factor: {}", grid_factor);
+    // DEBUG //     let mut rounded_speed = (speed / rounding_factor).round();
+    // DEBUG //     if rounded_speed == 0.0 {
+    // DEBUG //         rounded_speed = 0.5;
+    // DEBUG //     }
+    // DEBUG //     let rounded_speed = rounded_speed * rounding_factor;
+    // DEBUG //     println!("rounded_speed: {}", rounded_speed);
+
+    // DEBUG //     let mut grid_size = grid_factor * step_duration * rounded_speed;
+    // DEBUG //     println!("grid_size: {}", grid_size);
+
+    // DEBUG //     //println!("round: {:?}", k);
+    // DEBUG //     println!("round non-pruning: {:?}", round_player_state(&player, step_duration, false));
+    // DEBUG //     println!("val: {:?}", player);
+    // DEBUG // });
 
     (None, visualization_lines)
 }
@@ -410,20 +484,21 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 // drive straight case. we'll probably have to revisit this as we add way more ways to move..
 fn player_goal_reached(candidate: &PlayerState, desired: &PlayerState, step_duration: f32) -> bool {
     //println!("exact player goal reached\ncandidate: {:?}\ndesired: {:?}", candidate, desired);
-    let candidate = round_player_state(&candidate, step_duration);
-    let desired = round_player_state(&desired, step_duration); // TODO we could memoize this one. or avoid it by enforcing rounding at the beginning
+    let candidate = round_player_state(&candidate, step_duration, false);
+    let desired = round_player_state(&desired, step_duration, false); // TODO we could memoize this one. or avoid it by enforcing rounding at the beginning
     //println!("rounded player goal reached\nrounded candidate: {:?}\nrounded desired: {:?}", candidate, desired);
 
     candidate == desired
 }
 
-fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, index: usize, is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
-    let path = itertools::unfold((index, is_secondary), |i| {
-        parents.get_index((*i).0).map(|(_rounded, (v1, maybe_v2))| {
+fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
+    let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
+        let index = (*vals).0;
+        let is_secondary = (*vals).1;
+        parents.get_index(index).map(|(_rounded, (v1, maybe_v2))| {
             let vertex = if is_secondary { maybe_v2.as_ref().unwrap() }  else { v1 };
-            (*i).0 = vertex.parent_index;
-            (*i).1 = vertex.parent_is_secondary;
-            //println!("xxxxxxxxxxxxxxxxxx: {} | {:?}", i, vertex.player.position);
+            (*vals).0 = vertex.parent_index;
+            (*vals).1 = vertex.parent_is_secondary;
             (vertex.player, vertex.prev_controller)
         })
     }).collect::<Vec<_>>();
@@ -431,41 +506,44 @@ fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<Pla
     path.into_iter().rev().collect()
 }
 
-fn round_player_state(player: &PlayerState, step_duration: f32) -> RoundedPlayerState {
+fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool) -> RoundedPlayerState {
     // we're using the rounded speed to determine the grid size. we want a good bit of tolerance for
     // this, if we relax the rounded velocity equality check. or some other logic that will ensure
     // same grid for different player states that we want to match
     let speed = player.velocity.norm();
-    let mut rounded_speed = (speed / 10.0).round(); // TODO tune. for both correctness AND speed!
+    let rounding_factor = if pruning { 10.0 } else { 20.0 }; // TODO tune. for both correctness AND speed!
+    let grid_factor = if pruning { 0.7 } else { 2.0 };
+    let mut rounded_speed = (speed / rounding_factor).round();
     if rounded_speed == 0.0 {
         rounded_speed = 0.5;
     }
-    let rounded_speed = rounded_speed * 10.0;
+    let rounded_speed = rounded_speed * rounding_factor;
 
-    let mut grid_size = step_duration * rounded_speed;
+    let mut grid_size = grid_factor * step_duration * rounded_speed;
     let velocity_margin = 250.0; // TODO tune
     let (roll, pitch, yaw) = player.rotation.to_euler_angles();
 
     RoundedPlayerState {
         // TODO we could have individual grid sizes for x/y/z based on vx/vy/vz. not sure it's
         // worth it.
-        x: (player.position.x / grid_size).floor() as i16,
-        y: (player.position.y / grid_size).floor() as i16,
-        z: (player.position.z / grid_size).floor() as i16,
+        x: (player.position.x / grid_size).round() as i16,
+        y: (player.position.y / grid_size).round() as i16,
+        z: (player.position.z / grid_size).round() as i16,
 
-        // XXX including velocity in the search space might just be too much. but let's give it
-        // a shot sometime later.
-        vx: 0, // TODO // (player.velocity.x / velocity_margin).floor() as i16,
-        vy: 0, // TODO // (player.velocity.y / velocity_margin).floor() as i16,
-        vz: 0, // TODO // (player.velocity.z / velocity_margin).floor() as i16,
+        //   // XXX including velocity in the search space might just be too much. but let's give it
+        //   // a shot sometime later.
+        //   vx: 0, // TODO // (player.velocity.x / velocity_margin).floor() as i16,
+        //   vy: 0, // TODO // (player.velocity.y / velocity_margin).floor() as i16,
+        //   vz: 0, // TODO // (player.velocity.z / velocity_margin).floor() as i16,
 
-        // XXX is this the best way to round a rotation matrix? do discontinuities in euler angles
-        // cause problems here?
-        // TODO use angular velocity to determine margin of rounding. again with minimum if we are
-        // in pruning mode.
-        roll: (roll * 10.0).floor() as i16,
-        pitch: (pitch * 10.0).floor() as i16,
-        yaw: (yaw * 10.0).floor() as i16,
+        //   // XXX is this the best way to round a rotation matrix? do discontinuities in euler angles
+        //   // cause problems here?
+        //   // TODO use angular velocity to determine margin of rounding. again with minimum if we are
+        //   // in pruning mode.
+        //   // XXX including rotation in search space also seems like too much for now
+        //   roll: 0, //(roll * 10.0).floor() as i16,
+        //   pitch: 0, //(pitch * 10.0).floor() as i16,
+        //   yaw: 0, //(yaw * 10.0).floor() as i16,
     }
 
 }
@@ -542,7 +620,8 @@ fn heuristic_cost(candidate: &PlayerState, desired: &PlayerState) -> f32 {
     //    } else {
     //        acceleration_time_cost
     //    }
-    // FIXME acceleration_time_cost causing problems, removing temporarily
+    // FIXME acceleration_time_cost causing problems, removing temporarily. bring it back when
+    // round player state includes velocity again.
     movement_time_cost
 }
 
@@ -672,17 +751,17 @@ mod tests {
     //     assert!(failures.len() == 0);
     // }
 
-    #[test]
-    fn unreachable() {
-        let mut count = 0;
-        let distance = -10_000;
-        for tick_portion in 1..121 {
-            let step_duration = (tick_portion as f32) / predict::FPS;
-            let mut current = resting_player_state();
-            current.position.y = distance as f32;
-            let desired = resting_player_state();
-            let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-            assert!(path.is_none());
-        }
-    }
+    // #[test]
+    // fn unreachable() {
+    //     let mut count = 0;
+    //     let distance = -10_000;
+    //     for tick_portion in 1..121 {
+    //         let step_duration = (tick_portion as f32) / predict::FPS;
+    //         let mut current = resting_player_state();
+    //         current.position.y = distance as f32;
+    //         let desired = resting_player_state();
+    //         let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+    //         assert!(path.is_none());
+    //     }
+    // }
 }

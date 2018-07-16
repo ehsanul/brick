@@ -134,8 +134,15 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
     // based on steer, throttle and boost, gets the right samples
     let samples: &'static Vec<PlayerState> = sample::get_relevant_turn_samples(&controller);
 
+    let mut current_speed = current.velocity.norm();
+
+    // FIXME hack until we implement samples for when our current speed is higher than the max
+    // turning speed!
+    if current_speed > 1235.0 {
+        current_speed = 1235.0;
+    }
+
     // find index of closest matching player state
-    let current_speed = current.velocity.norm();
     let start_index = samples.binary_search_by(|player_state| {
         let sample_speed = player_state.velocity.norm();
         // `std::cmp::Ord` is not implemented for `f32`
@@ -434,6 +441,32 @@ mod tests {
         let expected_position = Vector3::new(-2087.7048, -2942.8396, 18.65);
         let expected_velocity = Vector3::new(866.1724, -262.35745, 8.33);
         let expected_rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, 2.832112);
+
+        assert_eq!(round(next.position), round(expected_position));
+        assert_eq!(round_rotation(next.rotation), round_rotation(expected_rotation));
+        assert_eq!(round(next.velocity), round(expected_velocity));
+    }
+
+    fn throttle_and_turn_from_max_throttle_turning() {
+        let mut current = resting_player_state();
+
+        let mut controller = BrickControllerState::new();
+        controller.throttle = Throttle::Forward;
+        controller.steer = Steer::Left;
+
+        // from data file, 1000th line
+        // -482.672,-2684.1472,18.65,-263.5451,-1204.4678,8.33,-0.00009587344,-0.005944175,1.3977439
+        current.position = Vector3::new(-482.672, -2684.1472, 18.65);
+        current.velocity = Vector3::new(-263.5451, -1204.4678, 8.33);
+        current.rotation = UnitQuaternion::from_euler_angles(-0.00009587344, -0.005944175, 1.3977439);
+
+        let next = next_player_state(&current, &controller, 1.0);
+
+        // from data file, 1240th line
+        // 287.21667,-3266.7107,18.65,1081.4581,602.2005,8.33,0.00000000011641738,-0.0059441756,-2.5908935
+        let expected_position = Vector3::new(287.21667, -3266.7107, 18.65);
+        let expected_velocity = Vector3::new(1081.4581, 602.2005, 8.33);
+        let expected_rotation = UnitQuaternion::from_euler_angles(0.00000000011641738, -0.0059441756, -2.5908935);
 
         assert_eq!(round(next.position), round(expected_position));
         assert_eq!(round_rotation(next.rotation), round_rotation(expected_rotation));

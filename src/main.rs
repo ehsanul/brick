@@ -43,8 +43,8 @@ lazy_static! {
 
     static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
         Mutex::new(
-            DynamicReload::new(Some(vec!["brain/target/debug"]),
-                               Some("target/debug"),
+            DynamicReload::new(Some(vec!["brain/target/release"]),
+                               Some("target/release"),
                                Search::Default)
         )
     };
@@ -175,13 +175,15 @@ fn run_bot() {
 fn run_test() {
     use std::f32::consts::PI;
     let mut packet = rlbot::LiveDataPacket::default();
-    packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0;
-    packet.GameCars[0].Physics.Location.Y = -1000.0;
+    packet.GameCars[0].Physics.Rotation.Yaw = -PI/2.0;
+    packet.GameCars[0].Physics.Location.Y = -3000.0;
+    packet.GameCars[0].Physics.Location.X = -2000.0;
     loop {
         println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
         let player_index = 0;
         let input = get_bot_input(&packet, player_index);
-        thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
+        //thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
+        thread::sleep_ms(1000); // FIXME testing
     }
 }
 
@@ -240,6 +242,15 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
         //println!("path: {:?}, lines: {:?}", path, lines);
         visualize_lines.clear();
         visualize_lines.append(&mut lines);
+        if let Some(path) = path {
+            let pos = game_state.player.position;
+            let mut last_point = Point3::new(pos.x, pos.y, pos.z);
+            for (ps, _) in path {
+                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z);
+                visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
+                last_point = point;
+            }
+        }
     }
 
     input.Steer = 0.0;
