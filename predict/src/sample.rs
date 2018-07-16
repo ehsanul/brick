@@ -16,7 +16,7 @@ lazy_static! {
 }
 
 fn load_sample_file(path: &str) -> Vec<PlayerState> {
-    let mut rdr = csv::Reader::from_reader(File::open(path).expect(&format!("File doesn't exist: {}", path)));
+    let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(File::open(path).expect(&format!("File doesn't exist: {}", path)));
     rdr.records().map(|record| {
         let record = record.expect("CSV parse failed?");
         PlayerState {

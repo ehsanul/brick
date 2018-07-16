@@ -99,26 +99,26 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
 
             next.position = current.position + translation;
             next.rotation = current.rotation.clone(); // if we clone from current, this becomes no-op
+
+            let next_heading = next.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+
+            match controller.throttle {
+                Throttle::Forward | Throttle::Reverse => {
+                    if next_speed > MAX_THROTTLE_SPEED {
+                        next_speed = MAX_THROTTLE_SPEED;
+                    }
+                    next.velocity = next_heading * next_speed * controller.throttle.value();
+                },
+                Throttle::Idle => {
+                    next.velocity = next_heading * next_speed;
+                },
+            }
         },
         Steer::Right | Steer::Left => {
             let (translation, acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
             next.position = current.position + translation;
             next.velocity = current.velocity + acceleration;
             next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
-        },
-    }
-
-    let next_heading = next.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-
-    match controller.throttle {
-        Throttle::Forward | Throttle::Reverse => {
-            if next_speed > MAX_THROTTLE_SPEED {
-                next_speed = MAX_THROTTLE_SPEED;
-            }
-            next.velocity = next_heading * next_speed * controller.throttle.value();
-        },
-        Throttle::Idle => {
-            next.velocity = next_heading * next_speed;
         },
     }
 
@@ -162,7 +162,10 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
             }
         },
     };
-    let end_index = start_index + (time_step / ::TICK).floor() as usize;
+
+    // NOTE strangely, the physics sample rate for these is 240fps for some reason, not same as the
+    // tick normally mentioned at 120fps
+    let end_index = start_index + (time_step * 240.0).floor() as usize;
 
     let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, {:?}", start_index, controller));
     let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, {:?}", end_index, controller));
@@ -232,6 +235,15 @@ mod tests {
 
     fn round(v: Vector3<f32>) -> Vector3<f32> {
         Vector3::new(v.x.round(), v.y.round(), v.z.round())
+    }
+
+    fn round_rotation(r: UnitQuaternion<f32>) -> UnitQuaternion<f32> {
+        let (roll, pitch, yaw) = r.to_euler_angles();
+        UnitQuaternion::from_euler_angles(
+            (roll * 100.0).round() / 100.0,
+            (pitch * 100.0).round() / 100.0,
+            (yaw * 100.0).round() / 100.0,
+        )
     }
 
     #[test]
@@ -404,14 +416,28 @@ mod tests {
     #[test]
     fn throttle_and_turn_from_resting() {
         let mut current = resting_player_state();
+
         let mut controller = BrickControllerState::new();
         controller.throttle = Throttle::Forward;
         controller.steer = Steer::Right;
+
+        // from data file, first line
+        // -2501.8398,-3171.19,18.65,0,0,8.32,0,-0.0059441756,-1.5382951
+        current.position = Vector3::new(-2501.8398, -3171.19, 18.65);
+        current.velocity = Vector3::new(0.0, 0.0, 8.32);
+        current.rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, -1.5382951);
+
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(round(next.position), Vector3::new(100.0, 0.0, 0.0)); // FIXME actual values
-        assert_eq!(next.rotation, current.rotation * Rotation3::new(Vector3::new(1.0, 0.0, 0.0))); // FIXME actual values
-        assert_eq!(round(next.velocity), Vector3::new(100.0, 0.0, 0.0)); // FIXME actual values
+        // from data file, 240th line
+        // -2087.7048,-2942.8396,18.65,866.1724,-262.35745,8.33,0,-0.0059441756,2.832112
+        let expected_position = Vector3::new(-2087.7048, -2942.8396, 18.65);
+        let expected_velocity = Vector3::new(866.1724, -262.35745, 8.33);
+        let expected_rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, 2.832112);
+
+        assert_eq!(round(next.position), round(expected_position));
+        assert_eq!(round_rotation(next.rotation), round_rotation(expected_rotation));
+        assert_eq!(round(next.velocity), round(expected_velocity));
     }
 
 }
