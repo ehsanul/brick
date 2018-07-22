@@ -511,8 +511,8 @@ fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool) -
     // this, if we relax the rounded velocity equality check. or some other logic that will ensure
     // same grid for different player states that we want to match
     let speed = player.velocity.norm();
-    let rounding_factor = if pruning { 10.0 } else { 20.0 }; // TODO tune. for both correctness AND speed!
-    let grid_factor = if pruning { 0.7 } else { 2.0 };
+    let rounding_factor = if pruning { 10.0 } else { 500.0 }; // TODO tune. for both correctness AND speed!
+    let grid_factor = if pruning { 1.0 } else { 1.0 };
     let mut rounded_speed = (speed / rounding_factor).round();
     if rounded_speed == 0.0 {
         rounded_speed = 0.5;
@@ -526,9 +526,9 @@ fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool) -
     RoundedPlayerState {
         // TODO we could have individual grid sizes for x/y/z based on vx/vy/vz. not sure it's
         // worth it.
-        x: (player.position.x / grid_size).round() as i16,
-        y: (player.position.y / grid_size).round() as i16,
-        z: (player.position.z / grid_size).round() as i16,
+        x: (grid_size * (player.position.x / grid_size).round()) as i16,
+        y: (grid_size * (player.position.y / grid_size).round()) as i16,
+        z: (grid_size * (player.position.z / grid_size).round()) as i16,
 
         //   // XXX including velocity in the search space might just be too much. but let's give it
         //   // a shot sometime later.
