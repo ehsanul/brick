@@ -248,7 +248,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
         for new_vertex in new_vertices {
             // DEBUG // println!(" - - - - - - - - - - - - - - - - -");
-            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, true);
+            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, true, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
@@ -483,11 +483,13 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 // drive straight case. we'll probably have to revisit this as we add way more ways to move..
 fn player_goal_reached(candidate: &PlayerState, desired: &PlayerState, step_duration: f32) -> bool {
     //println!("exact player goal reached\ncandidate: {:?}\ndesired: {:?}", candidate, desired);
-    let candidate = round_player_state(&candidate, step_duration, false);
-    let desired = round_player_state(&desired, step_duration, false); // TODO we could memoize this one. or avoid it by enforcing rounding at the beginning
+    let rounded_candidate = round_player_state(&candidate, step_duration, false, candidate.velocity.norm());
+
+    // NOTE we are using the candidate's speed here on purpose, so they have the same grid sizes!
+    let rounded_desired = round_player_state(&desired, step_duration, false, candidate.velocity.norm()); // TODO we could memoize this one. or avoid it by enforcing rounding at the beginning
     //println!("rounded player goal reached\nrounded candidate: {:?}\nrounded desired: {:?}", candidate, desired);
 
-    candidate == desired
+    rounded_candidate == rounded_desired
 }
 
 fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
