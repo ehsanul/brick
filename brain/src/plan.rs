@@ -183,7 +183,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         parent_is_secondary: false,
     };
 
-    parents.insert(round_player_state(&current, step_duration, false), (start, None));
+    parents.insert(round_player_state(&current, step_duration, false, current.velocity.norm()), (start, None));
 
     let mut i = 0.0f32;
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
@@ -505,13 +505,12 @@ fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<Pla
     path.into_iter().rev().collect()
 }
 
-fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool) -> RoundedPlayerState {
+fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool, speed: f32) -> RoundedPlayerState {
     // we're using the rounded speed to determine the grid size. we want a good bit of tolerance for
     // this, if we relax the rounded velocity equality check. or some other logic that will ensure
     // same grid for different player states that we want to match
-    let speed = player.velocity.norm();
-    let rounding_factor = if pruning { 10.0 } else { 500.0 }; // TODO tune. for both correctness AND speed!
-    let grid_factor = if pruning { 1.0 } else { 1.0 };
+    let rounding_factor = if pruning { 1.0 } else { 500.0 }; // TODO tune. for both correctness AND speed!
+    let grid_factor = if pruning { 1.0 } else { 2.0 };
     let mut rounded_speed = (speed / rounding_factor).round();
     if rounded_speed == 0.0 {
         rounded_speed = 0.5;
