@@ -4,7 +4,7 @@ extern crate rlbot;
 #[macro_use]
 extern crate lazy_static;
 
-use na::{Vector3, UnitQuaternion};
+use na::{Vector3, UnitQuaternion, Point3};
 use std::f32::consts::PI;
 
 // XXX must confirm. this might include height of the ball in free play when it first starts
@@ -130,6 +130,11 @@ impl BrickControllerState {
             handbrake: false,
         }
     }
+}
+
+pub struct PlanResult {
+    pub plan: Option<Vec<(PlayerState, BrickControllerState)>>,
+    pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
 }
 
 // XXX we may want to use different internal structs, since in some cases we may care about

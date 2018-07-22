@@ -183,6 +183,7 @@ fn run_test() {
     }
 }
 
+
 /// updates our game state, which is a representation of the packet, but with our own data types etc
 fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
     let ball = packet.GameBall;
@@ -206,12 +207,13 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
     };
 }
 
-type HybridAStarFunc = extern fn (current: &PlayerState, desired: &PlayerState, step_duration: f32) -> (Option<Vec<(PlayerState, BrickControllerState)>>, Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>);
+type PlayFunc = extern fn (game: &GameState) -> PlanResult;
 
 /// this is the entry point for custom logic for this specific bot
 fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
     let mut input = rlbot::PlayerInput::default();
-    println!("packet player location: {:?}", packet.GameCars[0].Physics.Location);
+
+    //println!("packet player location: {:?}", packet.GameCars[0].Physics.Location);
     update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
 
     // FIXME is there a way to unlock without a made up scope?
@@ -226,19 +228,23 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
     // TODO get extra visualization data and desired controller state from BRAIN
     if let Some(ref x) = BRAIN.lock().unwrap().lib {
         // TODO cache
-        let hybrid_a_star: Symbol<HybridAStarFunc> = unsafe {
-            x.lib.get(b"hybrid_a_star\0").unwrap()
+        let play: Symbol<PlayFunc> = unsafe {
+            x.lib.get(b"play\0").unwrap()
         };
 
 
         let game_state = &GAME_STATE.read().unwrap();
         //println!("player: {:?}", game_state.player);
-        let (mut path, mut lines) = hybrid_a_star(&game_state.player, &PlayerState::default(), 20.0/120.0);
+        let PlanResult { plan: mut path, visualization_lines: mut lines } = play(&game_state);
         let mut visualize_lines = VISUALIZE_LINES.write().unwrap();
         //println!("path: {:?}, lines: {:?}", path, lines);
         visualize_lines.clear();
         visualize_lines.append(&mut lines);
         if let Some(path) = path {
+            // first item in path is initial position, so we go to second index. may be missing if we are already there!
+            if let Some((_, controller)) = path.get(1) {
+                input = convert_controller_to_rlbot_input(&controller);
+            }
             let pos = game_state.player.position;
             let mut last_point = Point3::new(pos.x, pos.y, pos.z);
             for (ps, _) in path {
@@ -249,9 +255,28 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
         }
     }
 
-    input.Steer = 0.0;
-    input.Throttle = 0.5;
     input
+}
+
+fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::PlayerInput {
+    rlbot::PlayerInput {
+        Throttle: match controller.throttle {
+            Throttle::Idle => 0.0,
+            Throttle::Forward => 1.0,
+            Throttle::Reverse => -1.0,
+        },
+        Steer: match controller.steer {
+            Steer::Straight => 0.0,
+            Steer::Left => -1.0,
+            Steer::Right => 1.0,
+        },
+        Pitch: 0.0, // brick is a brick
+        Yaw: 0.0, // brick is a brick
+        Roll: 0.0, // brick is a brick
+        Jump: false, // brick is a brick
+        Boost: false, // brick is a brick
+        Handbrake: false, // brick is a brick
+    }
 }
 
 // obtain port to communicate with python agent. must match the port the python agent is configured to send to!
@@ -294,17 +319,18 @@ fn run_server() {
 }
 
 fn main() {
-    //thread::spawn(run_bot);
-    //thread::spawn(run_visualization);
-    //run_server();
     thread::spawn(|| {
         loop {
             let t = thread::spawn(|| {
-                panic::catch_unwind(run_test);
+                panic::catch_unwind(run_bot);
+                //panic::catch_unwind(run_test);
             });
             t.join();
             thread::sleep_ms(1000);
         }
     });
-    run_visualization();
+
+    //run_visualization();
+    thread::spawn(run_visualization);
+    run_server();
 }

@@ -84,7 +84,7 @@ lazy_static! {
 /// desired state, if any is possible.
 // TODO maybe we should take the entire gamestate instead. we also need a history component
 #[no_mangle]
-pub extern fn plan(player: &PlayerState, ball: &BallState, desired_state: &DesiredState) -> Option<BrickControllerState> {
+pub extern fn plan(player: &PlayerState, ball: &BallState, desired_state: &DesiredState) -> PlanResult {
     // TODO figure out the right function to call rather than expect/unwrap
     //let ref desired_player: &PlayerState = &desired.player.expect("desired player is required for now");
     if let Some(ref desired_player) = desired_state.player {
@@ -99,12 +99,8 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_state: &Desir
 
     let mut controller = BrickControllerState::new();
 
-    let step_duration = 1.0; // FIXME how to set this?
-    let (path, visualization_lines) = hybrid_a_star(player, &desired_state.player.unwrap(), step_duration);
-    match path {
-        Some(p) => Some(p.first().unwrap().1),
-        None => None,
-    }
+    let step_duration = 20.0/120.0; // FIXME how to set this?
+    hybrid_a_star(player, &desired_state.player.unwrap(), step_duration)
 }
 
 #[derive(Clone, Debug)]
@@ -167,7 +163,7 @@ struct RoundedPlayerState {
 
 
 #[no_mangle]
-pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_duration: f32) -> (Option<Vec<(PlayerState, BrickControllerState)>>, Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>) {
+pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_duration: f32) -> PlanResult {
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
     let mut visualization_lines = vec![];
@@ -232,7 +228,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
                 // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
                 // DEBUG // println!("");
-                return ( Some(reverse_path(&parents, index, is_secondary)), visualization_lines );
+                return PlanResult {
+                    plan: Some(reverse_path(&parents, index, is_secondary)),
+                    visualization_lines,
+                };
             }
 
             // We may have inserted a node several time into the binary heap if we found
@@ -448,7 +447,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     // DEBUG //     println!("val: {:?}", player);
     // DEBUG // });
 
-    (None, visualization_lines)
+    PlanResult { plan: None, visualization_lines }
 }
 
 /// the step duration defines the margin of error we allow. larger steps means we allow a larger

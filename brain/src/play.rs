@@ -79,7 +79,7 @@ fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector
 //
 // XXX maybe some of this logic should go in plan::plan, by taking a desired ball position. this
 // way we can reuse that for passing, goal keeping, shadow defending, etc, etc
-fn shoot(game: &GameState) -> Option<BrickControllerState> {
+fn shoot(game: &GameState) -> PlanResult {
     let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 5.0);
 
@@ -116,7 +116,7 @@ fn shoot(game: &GameState) -> Option<BrickControllerState> {
                     ball: None,
                 }
             } else {
-                return None
+                return PlanResult { plan: None, visualization_lines: vec![] };
             }
         },
     };
@@ -137,21 +137,15 @@ fn non_admissable_estimated_time(current: &PlayerState, desired: &PlayerState) -
 //fn shadow(game: &GameState) -> PlayerState {
 //}
 
-fn go_to_mid(game: &GameState) -> BrickControllerState {
-    let controller = plan::plan(&game.player, &game.ball, &DesiredState {
+fn go_to_mid(game: &GameState) -> PlanResult {
+    plan::plan(&game.player, &game.ball, &DesiredState {
         player: Some(PlayerState {
-            position: Vector3::new(0.0, 0.0, 0.0),
+            position: Vector3::new(-3000.0, 2000.0, 0.0),
             velocity: Vector3::new(0.0, 0.0, 0.0),
             rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),
             team: Team::Blue, // TODO let's separate stuff like this out, Player vs PlayerState maybe
         }),
         ball: None,
-    });
-
-    controller.unwrap_or_else(|| {
-        let mut fallback = BrickControllerState::new();
-        fallback.throttle = Throttle::Forward;
-        fallback
     })
 }
 
@@ -159,9 +153,16 @@ fn go_to_mid(game: &GameState) -> BrickControllerState {
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
 #[no_mangle]
-pub extern fn play(game: &GameState) -> BrickControllerState {
+pub extern fn play(game: &GameState) -> PlanResult {
     match what_do(&game) {
         Action::GoToMid => go_to_mid(&game),
         //Action::Shoot => shoot(),
     }
+
+    // TODO fallback value when we don't know what to do
+    //plan_result.plan.unwrap_or_else(|| {
+    //    let mut fallback = BrickControllerState::new();
+    //    fallback.throttle = Throttle::Forward;
+    //    fallback
+    //})
 }
