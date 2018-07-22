@@ -5,6 +5,7 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 nalgebra = "0.14"
+lazy_static = "1.0"
 
 [dependencies.rlbot]
 path = "../rlbot"

@@ -1,8 +1,9 @@
 use state::*;
 use plan;
 use predict;
-use na::{ Vector3, UnitQuaternion };
+use na::{ self, Unit, Vector3, Rotation3, UnitQuaternion };
 use std::f32::consts::PI;
+use std;
 use predict::arena::{ BACK_WALL_DISTANCE, GOAL_Z };
 
 
@@ -28,27 +29,109 @@ fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
     }
 }
 
-// TODO
-//fn shoot(game: &GameState) -> Option<PlayerState> {
-//    let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
-//    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 5.0);
-//    let mut shooting_player_state = PlayerState::default();
-//    let shootable_ball_state = ball_trajectory.binary_search_by(|ball| {
-//        shooting_player_state = shooting_player_states(ball, desired_ball_position).find(|shooting_player| {
-//        });
-//        shooting_player_state.time // hmm, let's use enumerate and use the index here for time? would be nice to just store the time maybe in samples instead...
-//    });
+
+/// simpler version of shooting_player_state when we just need a basic guess
+fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector3<f32>) -> PlayerState {
+    let mut shooting_player = PlayerState::default();
+
+    let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
+    let desired_velocity = 1000.0 * desired_vector.unwrap();
+    let velocity_delta = desired_velocity - ball.velocity;
+
+    // this is pretty crude, doesn't even consider that the ball will undergo gravity after the
+    // hit! but should be good enough for us here for now
+    let impulse_direction = Unit::new_normalize(velocity_delta);
+    let ball_normal = -1.0 * impulse_direction.unwrap();
+
+    shooting_player.position = ball.position + (BALL_RADIUS + CAR_DIMENSIONS.x/2.0) * ball_normal;
+
+    shooting_player.position = ball.position + (BALL_RADIUS + CAR_DIMENSIONS.x/2.0) * ball_normal;
+
+    //let rotation = impulse_direction * na::inverse(&Unit::new_unchecked(Vector3::new(-1.0, 0.0, 0.0)));
+    //shooting_player.rotation = UnitQuaternion::from_rotation_matrix(&rotation);
+    // https://math.stackexchange.com/a/476311
+    let initial = Vector3::new(-1.0, 0.0, 0.0);
+    let v: Vector3<f32> = initial.cross(&impulse_direction);
+    let vx = v.cross_matrix();
+    let c = na::dot(&initial, &impulse_direction);
+    let identity = Rotation3::identity();
+    let rotation = Rotation3::from_matrix_unchecked(identity.matrix() + vx + (vx * vx) * (1.0 / (1.0 / c)));
+    shooting_player.rotation = UnitQuaternion::from_rotation_matrix(&rotation);
+
+    shooting_player
+}
+
+// 1. get desired ball position to shoot at
+// 2. binary search the ball trajectory
+// 3. for each search pivot point, determine a set of car states (position/velocity) that collide
+//    with the ball in such a way as to cause the ball to head towards the desired ball position
+// 4. based on that desired player state (shooting_player_state), we now need to determine the
+//    time by which we can arrive at that point. this is a guestimate, maybe we can use very
+//    coarse a* for this if it's fast enough, or just a version of the heuristic_cost function
+//    that isn't so admissible (ie more realistic/average timing).
+// 5. compare that to the time in the ball trajectory
+// 6. if we arrived earlier than the ball, we know we can hit it at an earlier point in it's
+//    trajectory. if we arrived later, then we hope we can hit it on time at a later point in
+//    the trajctory
+// 7. boom we found the earliest point at which it's possible to hit the ball into its desired
+//    position, and got the corresponding desired player state all at once.
+// 8. plan motion to reach desired player state
 //
-//    match shootable_ball_state  {
-//        Some(_ball_state) => Ok(shooting_player_state ),
-//        None => Err(()),
-//    }
-//
-//    plan::plan(&game.player, &game.ball, DesiredState {
-//        player: None(),
-//        ball: shootable_ball_state
-//    })
-//}
+// XXX maybe some of this logic should go in plan::plan, by taking a desired ball position. this
+// way we can reuse that for passing, goal keeping, shadow defending, etc, etc
+fn shoot(game: &GameState) -> Option<BrickControllerState> {
+    let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
+    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 5.0);
+
+    let mut shooting_player = PlayerState::default();
+    let mut shooting_time = std::f32::MAX;
+    let shootable_ball_state = ball_trajectory.iter().enumerate().collect::<Vec<_>>().binary_search_by(|(i, ball)| {
+        let ball_time = (*i as f32) / predict::TICK;
+
+        shooting_player = simple_shooting_player_state(ball, &desired_ball_position);
+        shooting_time = non_admissable_estimated_time(&game.player, &shooting_player);
+        if shooting_time == ball_time {
+            std::cmp::Ordering::Equal
+        } else if shooting_time < ball_time {
+            std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
+        }
+    });
+
+    let desired_state = match shootable_ball_state {
+        Ok(i) => {
+            DesiredState {
+                player: Some(shooting_player),
+                ball: None,
+            }
+        },
+        Err(i) => {
+            // we may not find an exact match with time. so we want to allow for some wiggle room
+            // here and use the closet desired state
+            let ball_time = (i as f32) / predict::TICK;
+            if (ball_time - shooting_time).abs() < 0.05 {
+                DesiredState {
+                    player: Some(shooting_player),
+                    ball: None,
+                }
+            } else {
+                return None
+            }
+        },
+    };
+
+    // TODO if we move the above logic to `plan::plan`, we can maybe call it this way:
+    //plan::plan(&game.player, &game.ball, &DesiredState {
+    //    player: None,
+    //    ball: shooting_player
+    //})
+    plan::plan(&game.player, &game.ball, &desired_state)
+}
+
+fn non_admissable_estimated_time(current: &PlayerState, desired: &PlayerState) -> f32 {
+    unimplemented!();
+}
 
 // TODO
 //fn shadow(game: &GameState) -> PlayerState {

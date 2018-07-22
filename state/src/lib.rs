@@ -1,12 +1,21 @@
 extern crate nalgebra as na;
 extern crate rlbot;
 
+#[macro_use]
+extern crate lazy_static;
+
 use na::{Vector3, UnitQuaternion};
 use std::f32::consts::PI;
 
 // XXX must confirm. this might include height of the ball in free play when it first starts
 // floating above the ground, which would be no good. 91.25 has been seen in RLBounce
 pub static BALL_RADIUS: f32 = 93.143;
+
+lazy_static! {
+    // batmobile
+    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.82, 84.67, 29.39);
+    pub static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
+}
 
 #[derive(Debug, Default)]
 pub struct GameState {

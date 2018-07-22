@@ -27,10 +27,6 @@ use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateSta
 
 
 lazy_static! {
-    // batmobile
-    static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.82, 84.67, 29.39);
-    static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
-
     static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
 
     static ref GAME_STATE: RwLock<GameState> = {

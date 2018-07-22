@@ -351,6 +351,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "state"
 version = "0.1.0"
 dependencies = [
+ "lazy_static 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nalgebra 0.14.4 (registry+https://github.com/rust-lang/crates.io-index)",
  "rlbot 0.1.0",
 ]
