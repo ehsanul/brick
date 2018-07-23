@@ -212,6 +212,19 @@ struct RoundedPlayerState {
 }
 
 
+// it's a lot more expensive to do the search with small step durations, so we impose a low max
+// cost in that case, which represents the amount of time we can simulate into the future. it is
+// expected that the caller specifies a low step duration only when the search space is supposed to
+// be quite small, and will fit in the below max cost
+fn max_cost(step_duration: f32) -> f32 {
+    match step_duration {
+        FINE_STEP => 0.4,
+        MEDIUM_STEP => 0.8,
+        COARSE_STEP | VERY_COARSE_STEP => 5.0,
+        _ => unimplemented!("max_cost step_duration") // we have only tuned for the values above, not allowing others for now
+    }
+}
+
 #[no_mangle]
 pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_duration: f32) -> PlanResult {
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
