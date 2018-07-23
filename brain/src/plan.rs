@@ -1,7 +1,8 @@
 use state::*;
 use predict;
-use na::{ Vector3, Point3, UnitQuaternion };
+use na::{ self, Vector3, Point3, UnitQuaternion };
 use std::cmp::Ordering;
+use std::f32::consts::PI;
 
 use std::collections::BinaryHeap;
 use indexmap::map::Entry::{Occupied, Vacant};
@@ -79,6 +80,54 @@ lazy_static! {
     };
 }
 
+const FINE_STEP: f32 = 4.0 / predict::FPS;
+const MEDIUM_STEP: f32 = 10.0 / predict::FPS;
+const COARSE_STEP: f32 = 20.0 / predict::FPS;
+const VERY_COARSE_STEP: f32 = 60.0 / predict::FPS;
+pub(crate) fn appropriate_step(current: &PlayerState, desired: &PlayerState) -> f32 {
+    let speed = current.velocity.norm();
+    let delta = desired.position - current.position;
+    let distance = delta.norm();
+    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let dot = na::dot(&current_heading, &delta);
+
+    if distance < 500.0 {
+        // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
+        // don't go as far along any turning curves, and thus we end up in the same angle, just
+        // earlier
+        let min_dot = 0.9;
+
+        // check if the desired state within a cone around our heading, whose angle is determined by the speed
+        if dot > min_dot {
+            FINE_STEP
+        } else {
+            // we'll probably have to go the long way around as we aren't facing the right way for
+            // this, so use a coarse step
+            COARSE_STEP
+        }
+    } else if distance < 1000.0 {
+
+        let min_dot = if speed < 400.0 {
+            // XXX in this measurement, it only managed to go 400uu total, so... we probably need
+            // to do something smarter here long-term
+            0.68
+        } else {
+            // fastest, so it's the tighest angle
+            0.75
+        };
+
+        // check if the desired state within a cone around our heading, whose angle is determined by the speed
+        if dot > min_dot {
+            MEDIUM_STEP
+        } else {
+            // we'll probably have to go the long way around as we aren't facing the right way for
+            // this, so use a coarse step
+            COARSE_STEP
+        }
+    } else {
+        COARSE_STEP
+    }
+}
 
 /// given the current state and a desired state, return one frame of input that will take us to the
 /// desired state, if any is possible.
@@ -99,7 +148,8 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_state: &Desir
 
     let mut controller = BrickControllerState::new();
 
-    let step_duration = 20.0/120.0; // FIXME how to set this?
+    let step_duration = appropriate_step(&player, &desired_state.player.unwrap());
+
     hybrid_a_star(player, &desired_state.player.unwrap(), step_duration)
 }
 
@@ -185,6 +235,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
     parents.insert(round_player_state(&current, step_duration, false, current.velocity.norm()), (start, None));
 
+    let max_cost = max_cost(step_duration);
     let mut i = 0.0f32;
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
         // DEBUG // println!("estimated_cost: {}, cost_so_far: {}, index: {}, is_secondary: {}", estimated_cost, cost_so_far, index, is_secondary);
@@ -198,8 +249,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         // DEBUG // }
         // DEBUG // println!("===========================");
 
-        // hack to avoid a infinite graph search
-        if cost_so_far > 5.0 {
+        // avoid an infinite graph search
+        if cost_so_far > max_cost {
             break;
         }
 
@@ -507,19 +558,35 @@ fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<Pla
     path.into_iter().rev().collect()
 }
 
+fn grid_factor(step_duration: f32, pruning: bool, speed: f32) -> f32 {
+    match step_duration {
+        FINE_STEP => {
+            if speed < 400.0 {
+                if pruning { 0.4 } else { 1.0 }
+            } else if speed < 1000.0 {
+                if pruning { 0.16 } else { 0.4 } // TODO tune
+            } else {
+                if pruning { 0.08 } else { 0.12 }
+            }
+        }
+        MEDIUM_STEP => if pruning { 1.0 } else { 2.0 } // TODO tune
+        COARSE_STEP | VERY_COARSE_STEP => if pruning { 1.0 } else { 2.0 } // TODO tune
+        _ => unimplemented!("grid factor") // we have only tuned for the values above, not allowing others for now
+    }
+}
+
 fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool, speed: f32) -> RoundedPlayerState {
     // we're using the rounded speed to determine the grid size. we want a good bit of tolerance for
     // this, if we relax the rounded velocity equality check. or some other logic that will ensure
     // same grid for different player states that we want to match
-    let rounding_factor = if pruning { 1.0 } else { 500.0 }; // TODO tune. for both correctness AND speed!
-    let grid_factor = if pruning { 1.0 } else { 2.0 };
+    let rounding_factor = if pruning { 1.0 } else { 200.0 }; // TODO tune. for both correctness AND speed!
     let mut rounded_speed = (speed / rounding_factor).round();
     if rounded_speed == 0.0 {
         rounded_speed = 0.5;
     }
     let rounded_speed = rounded_speed * rounding_factor;
 
-    let mut grid_size = grid_factor * step_duration * rounded_speed;
+    let mut grid_size = step_duration * rounded_speed * grid_factor(step_duration, pruning, speed);
     let velocity_margin = 250.0; // TODO tune
     let (roll, pitch, yaw) = player.rotation.to_euler_angles();
 
