@@ -139,7 +139,7 @@ fn run_visualization(){
 
         for l in lines.iter() {
             window.draw_line(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &Point3::new(l.1.x / 1000.0, l.1.y / 1000.0, l.1.z / 1000.0), &l.2);
-            window.draw_point(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &l.2);
+            //window.draw_point(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &l.2);
         }
     }
 }
@@ -235,11 +235,14 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
 
         let game_state = &GAME_STATE.read().unwrap();
         //println!("player: {:?}", game_state.player);
-        let PlanResult { plan: mut path, visualization_lines: mut lines } = play(&game_state);
+        let PlanResult { plan: mut path, desired, visualization_lines: mut lines } = play(&game_state);
         let mut visualize_lines = VISUALIZE_LINES.write().unwrap();
         //println!("path: {:?}, lines: {:?}", path, lines);
         visualize_lines.clear();
-        visualize_lines.append(&mut lines);
+        let pos = game_state.player.position;
+        let dpos = desired.player.unwrap().position; 
+        visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
+        //visualize_lines.append(&mut lines);
         if let Some(path) = path {
             // first item in path is initial position, so we go to second index. may be missing if we are already there!
             if let Some((_, controller)) = path.get(1) {

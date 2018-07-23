@@ -1,6 +1,6 @@
 use state::*;
 use predict;
-use na::{ self, Vector3, Point3, UnitQuaternion };
+use na::{ self, Unit, Vector3, Point3, UnitQuaternion };
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 
@@ -83,13 +83,13 @@ lazy_static! {
 const FINE_STEP: f32 = 4.0 / predict::FPS;
 const MEDIUM_STEP: f32 = 10.0 / predict::FPS;
 const COARSE_STEP: f32 = 20.0 / predict::FPS;
-const VERY_COARSE_STEP: f32 = 60.0 / predict::FPS;
+const VERY_COARSE_STEP: f32 = 40.0 / predict::FPS;
 pub(crate) fn appropriate_step(current: &PlayerState, desired: &PlayerState) -> f32 {
     let speed = current.velocity.norm();
     let delta = desired.position - current.position;
     let distance = delta.norm();
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let dot = na::dot(&current_heading, &delta);
+    let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
 
     if distance < 500.0 {
         // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
@@ -137,7 +137,7 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_state: &Desir
     // TODO figure out the right function to call rather than expect/unwrap
     //let ref desired_player: &PlayerState = &desired.player.expect("desired player is required for now");
     if let Some(ref desired_player) = desired_state.player {
-        println!("{}", desired_player.position);
+        //println!("{}", desired_player.position);
     } else {
         panic!("desired player is required for now");
     }
@@ -294,6 +294,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 // DEBUG // println!("");
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
+                    desired: DesiredState { player: Some(desired.clone()), ball: None },
                     visualization_lines,
                 };
             }
@@ -511,7 +512,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     // DEBUG //     println!("val: {:?}", player);
     // DEBUG // });
 
-    PlanResult { plan: None, visualization_lines }
+    PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines }
 }
 
 /// the step duration defines the margin of error we allow. larger steps means we allow a larger
@@ -582,8 +583,8 @@ fn grid_factor(step_duration: f32, pruning: bool, speed: f32) -> f32 {
                 if pruning { 0.08 } else { 0.12 }
             }
         }
-        MEDIUM_STEP => if pruning { 1.0 } else { 2.0 } // TODO tune
-        COARSE_STEP | VERY_COARSE_STEP => if pruning { 1.0 } else { 2.0 } // TODO tune
+        MEDIUM_STEP => if pruning { 1.0 } else { 1.25 } // TODO tune
+        COARSE_STEP | VERY_COARSE_STEP => if pruning { 1.0 } else { 1.5 } // TODO tune
         _ => unimplemented!("grid factor") // we have only tuned for the values above, not allowing others for now
     }
 }
@@ -608,7 +609,7 @@ fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool, s
         // worth it.
         x: (grid_size * (player.position.x / grid_size).round()) as i16,
         y: (grid_size * (player.position.y / grid_size).round()) as i16,
-        z: (grid_size * (player.position.z / grid_size).round()) as i16,
+        z: 0i16, // FIXME // (grid_size * (player.position.z / grid_size).round()) as i16,
 
         //   // XXX including velocity in the search space might just be too much. but let's give it
         //   // a shot sometime later.

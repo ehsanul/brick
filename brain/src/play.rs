@@ -5,18 +5,18 @@ use na::{ self, Unit, Vector3, Rotation3, UnitQuaternion };
 use std::f32::consts::PI;
 use std;
 use predict::arena::{ BACK_WALL_DISTANCE, GOAL_Z };
-
+use std::time::{Duration, Instant};
 
 enum Action {
-    //Shoot,
+    Shoot,
     //Shadow,
-    GoToMid, // XXX not a real action, just a test
+    //GoToMid, // XXX not a real action, just a test
 }
 
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
 fn what_do(game: &GameState) -> Action {
-    Action::GoToMid // TODO
+    Action::Shoot // TODO
 }
 
 
@@ -47,9 +47,7 @@ fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector
 
     shooting_player.position = ball.position + (BALL_RADIUS + CAR_DIMENSIONS.x/2.0) * ball_normal;
 
-    //let rotation = impulse_direction * na::inverse(&Unit::new_unchecked(Vector3::new(-1.0, 0.0, 0.0)));
-    //shooting_player.rotation = UnitQuaternion::from_rotation_matrix(&rotation);
-    // https://math.stackexchange.com/a/476311
+   // https://math.stackexchange.com/a/476311
     let initial = Vector3::new(-1.0, 0.0, 0.0);
     let v: Vector3<f32> = initial.cross(&impulse_direction);
     let vx = v.cross_matrix();
@@ -59,6 +57,68 @@ fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector
     shooting_player.rotation = UnitQuaternion::from_rotation_matrix(&rotation);
 
     shooting_player
+}
+
+// FIXME this rough step is probably too rough when we're really close,
+//       so probably needs to be dynamic based on distance or some such
+static ROUGH_STEP: f32 = 40.0/120.0;
+
+fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<PlayerState> {
+    let start = Instant::now();
+
+
+    let mut closest_shooting_player = player.clone();
+    let mut closest_time_diff = std::f32::MAX;
+    let shootable_ball_state = ball_trajectory.iter().enumerate().collect::<Vec<_>>().binary_search_by(|(i, ball)| {
+        let ball_time = (*i as f32) * predict::TICK;
+
+        let start2 = Instant::now();
+
+        let shooting_player = simple_shooting_player_state(ball, &desired_ball_position);
+        let shooting_time = non_admissable_estimated_time(&player, &shooting_player);
+        let time_diff = (ball_time - shooting_time).abs();
+        if time_diff < closest_time_diff {
+            closest_time_diff = time_diff;
+            closest_shooting_player = shooting_player;
+        }
+        //println!("#############################");
+        //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
+
+        println!("shooting player: {:?}", shooting_player);
+        println!("shooting time: {}", shooting_time);
+        println!("ball time: {}", ball_time);
+        println!("----------------------");
+        if shooting_time == ball_time {
+            std::cmp::Ordering::Equal
+        } else if shooting_time < ball_time {
+            std::cmp::Ordering::Greater
+        } else {
+            std::cmp::Ordering::Less
+        }
+    });
+    if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
+        println!("#############################");
+        println!("TOTAL SHOOTABLE DURATION: {:?}", start.elapsed());
+        println!("#############################");
+    }
+    let start = Instant::now();
+
+    match shootable_ball_state {
+        Ok(i) => {
+            // TODO don't re-calculate this, store temporarily in a variable instead
+            Some(simple_shooting_player_state(&ball_trajectory[i], &desired_ball_position))
+        }
+        Err(i) => {
+            // we may not find an exact match with time. so we want to allow for some wiggle room
+            // here and use the closest desired state if it seems reachable
+            if closest_time_diff < ROUGH_STEP*1.2 {
+                Some(closest_shooting_player)
+            } else {
+                println!("no plan found! closest_time_diff: {}, ROUGH_STEP: {}", closest_time_diff, ROUGH_STEP);
+                None
+            }
+        }
+    }
 }
 
 // 1. get desired ball position to shoot at
@@ -81,44 +141,62 @@ fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector
 // way we can reuse that for passing, goal keeping, shadow defending, etc, etc
 fn shoot(game: &GameState) -> PlanResult {
     let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
-    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 5.0);
+    let start = Instant::now();
+    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 10.0);
+    //println!("#############################");
+    //println!("BALL DURATION: {:?}", start.elapsed());
+    //println!("#############################");
+    let start = Instant::now();
 
-    let mut shooting_player = PlayerState::default();
-    let mut shooting_time = std::f32::MAX;
-    let shootable_ball_state = ball_trajectory.iter().enumerate().collect::<Vec<_>>().binary_search_by(|(i, ball)| {
-        let ball_time = (*i as f32) / predict::TICK;
-
-        shooting_player = simple_shooting_player_state(ball, &desired_ball_position);
-        shooting_time = non_admissable_estimated_time(&game.player, &shooting_player);
-        if shooting_time == ball_time {
-            std::cmp::Ordering::Equal
-        } else if shooting_time < ball_time {
-            std::cmp::Ordering::Less
-        } else {
-            std::cmp::Ordering::Greater
-        }
+    // since we binary search the trajectory, it's useful to do that over two slices,
+    // depending on whether we have to turn to reach the ball or not. this ensures we
+    //  don't think we need to turn to hit a ball that will be behind us in 5 seconds,
+    // given it's coming towards us and right in front already.
+    let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let transition_index = ball_trajectory.iter().position(|ball| {
+        let towards_ball = Unit::new_normalize(ball.position - game.player.position);
+        na::dot(&current_heading, &towards_ball) < 0.65 // FIXME tune
     });
+    let trajectory_in_front: &[BallState];
+    let trajectory_behind: &[BallState];
+    if let Some(transition_index) = transition_index {
+        println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
+        let (first, last) = ball_trajectory.split_at(transition_index);
+        trajectory_in_front = first;
+        trajectory_behind = last;
+    } else {
+        println!("no transition");
+        trajectory_in_front = &ball_trajectory;
+        trajectory_behind = &[];
+    }
 
-    let desired_state = match shootable_ball_state {
-        Ok(i) => {
+    println!("x x x x x x x x x x x x");
+    let desired_state = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
+        Some(shooting_player) => {
             DesiredState {
-                player: Some(shooting_player),
                 ball: None,
+                player: Some(shooting_player),
             }
-        },
-        Err(i) => {
-            // we may not find an exact match with time. so we want to allow for some wiggle room
-            // here and use the closet desired state
-            let ball_time = (i as f32) / predict::TICK;
-            if (ball_time - shooting_time).abs() < 0.05 {
-                DesiredState {
-                    player: Some(shooting_player),
-                    ball: None,
+        }
+        None => {
+            // FIXME
+            let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
+            return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![] };
+
+            println!("y y y y y y y y y y y y ");
+            match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
+                Some(shooting_player) => {
+                    DesiredState {
+                        ball: None,
+                        player: Some(shooting_player),
+                    }
                 }
-            } else {
-                return PlanResult { plan: None, visualization_lines: vec![] };
+                None => {
+                    let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
+                    return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![] };
+                }
             }
-        },
+        }
     };
 
     // TODO if we move the above logic to `plan::plan`, we can maybe call it this way:
@@ -126,11 +204,24 @@ fn shoot(game: &GameState) -> PlanResult {
     //    player: None,
     //    ball: shooting_player
     //})
-    plan::plan(&game.player, &game.ball, &desired_state)
+    let start = Instant::now();
+    let x = plan::plan(&game.player, &game.ball, &desired_state);
+    if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
+        println!("#############################");
+        println!("PLAN DURATION: {:?}", start.elapsed());
+        println!("#############################");
+    }
+    let start = Instant::now();
+    x
 }
 
 fn non_admissable_estimated_time(current: &PlayerState, desired: &PlayerState) -> f32 {
-    unimplemented!();
+    let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
+    if let Some(plan) = plan {
+        ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
+    } else {
+        std::f32::MAX
+    }
 }
 
 // TODO
@@ -154,10 +245,19 @@ fn go_to_mid(game: &GameState) -> PlanResult {
 // and logic for expiring it if it's no longer applicable.
 #[no_mangle]
 pub extern fn play(game: &GameState) -> PlanResult {
-    match what_do(&game) {
-        Action::GoToMid => go_to_mid(&game),
-        //Action::Shoot => shoot(),
+    let start = Instant::now();
+    let x = match what_do(&game) {
+        //Action::GoToMid => go_to_mid(&game),
+        Action::Shoot => shoot(&game),
+    };
+    let duration = start.elapsed();
+    if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
+        println!("#############################");
+        println!("TOTAL DURATION: {:?}", duration);
+        println!("#############################");
     }
+
+    x
 
     // TODO fallback value when we don't know what to do
     //plan_result.plan.unwrap_or_else(|| {
