@@ -5,6 +5,7 @@ use std::cmp::Ordering;
 use std::f32::consts::PI;
 
 use std::collections::BinaryHeap;
+use std::mem;
 use indexmap::map::Entry::{Occupied, Vacant};
 use indexmap::IndexMap;
 use std::usize;
@@ -219,7 +220,7 @@ struct RoundedPlayerState {
 fn max_cost(step_duration: f32) -> f32 {
     match step_duration {
         FINE_STEP => 0.4,
-        MEDIUM_STEP => 0.8,
+        MEDIUM_STEP => 1.0,
         COARSE_STEP | VERY_COARSE_STEP => 5.0,
         _ => unimplemented!("max_cost step_duration") // we have only tuned for the values above, not allowing others for now
     }
@@ -248,6 +249,23 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
     parents.insert(round_player_state(&current, step_duration, false, current.velocity.norm()), (start, None));
 
+    let slop = match step_duration {
+        FINE_STEP => 1.0, // TODO tune
+        MEDIUM_STEP => 20.0, // TODO tune
+        COARSE_STEP => 20.0, // TODO tune
+        VERY_COARSE_STEP => 200.0, // TODO tune
+        _ => unimplemented!("slop"),
+    };
+
+    let desired_box = BoundingBox {
+        min_x: desired.position.x - slop,
+        max_x: desired.position.x + slop,
+        min_y: desired.position.y - slop,
+        max_y: desired.position.y + slop,
+        min_z: desired.position.z - slop,
+        max_z: desired.position.z + slop,
+    };
+
     let max_cost = max_cost(step_duration);
     let mut i = 0.0f32;
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
@@ -275,23 +293,33 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
         let line_start;
         let new_vertices = {
-            let (_rounded, (v1, maybe_v2)) = parents.get_index(index).expect("missing index in parents, shouldn't be possible");
+            let (_, (v1, maybe_v2)) = parents.get_index(index).expect("missing index in parents, shouldn't be possible");
             let vertex = if is_secondary { maybe_v2.as_ref().unwrap() }  else { v1 };
             line_start = vertex.player.position;
 
-            if player_goal_reached(&vertex.player, &desired, step_duration) {
-                // DEBUG // println!("");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("");
-                // DEBUG // println!("omg reached {}", visualization_lines.len());
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("|||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||||");
-                // DEBUG // println!("");
+
+            let mut parent_player;
+            if let Some((_, (parent_v1, maybe_parent_v2))) = parents.get_index(vertex.parent_index) {
+                let parent_vertex = if vertex.parent_is_secondary {
+                    maybe_parent_v2.as_ref().unwrap()
+                } else {
+                    parent_v1
+                };
+                parent_player = parent_vertex.player;
+            } else {
+                // no parent, this can only happen on first expansion. we need to construct a fake
+                // one just so that goal detection works
+                parent_player = vertex.player.clone();
+
+                // avoid divide by zero during direction vector inversion
+                parent_player.position.x += 0.1;
+                parent_player.position.y += 0.1;
+                parent_player.position.z += 0.1;
+            }
+
+            //if player_goal_reached(&vertex.player, &desired, step_duration) {
+            if player_goal_reached2(&desired_box, &vertex.player, &parent_player) {
+                //println!("omg reached {}", visualization_lines.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
                     desired: DesiredState { player: Some(desired.clone()), ball: None },
@@ -438,7 +466,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         }
     }
 
-    // DEBUG // println!("omg failed {}", visualization_lines.len());
+    //println!("omg failed {}", visualization_lines.len());
     // DEBUG // println!("Desired\n========================");
     // DEBUG // let speed = desired.velocity.norm();
     // DEBUG // println!("speed: {}", speed);
@@ -528,7 +556,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 // part of the problem is when the goal is at a corner of a grid cell. that means when a vertex
 // that's really close to it, but outside the grid, we miss it. then the next step takes it really
 // far away.
-//  
+//
 // so we want to change this by making the grid be positioned such that the goal is in the midpoint
 // of a grid cell.
 //
@@ -557,6 +585,15 @@ fn player_goal_reached(candidate: &PlayerState, desired: &PlayerState, step_dura
     rounded_candidate == rounded_desired
 }
 
+fn player_goal_reached2(desired_box: &BoundingBox, candidate: &PlayerState, previous: &PlayerState) -> bool {
+    // since the ray collision algorithm doesn't allow for the ray ending early, but does account
+    // for point of origin, we just test it in both directions for a complete line test. minimize
+    // the overhead by using the previous position as the ray origin first, assuming we'll
+    // mostly be moving *towards* the desired position for most expanded a* paths
+    ray_collides_bounding_box(&desired_box, previous.position, candidate.position) &&
+        ray_collides_bounding_box(&desired_box, candidate.position, previous.position)
+}
+
 fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
@@ -583,10 +620,67 @@ fn grid_factor(step_duration: f32, pruning: bool, speed: f32) -> f32 {
                 if pruning { 0.08 } else { 0.12 }
             }
         }
-        MEDIUM_STEP => if pruning { 1.0 } else { 1.25 } // TODO tune
-        COARSE_STEP | VERY_COARSE_STEP => if pruning { 1.0 } else { 1.5 } // TODO tune
+        MEDIUM_STEP => if pruning { 1.0 } else { 1.0 } // TODO tune
+        COARSE_STEP | VERY_COARSE_STEP => if pruning { 1.0 } else { 1.0 } // TODO tune
         _ => unimplemented!("grid factor") // we have only tuned for the values above, not allowing others for now
     }
+}
+
+pub struct BoundingBox {
+    min_x: f32,
+    max_x: f32,
+    min_y: f32,
+    max_y: f32,
+    min_z: f32,
+    max_z: f32,
+}
+
+
+// https://bheisler.github.io/post/writing-gpu-accelerated-path-tracer-part-3/
+// https://gamedev.stackexchange.com/a/18459/4929
+pub fn ray_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>, end: Vector3<f32>) -> bool {
+    let dir = end - start;
+    let dir_inv = Vector3::new(1.0/dir.x, 1.0/dir.y, 1.0/dir.z);
+
+    let mut txmin = (bounding_box.min_x - start.x) * dir_inv.x;
+    let mut txmax = (bounding_box.max_x - start.x) * dir_inv.x;
+
+    if txmin > txmax {
+        mem::swap(&mut txmin, &mut txmax);
+    }
+
+    let mut tymin = (bounding_box.min_y - start.y) * dir_inv.y;
+    let mut tymax = (bounding_box.max_y - start.y) * dir_inv.y;
+
+    if tymin > tymax {
+        mem::swap(&mut tymin, &mut tymax);
+    }
+
+    if txmin > tymax || tymin > txmax {
+        return false;
+    }
+
+    let mut tzmin = (bounding_box.min_z - start.z) * dir_inv.z;
+    let mut tzmax = (bounding_box.max_z - start.z) * dir_inv.z;
+
+    if tzmin > tzmax {
+        mem::swap(&mut tzmin, &mut tzmax);
+    }
+
+    let tmin = txmin.max(tymin).max(tzmin);
+    let tmax = txmax.min(tymax).min(tzmax);
+
+    // AABB is behind!
+    if tmax < 0.0 {
+        return false;
+    }
+
+    // no intersection
+    if tmin > tmax {
+        return false;
+    }
+
+    true
 }
 
 fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool, speed: f32) -> RoundedPlayerState {
@@ -725,24 +819,41 @@ mod tests {
     }
 
     #[test]
-    fn just_drive_straight() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for tick_portion in 1..121 {
-            let step_duration = (tick_portion as f32) / predict::FPS;
-            let mut current = resting_player_state();
-            current.position.y = -1000.0;
-            let desired = resting_player_state();
-            let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-            //assert!(path.is_some());
-            if path.is_some(){ count += 1 } else { failures.push(tick_portion) }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
+    fn ray_works() {
+        let slop = 1.0;
+        let bounding_box = BoundingBox {
+            min_x: 0.0 - slop,
+            max_x: 0.0 + slop,
+            min_y: 0.0 - slop,
+            max_y: 0.0 + slop,
+            min_z: 0.0 - slop,
+            max_z: 0.0 + slop,
+        };
+        let start = Vector3::new(2.0, 0.0, 0.0);
+        let end = Vector3::new(3.0, 0.0, 0.0);
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+        assert!(!ray_collides_bounding_box(&bounding_box, start, end));
     }
+
+    //#[test]
+    //fn just_drive_straight() {
+    //    let mut count = 0;
+    //    let mut failures = vec![];
+    //    for tick_portion in 1..121 {
+    //        let step_duration = (tick_portion as f32) / predict::FPS;
+    //        let mut current = resting_player_state();
+    //        current.position.y = -1000.0;
+    //        let desired = resting_player_state();
+    //        let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
+    //        //assert!(path.is_some());
+    //        if path.is_some(){ count += 1 } else { failures.push(tick_portion) }
+    //    }
+    //    println!("WORKED {} TIMES", count);
+    //    println!("FAILED {} TIMES", failures.len());
+    //    println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //    println!("FAILURES: {:?}", failures);
+    //    assert!(failures.len() == 0);
+    //}
 
     // #[test]
     // fn just_drive_straight_fuzz1() {

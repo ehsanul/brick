@@ -17,4 +17,4 @@ path = "../state"
 path = "../predict"
 
 [lib]
-crate-type = ["dylib"]
+crate-type = ["rlib", "dylib"]
