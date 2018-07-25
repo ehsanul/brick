@@ -231,6 +231,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
     let mut visualization_lines = vec![];
+    let mut visualization_points = vec![];
 
     to_see.push(SmallestCostHolder {
         estimated_cost: heuristic_cost(&current, &desired),
@@ -318,11 +319,12 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
             }
 
             if player_goal_reached(&desired_box, &vertex.player, &parent_player) {
-                //println!("omg reached {}", visualization_lines.len());
+                //println!("omg reached {}", visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
                     desired: DesiredState { player: Some(desired.clone()), ball: None },
                     visualization_lines,
+                    visualization_points,
                 };
             }
 
@@ -426,9 +428,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                             } else {
                                 // DEBUG // println!("new cost is NOT lower");
                                 // show pruned as grey
-                                visualization_lines.push((
-                                    Point3::new(line_start.x, line_start.y, line_start.z - 100.0),
-                                    Point3::new(line_end.x, line_end.y, line_end.z - 100.0),
+                                visualization_points.push((
+                                    Point3::new(line_end.x, line_end.y, line_end.z),
                                     Point3::new(0.3, 0.3, 0.3),
                                 ));
                                 continue;
@@ -442,9 +443,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 }
             }
 
-            // show expanded as colored 
-            visualization_lines.push((
-                Point3::new(line_start.x, line_start.y, line_start.z),
+            // show expanded as colored
+            visualization_points.push((
                 Point3::new(line_end.x, line_end.y, line_end.z),
                 Point3::new(0.5 + 0.5*i.sin(), 0.5 + 0.5*(i/7.0).sin(), 0.5 + 0.5*(i/23.0).sin()),
             ));
@@ -465,7 +465,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         }
     }
 
-    //println!("omg failed {}", visualization_lines.len());
+    //println!("omg failed {}", visualization_points.len());
     // DEBUG // println!("Desired\n========================");
     // DEBUG // let speed = desired.velocity.norm();
     // DEBUG // println!("speed: {}", speed);
@@ -533,7 +533,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     // DEBUG //     println!("val: {:?}", player);
     // DEBUG // });
 
-    PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines }
+    PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines, visualization_points }
 }
 
 fn player_goal_reached(desired_box: &BoundingBox, candidate: &PlayerState, previous: &PlayerState) -> bool {

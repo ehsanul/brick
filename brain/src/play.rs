@@ -193,7 +193,7 @@ fn shoot(game: &GameState) -> PlanResult {
                 }
                 None => {
                     let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
-                    return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![] };
+                    return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
                 }
             }
         }

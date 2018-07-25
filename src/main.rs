@@ -33,7 +33,11 @@ lazy_static! {
         RwLock::new(GameState::default())
     };
 
-    static ref VISUALIZE_LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
+    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
+        RwLock::new(vec![])
+    };
+
+    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = {
         RwLock::new(vec![])
     };
 
@@ -127,7 +131,8 @@ fn run_visualization(){
 
     while window.render() {
         let game_state = &GAME_STATE.read().unwrap();
-        let lines = &VISUALIZE_LINES.read().unwrap();
+        let lines = &LINES.read().unwrap();
+        let points = &POINTS.read().unwrap();
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
         sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
@@ -139,7 +144,10 @@ fn run_visualization(){
 
         for l in lines.iter() {
             window.draw_line(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &Point3::new(l.1.x / 1000.0, l.1.y / 1000.0, l.1.z / 1000.0), &l.2);
-            //window.draw_point(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &l.2);
+        }
+
+        for p in points.iter() {
+            window.draw_point(&Point3::new(p.0.x / 1000.0, p.0.y / 1000.0, p.0.z / 1000.0), &p.1);
         }
     }
 }
@@ -242,7 +250,10 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
         let pos = game_state.player.position;
         let dpos = desired.player.unwrap().position; 
         visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
-        //visualize_lines.append(&mut lines);
+
+        let mut visualize_points = POINTS.write().unwrap();
+        visualize_points.clear();
+
         if let Some(path) = path {
             // first item in path is initial position, so we go to second index. may be missing if we are already there!
             if let Some((_, controller)) = path.get(1) {
@@ -250,12 +261,18 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
             }
             let pos = game_state.player.position;
             let mut last_point = Point3::new(pos.x, pos.y, pos.z);
-            for (ps, _) in path {
-                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z);
+            let mut last_position = pos;
+            for (ps, _) in &path {
+                last_position = ps.position;
+                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 10.0);
                 visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
                 last_point = point;
             }
         }
+
+        visualize_lines.append(&mut lines);
+        visualize_points.append(&mut points);
+        //println!("path: {:?}, lines: {:?}", path, lines);
     }
 
     input

@@ -136,6 +136,7 @@ pub struct PlanResult {
     pub plan: Option<Vec<(PlayerState, BrickControllerState)>>,
     pub desired: DesiredState,
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
+    pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,
 }
 
 // XXX we may want to use different internal structs, since in some cases we may care about
