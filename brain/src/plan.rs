@@ -247,7 +247,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         parent_is_secondary: false,
     };
 
-    parents.insert(round_player_state(&current, step_duration, false, current.velocity.norm()), (start, None));
+    parents.insert(round_player_state(&current, step_duration, current.velocity.norm()), (start, None));
 
     let slop = match step_duration {
         FINE_STEP => 1.0, // TODO tune
@@ -317,8 +317,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 parent_player.position.z += 0.1;
             }
 
-            //if player_goal_reached(&vertex.player, &desired, step_duration) {
-            if player_goal_reached2(&desired_box, &vertex.player, &parent_player) {
+            if player_goal_reached(&desired_box, &vertex.player, &parent_player) {
                 //println!("omg reached {}", visualization_lines.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
@@ -341,7 +340,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
         for new_vertex in new_vertices {
             // DEBUG // println!(" - - - - - - - - - - - - - - - - -");
-            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, true, new_vertex.player.velocity.norm());
+            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
@@ -470,10 +469,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     // DEBUG // println!("Desired\n========================");
     // DEBUG // let speed = desired.velocity.norm();
     // DEBUG // println!("speed: {}", speed);
-    // DEBUG // let pruning = false;
-    // DEBUG // let rounding_factor = if pruning { 10.0 } else { 20.0 };
-    // DEBUG // println!("rounding_factor: {}", rounding_factor);
-    // DEBUG // let grid_factor = if pruning { 1.0 } else { 2.0 };
     // DEBUG // println!("grid_factor: {}", grid_factor);
     // DEBUG // let mut rounded_speed = (speed / rounding_factor).round();
     // DEBUG // if rounded_speed == 0.0 {
@@ -484,7 +479,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
     // DEBUG // let mut grid_size = grid_factor * step_duration * rounded_speed;
     // DEBUG // println!("grid_size: {}", grid_size);
-    // DEBUG // println!("round: {:?}\nval: {:?}", round_player_state(&desired, step_duration, false), desired);
     // DEBUG // println!("========================");
 
     // DEBUG // parents.iter().sorted_by(|(k1, v1), (k2, v2)| {
@@ -536,56 +530,13 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     // DEBUG //     println!("grid_size: {}", grid_size);
 
     // DEBUG //     //println!("round: {:?}", k);
-    // DEBUG //     println!("round non-pruning: {:?}", round_player_state(&player, step_duration, false));
     // DEBUG //     println!("val: {:?}", player);
     // DEBUG // });
 
     PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines }
 }
 
-/// the step duration defines the margin of error we allow. larger steps means we allow a larger
-/// margin. eg with a 1-second step, it's unlikely we can ever find that the goal has been reached
-/// unless we allow a margin that is quite big. note that the velocity and angular velocity will
-/// also figure into the margin for position and rotation.
-//
-//
-// we're having trouble with this naive implementation when given really large step sizes. the
-// problem is that the step sizes can get big enough that we overshoot the goal completely and go
-// through ti, but don't register that the state hits the goal.
-//
-// part of the problem is when the goal is at a corner of a grid cell. that means when a vertex
-// that's really close to it, but outside the grid, we miss it. then the next step takes it really
-// far away.
-//
-// so we want to change this by making the grid be positioned such that the goal is in the midpoint
-// of a grid cell.
-//
-// even if we fix this, we will still end up in the situation where a big enough step could pass
-// right over the grid containing the goal. solutions to this include:
-//
-// 1. tune the grid size so this is not possible.
-// 2. use a line intersection between candidate and it's parent node, and if that line touches the
-//    grid at any point we can consider that good
-// 3. try the midpoint instead of a full line intersection. or several points. same idea though.
-//
-// however, we want this to be really cheap! and ideally it is not used at all for small step
-// durations, we should have good enough control over the grid there to avoid this completely.
-//
-// XXX: nvm, looks like tuning the rounded_speed used for the grid size made a pretty big impact on
-// how often we find a goal state no matter the step duration etc, at least for the really basic
-// drive straight case. we'll probably have to revisit this as we add way more ways to move..
-fn player_goal_reached(candidate: &PlayerState, desired: &PlayerState, step_duration: f32) -> bool {
-    //println!("exact player goal reached\ncandidate: {:?}\ndesired: {:?}", candidate, desired);
-    let rounded_candidate = round_player_state(&candidate, step_duration, false, candidate.velocity.norm());
-
-    // NOTE we are using the candidate's speed here on purpose, so they have the same grid sizes!
-    let rounded_desired = round_player_state(&desired, step_duration, false, candidate.velocity.norm()); // TODO we could memoize this one. or avoid it by enforcing rounding at the beginning
-    //println!("rounded player goal reached\nrounded candidate: {:?}\nrounded desired: {:?}", candidate, desired);
-
-    rounded_candidate == rounded_desired
-}
-
-fn player_goal_reached2(desired_box: &BoundingBox, candidate: &PlayerState, previous: &PlayerState) -> bool {
+fn player_goal_reached(desired_box: &BoundingBox, candidate: &PlayerState, previous: &PlayerState) -> bool {
     // since the ray collision algorithm doesn't allow for the ray ending early, but does account
     // for point of origin, we just test it in both directions for a complete line test. minimize
     // the overhead by using the previous position as the ray origin first, assuming we'll
@@ -609,19 +560,19 @@ fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<Pla
     path.into_iter().rev().collect()
 }
 
-fn grid_factor(step_duration: f32, pruning: bool, speed: f32) -> f32 {
+fn grid_factor(step_duration: f32, speed: f32) -> f32 {
     match step_duration {
         FINE_STEP => {
             if speed < 400.0 {
-                if pruning { 0.4 } else { 1.0 }
+                0.4
             } else if speed < 1000.0 {
-                if pruning { 0.16 } else { 0.4 } // TODO tune
+                0.16 // TODO tune
             } else {
-                if pruning { 0.08 } else { 0.12 }
+                0.08
             }
         }
-        MEDIUM_STEP => if pruning { 1.0 } else { 1.0 } // TODO tune
-        COARSE_STEP | VERY_COARSE_STEP => if pruning { 1.0 } else { 1.0 } // TODO tune
+        MEDIUM_STEP => 1.0, // TODO tune
+        COARSE_STEP | VERY_COARSE_STEP => 1.0, // TODO tune
         _ => unimplemented!("grid factor") // we have only tuned for the values above, not allowing others for now
     }
 }
@@ -683,18 +634,18 @@ pub fn ray_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>
     true
 }
 
-fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool, speed: f32) -> RoundedPlayerState {
+fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> RoundedPlayerState {
     // we're using the rounded speed to determine the grid size. we want a good bit of tolerance for
     // this, if we relax the rounded velocity equality check. or some other logic that will ensure
     // same grid for different player states that we want to match
-    let rounding_factor = if pruning { 1.0 } else { 200.0 }; // TODO tune. for both correctness AND speed!
+    let rounding_factor = 1.0; // TODO tune. for both correctness AND speed!
     let mut rounded_speed = (speed / rounding_factor).round();
     if rounded_speed == 0.0 {
         rounded_speed = 0.5;
     }
     let rounded_speed = rounded_speed * rounding_factor;
 
-    let mut grid_size = step_duration * rounded_speed * grid_factor(step_duration, pruning, speed);
+    let mut grid_size = step_duration * rounded_speed * grid_factor(step_duration, speed);
     let velocity_margin = 250.0; // TODO tune
     let (roll, pitch, yaw) = player.rotation.to_euler_angles();
 
@@ -713,8 +664,7 @@ fn round_player_state(player: &PlayerState, step_duration: f32, pruning: bool, s
 
         //   // XXX is this the best way to round a rotation matrix? do discontinuities in euler angles
         //   // cause problems here?
-        //   // TODO use angular velocity to determine margin of rounding. again with minimum if we are
-        //   // in pruning mode.
+        //   // TODO use angular velocity to determine margin of rounding.
         //   // XXX including rotation in search space also seems like too much for now
         //   roll: 0, //(roll * 10.0).floor() as i16,
         //   pitch: 0, //(pitch * 10.0).floor() as i16,
@@ -819,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn ray_works() {
+    fn line_doesnt_collide_even_though_ray_does() {
         let slop = 1.0;
         let bounding_box = BoundingBox {
             min_x: 0.0 - slop,
@@ -831,8 +781,75 @@ mod tests {
         };
         let start = Vector3::new(2.0, 0.0, 0.0);
         let end = Vector3::new(3.0, 0.0, 0.0);
-        assert!(ray_collides_bounding_box(&bounding_box, end, start));
         assert!(!ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, 2.0, 0.0);
+        let end = Vector3::new(0.0, 3.0, 0.0);
+        assert!(!ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, 0.0, 2.0);
+        let end = Vector3::new(0.0, 0.0, 3.0);
+        assert!(!ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(-2.0, 0.0, 0.0);
+        let end = Vector3::new(-3.0, 0.0, 0.0);
+        assert!(!ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, -2.0, 0.0);
+        let end = Vector3::new(0.0, -3.0, 0.0);
+        assert!(!ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, 0.0, -2.0);
+        let end = Vector3::new(0.0, 0.0, -3.0);
+        assert!(!ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+    }
+
+    #[test]
+    fn line_collides() {
+        let slop = 1.0;
+        let bounding_box = BoundingBox {
+            min_x: 0.0 - slop,
+            max_x: 0.0 + slop,
+            min_y: 0.0 - slop,
+            max_y: 0.0 + slop,
+            min_z: 0.0 - slop,
+            max_z: 0.0 + slop,
+        };
+        let start = Vector3::new(0.5, 0.0, 0.0);
+        let end = Vector3::new(1.5, 0.0, 0.0);
+        assert!(ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, 0.5, 0.0);
+        let end = Vector3::new(0.0, 1.5, 0.0);
+        assert!(ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, 0.0, 0.5);
+        let end = Vector3::new(0.0, 0.0, 1.5);
+        assert!(ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(-0.5, 0.0, 0.0);
+        let end = Vector3::new(-1.5, 0.0, 0.0);
+        assert!(ray_collides_bounding_box(&bounding_box, start, end));
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+
+        let start = Vector3::new(0.0, -0.5, 0.0);
+        let end = Vector3::new(0.0, -1.5, 0.0);
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+        assert!(ray_collides_bounding_box(&bounding_box, start, end));
+
+        let start = Vector3::new(0.0, 0.0, -0.5);
+        let end = Vector3::new(0.0, 0.0, -1.5);
+        assert!(ray_collides_bounding_box(&bounding_box, end, start));
+        assert!(ray_collides_bounding_box(&bounding_box, start, end));
     }
 
     //#[test]
