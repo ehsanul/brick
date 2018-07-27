@@ -253,7 +253,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     let slop = match step_duration {
         FINE_STEP => 1.0, // TODO tune
         MEDIUM_STEP => 20.0, // TODO tune
-        COARSE_STEP => 20.0, // TODO tune
+        COARSE_STEP => 30.0, // TODO tune
         VERY_COARSE_STEP => 200.0, // TODO tune
         _ => unimplemented!("slop"),
     };
