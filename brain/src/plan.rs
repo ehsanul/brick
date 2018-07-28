@@ -209,7 +209,7 @@ struct RoundedPlayerState {
     //vz: i16,
     //roll: i16,
     //pitch: i16,
-    //yaw: i16,
+    yaw: i16,
 }
 
 
@@ -266,20 +266,12 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         min_z: desired.position.z - slop,
         max_z: desired.position.z + slop,
     };
+    visualization_lines.append(&mut desired_box.lines());
+
+    let (_desired_roll, _desired_pitch, desired_yaw) = desired.rotation.to_euler_angles();
 
     let max_cost = max_cost(step_duration);
-    let mut i = 0.0f32;
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
-        // DEBUG // println!("estimated_cost: {}, cost_so_far: {}, index: {}, is_secondary: {}", estimated_cost, cost_so_far, index, is_secondary);
-        // DEBUG // println!("PARENTS\n====================");
-        // DEBUG // for (k, v) in parents.iter() {
-        // DEBUG //     println!("{:?}\n   -   ->{:?}\n------------", k, v);
-        // DEBUG // }
-        // DEBUG // println!("to_see\n===========================");
-        // DEBUG // for x in to_see.iter() {
-        // DEBUG //     println!("---> {:?}", x);
-        // DEBUG // }
-        // DEBUG // println!("===========================");
 
         // avoid an infinite graph search
         if cost_so_far > max_cost {
@@ -318,7 +310,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 parent_player.position.z += 0.1;
             }
 
-            if player_goal_reached(&desired_box, &vertex.player, &parent_player) {
+            if player_goal_reached(&desired_box, desired_yaw, &vertex.player, &parent_player) {
                 //println!("omg reached {}", visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
@@ -430,7 +422,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                                 // show pruned as grey
                                 visualization_points.push((
                                     Point3::new(line_end.x, line_end.y, line_end.z),
-                                    Point3::new(0.3, 0.3, 0.3),
+                                    Point3::new(0.4, 0.0, 0.0),
                                 ));
                                 continue;
                             }
@@ -443,12 +435,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 }
             }
 
-            // show expanded as colored
             visualization_points.push((
                 Point3::new(line_end.x, line_end.y, line_end.z),
-                Point3::new(0.5 + 0.5*i.sin(), 0.5 + 0.5*(i/7.0).sin(), 0.5 + 0.5*(i/23.0).sin()),
+                Point3::new(0.6, 0.6, 0.6),
             ));
-            i += 93.0;
 
             // rustc is forcing us to initialize this every time because it doesn't understand data
             // flow, so let's manually make sure we aren't in the initial state which is never right
@@ -466,82 +456,29 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     }
 
     //println!("omg failed {}", visualization_points.len());
-    // DEBUG // println!("Desired\n========================");
-    // DEBUG // let speed = desired.velocity.norm();
-    // DEBUG // println!("speed: {}", speed);
-    // DEBUG // println!("grid_factor: {}", grid_factor);
-    // DEBUG // let mut rounded_speed = (speed / rounding_factor).round();
-    // DEBUG // if rounded_speed == 0.0 {
-    // DEBUG //     rounded_speed = 0.5;
-    // DEBUG // }
-    // DEBUG // let rounded_speed = rounded_speed * rounding_factor;
-    // DEBUG // println!("rounded_speed: {}", rounded_speed);
-
-    // DEBUG // let mut grid_size = grid_factor * step_duration * rounded_speed;
-    // DEBUG // println!("grid_size: {}", grid_size);
-    // DEBUG // println!("========================");
-
-    // DEBUG // parents.iter().sorted_by(|(k1, v1), (k2, v2)| {
-    // DEBUG //     let mut v1_h = heuristic_cost(&v1.0.player, &desired);
-    // DEBUG //     let mut v2_h = heuristic_cost(&v2.0.player, &desired);
-    // DEBUG //     if let Some(ref x1) = v1.1 {
-    // DEBUG //         v1_h = v1_h.min(heuristic_cost(&x1.player, &desired));
-    // DEBUG //     }
-    // DEBUG //     if let Some(ref x2) = v2.1 {
-    // DEBUG //         v2_h = v2_h.min(heuristic_cost(&x2.player, &desired));
-    // DEBUG //     }
-    // DEBUG //     if v1_h == v2_h {
-    // DEBUG //         Ordering::Equal
-    // DEBUG //     } else if v1_h > v2_h {
-    // DEBUG //         Ordering::Greater
-    // DEBUG //     } else {
-    // DEBUG //         Ordering::Less
-    // DEBUG //     }
-    // DEBUG // }).iter().take(10).for_each(|(k, v)| {
-    // DEBUG //     println!("--");
-
-    // DEBUG //     let player = if let Some(ref x) = v.1 {
-    // DEBUG //         if heuristic_cost(&v.0.player, &desired) < heuristic_cost(&x.player, &desired) {
-    // DEBUG //             v.0.player
-    // DEBUG //         } else {
-    // DEBUG //             x.player
-    // DEBUG //             //println!("val: {:?}", x.player);
-    // DEBUG //         }
-    // DEBUG //     } else {
-    // DEBUG //         v.0.player
-    // DEBUG //         //println!("val: {:?}", v.0.player);
-    // DEBUG //     };
-
-    // DEBUG //     let speed = player.velocity.norm();
-    // DEBUG //     println!("speed: {}", speed);
-    // DEBUG //     let pruning = false;
-    // DEBUG //     let rounding_factor = if pruning { 10.0 } else { 20.0 };
-    // DEBUG //     println!("rounding_factor: {}", rounding_factor);
-    // DEBUG //     let grid_factor = if pruning { 1.0 } else { 2.0 };
-    // DEBUG //     println!("grid_factor: {}", grid_factor);
-    // DEBUG //     let mut rounded_speed = (speed / rounding_factor).round();
-    // DEBUG //     if rounded_speed == 0.0 {
-    // DEBUG //         rounded_speed = 0.5;
-    // DEBUG //     }
-    // DEBUG //     let rounded_speed = rounded_speed * rounding_factor;
-    // DEBUG //     println!("rounded_speed: {}", rounded_speed);
-
-    // DEBUG //     let mut grid_size = grid_factor * step_duration * rounded_speed;
-    // DEBUG //     println!("grid_size: {}", grid_size);
-
-    // DEBUG //     //println!("round: {:?}", k);
-    // DEBUG //     println!("val: {:?}", player);
-    // DEBUG // });
-
     PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines, visualization_points }
 }
 
-fn player_goal_reached(desired_box: &BoundingBox, candidate: &PlayerState, previous: &PlayerState) -> bool {
+fn player_goal_reached(desired_box: &BoundingBox, desired_yaw: f32, candidate: &PlayerState, previous: &PlayerState) -> bool {
     // since the ray collision algorithm doesn't allow for the ray ending early, but does account
     // for point of origin, we just test it in both directions for a complete line test. minimize
     // the overhead by using the previous position as the ray origin first, assuming we'll
     // mostly be moving *towards* the desired position for most expanded a* paths
-    ray_collides_bounding_box(&desired_box, previous.position, candidate.position) &&
+    //
+    let (_roll, _pitch, mut yaw) = candidate.rotation.to_euler_angles();
+    let (_roll, _pitch, mut prev_yaw) = previous.rotation.to_euler_angles();
+
+    // remove discontinuity, so we can average these or do 1d itersection, whichever
+    if yaw < 0.0 { yaw = 2.0*PI + yaw; }
+    if prev_yaw < 0.0 { prev_yaw = 2.0*PI + prev_yaw; }
+    let mut desired_yaw = desired_yaw;
+    if desired_yaw < 0.0 { desired_yaw = 2.0*PI + desired_yaw; }
+
+    let division = (PI/4.0); // FIXME should not be hard-coded like this
+    let rounded_yaw = ((yaw/2.0 + prev_yaw/2.0) / division).round();
+
+    rounded_yaw == (desired_yaw / division).round() &&
+        ray_collides_bounding_box(&desired_box, previous.position, candidate.position) &&
         ray_collides_bounding_box(&desired_box, candidate.position, previous.position)
 }
 
@@ -584,6 +521,25 @@ pub struct BoundingBox {
     max_y: f32,
     min_z: f32,
     max_z: f32,
+}
+
+impl BoundingBox {
+    fn lines(&self) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+        let mut corners = vec![];
+        for &x in [self.min_x, self.max_x].iter() {
+            for &y in [self.min_y, self.max_y].iter() {
+                for &z in [self.min_z, self.max_z].iter() {
+                    corners.push(Point3::new(x, y, z));
+                }
+            }
+        }
+
+        corners.clone().iter().flat_map(|c1: &Point3<f32>| {
+            corners.iter().map(|c2: &Point3<f32>| {
+                (Point3::new(c1.x, c1.y, c1.z), Point3::new(c2.x, c2.y, c2.z), Point3::new(0.0f32, 1.0f32, 0.3f32))
+            }).collect::<Vec<_>>()
+        }).collect::<Vec<_>>()
+    }
 }
 
 
@@ -668,7 +624,7 @@ fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> R
         //   // XXX including rotation in search space also seems like too much for now
         //   roll: 0, //(roll * 10.0).floor() as i16,
         //   pitch: 0, //(pitch * 10.0).floor() as i16,
-        //   yaw: 0, //(yaw * 10.0).floor() as i16,
+        yaw: (yaw / (PI/4.0)).round() as i16, // round to nearest pi/4 angle
     }
 
 }
@@ -724,11 +680,11 @@ fn heuristic_cost(candidate: &PlayerState, desired: &PlayerState) -> f32 {
     let relative_velocity = (desired.velocity - candidate.velocity).norm();
     let acceleration_time_cost = relative_velocity / predict::player::BOOST_ACCELERATION_FACTOR;
 
-    // TODO rotation cost
-    //let normalization_rotation = candidate.rotation.to_rotation_matrix() * na::inverse(&desired.rotation.to_rotation_matrix());
-    //let rotation_cost = normalization_rotation.norm();
-    //let rotation_cost = 100.0 * rotation_cost / distance.ln(); // the closer we are, the higher the rotation_cost. TODO make exponential
-
+    let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let desired_heading = desired.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0); // FIXME cache
+    let rotation_match_factor = 1.0 - na::dot(&current_heading, &desired_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
+    let distance_factor = (1.0 - distance/400.0).max(0.0); // linearly reduce rotation cost the further we are away. 0 at max distance, ie yaw mismatch is complete ignored if far enough (TODO tune)
+    let rotation_cost = 1.1 * distance_factor * rotation_match_factor; // constant factor here is arbitrary (TODO tune)
     // TODO angular velocity cost
     // the distance between orientation R1 and R2 is:
     //
@@ -747,7 +703,7 @@ fn heuristic_cost(candidate: &PlayerState, desired: &PlayerState) -> f32 {
     //    }
     // FIXME acceleration_time_cost causing problems, removing temporarily. bring it back when
     // round player state includes velocity again.
-    movement_time_cost
+    movement_time_cost + rotation_cost
 }
 
 #[cfg(test)]
@@ -852,125 +808,121 @@ mod tests {
         assert!(ray_collides_bounding_box(&bounding_box, start, end));
     }
 
-    //#[test]
-    //fn just_drive_straight() {
-    //    let mut count = 0;
-    //    let mut failures = vec![];
-    //    for tick_portion in 1..121 {
-    //        let step_duration = (tick_portion as f32) / predict::FPS;
-    //        let mut current = resting_player_state();
-    //        current.position.y = -1000.0;
-    //        let desired = resting_player_state();
-    //        let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //        //assert!(path.is_some());
-    //        if path.is_some(){ count += 1 } else { failures.push(tick_portion) }
-    //    }
-    //    println!("WORKED {} TIMES", count);
-    //    println!("FAILED {} TIMES", failures.len());
-    //    println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-    //    println!("FAILURES: {:?}", failures);
-    //    assert!(failures.len() == 0);
-    //}
+    #[test]
+    fn just_drive_straight() {
+        let mut count = 0;
+        let mut failures = vec![];
+        for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
+            let mut current = resting_player_state();
+            current.position.y = -1000.0;
+            let desired = resting_player_state();
+            let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+            //assert!(plan.is_some());
+            if plan.is_some(){ count += 1 } else { failures.push(step_duration) }
+        }
+        println!("WORKED {} TIMES", count);
+        println!("FAILED {} TIMES", failures.len());
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+        println!("FAILURES: {:?}", failures);
+        assert!(failures.len() == 0);
+    }
 
-    // #[test]
-    // fn just_drive_straight_fuzz1() {
-    //     let mut count = 0;
-    //     let mut failures = vec![];
-    //     for distance in -500..0 {
-    //         for tick_portion in 1..121 {
-    //             let step_duration = (tick_portion as f32) / predict::FPS;
-    //             let mut current = resting_player_state();
-    //             current.position.y = distance as f32;
-    //             let desired = resting_player_state();
-    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //             //assert!(path.is_some());
-    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-    //         }
-    //     }
-    //     println!("WORKED {} TIMES", count);
-    //     println!("FAILED {} TIMES", failures.len());
-    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-    //     //println!("FAILURES: {:?}", failures);
-    //     assert!(failures.len() == 0);
-    // }
+    #[test]
+    fn just_drive_straight_fuzz1() {
+        let mut count = 0;
+        let mut failures = vec![];
+        for distance in -500..0 {
+            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
+                let mut current = resting_player_state();
+                current.position.y = distance as f32;
+                let desired = resting_player_state();
+                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+                //assert!(plan.is_some());
+                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+            }
+        }
+        println!("WORKED {} TIMES", count);
+        println!("FAILED {} TIMES", failures.len());
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+        //println!("FAILURES: {:?}", failures);
+        assert!(failures.len() == 0);
+    }
 
-    // #[test]
-    // fn just_drive_straight_fuzz2() {
-    //     let mut count = 0;
-    //     let mut failures = vec![];
-    //     for distance in -1000..-500 {
-    //         for tick_portion in 1..121 {
-    //             let step_duration = (tick_portion as f32) / predict::FPS;
-    //             let mut current = resting_player_state();
-    //             current.position.y = distance as f32;
-    //             let desired = resting_player_state();
-    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //             //assert!(path.is_some());
-    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-    //         }
-    //     }
-    //     println!("WORKED {} TIMES", count);
-    //     println!("FAILED {} TIMES", failures.len());
-    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-    //     //println!("FAILURES: {:?}", failures);
-    //     assert!(failures.len() == 0);
-    // }
+    #[test]
+    fn just_drive_straight_fuzz2() {
+        let mut count = 0;
+        let mut failures = vec![];
+        for distance in -1000..-500 {
+            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
+                let mut current = resting_player_state();
+                current.position.y = distance as f32;
+                let desired = resting_player_state();
+                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+                //assert!(plan.is_some());
+                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+            }
+        }
+        println!("WORKED {} TIMES", count);
+        println!("FAILED {} TIMES", failures.len());
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+        //println!("FAILURES: {:?}", failures);
+        assert!(failures.len() == 0);
+    }
 
-    // #[test]
-    // fn just_drive_straight_fuzz3() {
-    //     let mut count = 0;
-    //     let mut failures = vec![];
-    //     for distance in -2000..-1000 {
-    //         for tick_portion in 1..121 {
-    //             let step_duration = (tick_portion as f32) / predict::FPS;
-    //             let mut current = resting_player_state();
-    //             current.position.y = distance as f32;
-    //             let desired = resting_player_state();
-    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //             //assert!(path.is_some());
-    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-    //         }
-    //     }
-    //     println!("WORKED {} TIMES", count);
-    //     println!("FAILED {} TIMES", failures.len());
-    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-    //     //println!("FAILURES: {:?}", failures);
-    //     assert!(failures.len() == 0);
-    // }
+    #[test]
+    fn just_drive_straight_fuzz3() {
+        let mut count = 0;
+        let mut failures = vec![];
+        //for distance in -2000..-1000 {
+        for distance in -2000..-1900 {
+            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
+            //for &step_duration in [COARSE_STEP].iter() {
+                let mut current = resting_player_state();
+                current.position.y = distance as f32;
+                let desired = resting_player_state();
+                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+                //assert!(plan.is_some());
+                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+            }
+        }
+        println!("WORKED {} TIMES", count);
+        println!("FAILED {} TIMES", failures.len());
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+        //println!("FAILURES: {:?}", failures);
+        assert!(failures.len() == 0);
+    }
 
-    // #[test]
-    // fn just_drive_straight_fuzz4() {
-    //     let mut count = 0;
-    //     let mut failures = vec![];
-    //     for distance in -4000..-2000 {
-    //         for tick_portion in 1..121 {
-    //             let step_duration = (tick_portion as f32) / predict::FPS;
-    //             let mut current = resting_player_state();
-    //             current.position.y = distance as f32;
-    //             let desired = resting_player_state();
-    //             let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //             //assert!(path.is_some());
-    //             if path.is_some(){ count += 1 } else { failures.push((tick_portion, distance)) }
-    //         }
-    //     }
-    //     println!("WORKED {} TIMES", count);
-    //     println!("FAILURES: {:?}", failures);
-    //     println!("FAILED {} TIMES", failures.len());
-    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-    //     assert!(failures.len() == 0);
-    // }
+    #[test]
+    fn just_drive_straight_fuzz4() {
+        let mut count = 0;
+        let mut failures = vec![];
+        for distance in -4000..-2000 {
+            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
+                let mut current = resting_player_state();
+                current.position.y = distance as f32;
+                let desired = resting_player_state();
+                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+                //assert!(plan.is_some());
+                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+            }
+        }
+        println!("WORKED {} TIMES", count);
+        println!("FAILED {} TIMES", failures.len());
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+        //println!("FAILURES: {:?}", failures);
+        assert!(failures.len() == 0);
+    }
 
     // #[test]
     // fn unreachable() {
     //     let mut count = 0;
     //     let distance = -10_000;
-    //     for tick_portion in 1..121 {
-    //         let step_duration = (tick_portion as f32) / predict::FPS;
+    //     for &step_duration in [FINE_STEP, MEDIUM_STEP, COARSE_STEP, VERY_COARSE_STEP].iter() {
     //         let mut current = resting_player_state();
     //         current.position.y = distance as f32;
     //         let desired = resting_player_state();
-    //         let (mut path, mut lines) = hybrid_a_star(&current, &desired, step_duration);
-    //         assert!(path.is_none());
+    //         let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //         assert!(plan.is_none());
     //     }
     // }
 }
