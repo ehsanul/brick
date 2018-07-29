@@ -86,7 +86,7 @@ const FINE_STEP: f32 = 4.0 / predict::FPS;
 const MEDIUM_STEP: f32 = 10.0 / predict::FPS;
 const COARSE_STEP: f32 = 20.0 / predict::FPS;
 const VERY_COARSE_STEP: f32 = 60.0 / predict::FPS;
-pub(crate) fn appropriate_step(current: &PlayerState, desired: &PlayerState) -> f32 {
+pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) -> f32 {
     let speed = current.velocity.norm();
     let delta = desired.position - current.position;
     let distance = delta.norm();
@@ -135,24 +135,12 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &PlayerState) -> 
 /// desired state, if any is possible.
 // TODO maybe we should take the entire gamestate instead. we also need a history component
 #[no_mangle]
-pub extern fn plan(player: &PlayerState, ball: &BallState, desired_state: &DesiredState) -> PlanResult {
-    // TODO figure out the right function to call rather than expect/unwrap
-    //let ref desired_player: &PlayerState = &desired.player.expect("desired player is required for now");
-    if let Some(ref desired_player) = desired_state.player {
-        //println!("{}", desired_player.position);
-    } else {
-        panic!("desired player is required for now");
-    }
-
-    // this might be supported by translating into a set of possible desired player state at
-    // possible impact points with the ball..
-    if desired_state.ball.is_some() { panic!("desired ball not supported for now"); }
-
+pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &DesiredContact) -> PlanResult {
     let mut controller = BrickControllerState::new();
 
-    let step_duration = appropriate_step(&player, &desired_state.player.unwrap());
+    let step_duration = appropriate_step(&player, &desired_contact);
 
-    hybrid_a_star(player, &desired_state.player.unwrap(), step_duration)
+    hybrid_a_star(player, &desired_contact, step_duration)
 }
 
 #[derive(Clone, Debug)]
@@ -328,7 +316,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
 }
 
 #[no_mangle]
-pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_duration: f32) -> PlanResult {
+pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
     let mut visualization_lines = vec![];
@@ -360,7 +348,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     };
 
     let desired_contact = desired.position;
-    let desired_hit_direction = Unit::new_normalize(desired.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0));
+    let desired_hit_direction = Unit::new_normalize(desired.heading.clone());
     let goals = setup_goals(&desired_contact, &desired_hit_direction, slop);
 
     let coarse_box = BoundingBox::from_boxes(&(goals.iter().map(|g| g.bounding_box.clone())).collect());
@@ -372,7 +360,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
 
     for goal in goals.iter() {
-        let hit_pos = goal.bounding_box.center() + (CAR_DIMENSIONS.x/2.0)*goal.heading.as_ref();
+        let hit_pos = goal.bounding_box.center() + (slop + CAR_DIMENSIONS.x/2.0)*goal.heading.as_ref();
         visualization_lines.append(&mut goal.bounding_box.lines());
         for (l, ..) in goal.bounding_box.lines() {
             visualization_lines.push((
@@ -382,8 +370,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
             ));
         }
     }
-
-    let (_desired_roll, _desired_pitch, desired_yaw) = desired.rotation.to_euler_angles();
 
     let max_cost = max_cost(step_duration);
     let mut num_iterations = 0;
@@ -401,7 +387,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
             println!("short circuit, too many iterations!");
             break;
         }
-
 
         let line_start;
         let new_vertices = {
@@ -433,7 +418,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 //println!("omg reached {}", visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
-                    desired: DesiredState { player: Some(desired.clone()), ball: None },
+                    desired: desired.clone(),
                     visualization_lines,
                     visualization_points,
                 };
@@ -452,7 +437,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         };
 
         for new_vertex in new_vertices {
-            // DEBUG // println!(" - - - - - - - - - - - - - - - - -");
             let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
@@ -460,11 +444,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
             let line_end = new_vertex.player.position;
             let mut new_estimated_cost = 0.0;
 
-            // DEBUG // println!("new_vertex.position: {:?}\nnew_cost_s_far: {}\nheuristic_cost: {}", new_vertex.player.position, new_cost_so_far, heuristic_cost(&new_vertex.player, &desired));
-            // DEBUG // println!("new_vertex_rounded: {:?}", new_vertex_rounded);
             match parents.entry(new_vertex_rounded) {
                 Vacant(e) => {
-                    // DEBUG // println!("VACANT");
                     new_index = e.index();
                     new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
                     e.insert((new_vertex, None));
@@ -476,13 +457,11 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                     let mut insertable = None; // make borrowck happy
                     match e.get() {
                         (existing_vertex, None) => {
-                            // DEBUG // println!("KINDA OCCUPIED");
                             // basically just like the vacant case
                             new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
                             insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                         },
                         (existing_vertex, Some(existing_secondary_vertex)) => {
-                            // DEBUG // println!("REALLY OCCUPIED");
                             let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
                                 new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
@@ -509,7 +488,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                                 // parent was already a secondary, we want to ignore as there's no
                                 // spot to put ourselves in
                                 if e.index() == new_vertex.parent_index && new_vertex.parent_is_secondary {
-                                    // DEBUG // println!("parent is secondary, so i can't insert and leaving it be");
                                     continue;
                                 }
 
@@ -524,21 +502,12 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
 
                                 if new_estimated_cost < existing_secondary_estimated_cost {
                                     new_cost_is_lower = true;
-                                } else {
-                                    // DEBUG // println!("didn't replace existing secondary");
-                                    // DEBUG // println!("new - so far: {} | h: {} | est: {}", new_cost_so_far, heuristic_cost(&new_vertex.player, &desired), new_estimated_cost);
-                                    // DEBUG // println!("old - so far: {} | h: {} | est: {}", existing_secondary_vertex.cost_so_far, heuristic_cost(&existing_secondary_vertex.player, &desired), estimated_cost);
                                 }
-                            } else {
-                                // DEBUG // println!("well, our cost is larger and we're not doing same-cell expension, rip");
                             }
 
                             if new_cost_is_lower {
-                                // DEBUG // println!("new cost is lower");
                                 insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                             } else {
-                                // DEBUG // println!("new cost is NOT lower");
-                                // show pruned as grey
                                 visualization_points.push((
                                     Point3::new(line_end.x, line_end.y, line_end.z),
                                     Point3::new(0.4, 0.0, 0.0),
@@ -585,7 +554,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     }
 
     //println!("omg failed {}", visualization_points.len());
-    PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines, visualization_points }
+    PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
 }
 
 fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate: &PlayerState, previous: &PlayerState) -> bool {
@@ -598,12 +567,11 @@ fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate:
     // heading, with some tolerance. but idk the math for that yet so we're just using the
     // candidate heading
     let candidate_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-
     // pretty broad angle check. does this actually make it faster?
     let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
+
     if !correct_coarse_direction { return false };
 
-    // we avoid checking against all the goals if the overall bounding box doesn't collide
     let coarse_collision = line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
     if !coarse_collision { return false };
 
@@ -666,14 +634,17 @@ pub struct BoundingBox {
 
 impl BoundingBox {
     fn new(pos: &Vector3<f32>, slop: f32) -> BoundingBox {
-        BoundingBox {
+        let mut bb = BoundingBox {
             min_x: pos.x - slop,
             max_x: pos.x + slop,
             min_y: pos.y - slop,
             max_y: pos.y + slop,
             min_z: pos.z - slop,
             max_z: pos.z + slop,
-        }
+        };
+        // FIXME hack to extend bounds down to the ground, where the car can reach them
+        if bb.max_z - bb.min_z < BALL_RADIUS * 2.0 { bb.min_z = (bb.min_z + bb.max_z) / 2.0 - BALL_RADIUS }
+        bb
     }
 
     fn from_boxes(boxes: &Vec<BoundingBox>) -> BoundingBox {
@@ -691,6 +662,8 @@ impl BoundingBox {
             if b.max_y > max_y { max_y = b.max_y }
             if b.max_z > max_z { max_z = b.max_z }
         }
+        // FIXME hack to extend bounds down to the ground, where the car can reach them
+        if max_z - min_z < BALL_RADIUS * 2.0 { min_z = (min_z + max_z) / 2.0 - BALL_RADIUS }
         BoundingBox { min_x, max_x, min_y, max_y, min_z, max_z }
     }
 
@@ -831,20 +804,17 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
 
 fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32) -> Vec<PlayerVertex> {
     control_branches(&vertex.player).iter().map(|&controller| {
-        let x = PlayerVertex {
+        PlayerVertex {
             player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
-            // TODO incorporate small boost usage penalty
-            cost_so_far: vertex.cost_so_far + step_duration,
+            cost_so_far: vertex.cost_so_far,
             prev_controller: controller,
             parent_index: index,
             parent_is_secondary: is_secondary,
-        };
-        //println!("control branch: {:?}", x);
-        x
+        }
     }).collect::<Vec<PlayerVertex>>()
 }
 
-fn heuristic_cost(candidate: &PlayerState, desired: &PlayerState) -> f32 {
+fn heuristic_cost(candidate: &PlayerState, desired: &DesiredContact) -> f32 {
     // basic heuristic cost is a lower-bound for how long it would take, given max boost, to reach
     // the desired position and velocity. and we need to do rotation too.
     //
@@ -864,11 +834,11 @@ fn heuristic_cost(candidate: &PlayerState, desired: &PlayerState) -> f32 {
     //
     // FIXME this also assumes boosting is the highest acceleration action. braking or backflipping
     // while at max speed may be higher, making this strictly not admissable
-    let relative_velocity = (desired.velocity - candidate.velocity).norm();
-    let acceleration_time_cost = relative_velocity / predict::player::BOOST_ACCELERATION_FACTOR;
+    //let relative_velocity = (desired.velocity - candidate.velocity).norm();
+    //let acceleration_time_cost = relative_velocity / predict::player::BOOST_ACCELERATION_FACTOR;
 
     let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let desired_heading = desired.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0); // FIXME cache
+    let desired_heading = Unit::new_normalize(desired.heading.clone()).unwrap(); // FIXME normalize before
     let rotation_match_factor = 1.0 - na::dot(&current_heading, &desired_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
     let distance_factor = (1.0 - distance/400.0).max(0.0); // linearly reduce rotation cost the further we are away. 0 at max distance, ie yaw mismatch is complete ignored if far enough (TODO tune)
     let rotation_cost = 1.1 * distance_factor * rotation_match_factor; // constant factor here is arbitrary (TODO tune)

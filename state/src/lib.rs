@@ -134,7 +134,7 @@ impl BrickControllerState {
 
 pub struct PlanResult {
     pub plan: Option<Vec<(PlayerState, BrickControllerState)>>,
-    pub desired: DesiredState,
+    pub desired: DesiredContact,
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
     pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,
 }
@@ -144,6 +144,20 @@ pub struct PlanResult {
 pub struct DesiredState {
     pub player: Option<PlayerState>,
     pub ball: Option<BallState>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DesiredContact {
+    pub position: Vector3<f32>,
+    pub heading: Vector3<f32>,
+}
+impl DesiredContact {
+    pub fn new() -> DesiredContact {
+        DesiredContact {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            heading: Vector3::new(0.0, 1.0, 0.0),
+        }
+    }
 }
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc

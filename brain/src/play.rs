@@ -29,11 +29,9 @@ fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
     }
 }
 
-
-/// simpler version of shooting_player_state when we just need a basic guess
-fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector3<f32>) -> PlayerState {
-    let mut shooting_player = PlayerState::default();
-
+/// guess best point on ball to hit, get the heading at that point
+#[no_mangle]
+pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact  {
     let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
     let desired_velocity = 1000.0 * desired_vector.unwrap();
     let velocity_delta = desired_velocity - ball.velocity;
@@ -43,51 +41,41 @@ fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector
     let impulse_direction = Unit::new_normalize(velocity_delta);
     let ball_normal = -1.0 * impulse_direction.unwrap();
 
-    shooting_player.position = ball.position + (BALL_RADIUS + CAR_DIMENSIONS.x/2.0) * ball_normal;
-
-    shooting_player.position = ball.position + (BALL_RADIUS + CAR_DIMENSIONS.x/2.0) * ball_normal;
-
-   // https://math.stackexchange.com/a/476311
-    let initial = Vector3::new(-1.0, 0.0, 0.0);
-    let v: Vector3<f32> = initial.cross(&impulse_direction);
-    let vx = v.cross_matrix();
-    let c = na::dot(&initial, &impulse_direction);
-    let identity = Rotation3::identity();
-    let rotation = Rotation3::from_matrix_unchecked(identity.matrix() + vx + (vx * vx) * (1.0 / (1.0 / c)));
-    shooting_player.rotation = UnitQuaternion::from_rotation_matrix(&rotation);
-
-    shooting_player
+    DesiredContact {
+        position: ball.position + BALL_RADIUS * ball_normal,
+        heading: -1.0 * ball_normal,
+    }
 }
 
 // FIXME this rough step is probably too rough when we're really close,
 //       so probably needs to be dynamic based on distance or some such
 static ROUGH_STEP: f32 = 60.0/120.0;
 
-fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<PlayerState> {
+fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<DesiredContact> {
     let start = Instant::now();
 
 
-    let mut closest_shooting_player = player.clone();
+    let mut closest_desired_contact = DesiredContact::new();
     let mut closest_time_diff = std::f32::MAX;
     let shootable_ball_state = ball_trajectory.iter().enumerate().collect::<Vec<_>>().binary_search_by(|(i, ball)| {
         let ball_time = (*i as f32) * predict::TICK;
-
         let start2 = Instant::now();
-
-        let shooting_player = simple_shooting_player_state(ball, &desired_ball_position);
-        let shooting_time = non_admissable_estimated_time(&player, &shooting_player);
-        let time_diff = (ball_time - shooting_time).abs();
-        if time_diff < closest_time_diff {
-            closest_time_diff = time_diff;
-            closest_shooting_player = shooting_player;
-        }
+        let desired_contact = simple_desired_contact(ball, &desired_ball_position);
+        let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
         //println!("#############################");
         //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
-
-        println!("shooting player: {:?}", shooting_player);
+        println!("ball: {:?}", ball);
+        println!("desired_ball_position: {:?}", desired_ball_position);
+        println!("contact position: {:?}", desired_contact.position);
         println!("shooting time: {}", shooting_time);
         println!("ball time: {}", ball_time);
         println!("----------------------");
+
+        let time_diff = (ball_time - shooting_time).abs();
+        if time_diff < closest_time_diff {
+            closest_time_diff = time_diff;
+            closest_desired_contact = desired_contact;
+        }
         if shooting_time == ball_time {
             std::cmp::Ordering::Equal
         } else if shooting_time < ball_time {
@@ -106,13 +94,13 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     match shootable_ball_state {
         Ok(i) => {
             // TODO don't re-calculate this, store temporarily in a variable instead
-            Some(simple_shooting_player_state(&ball_trajectory[i], &desired_ball_position))
+            Some(simple_desired_contact(&ball_trajectory[i], &desired_ball_position))
         }
         Err(i) => {
             // we may not find an exact match with time. so we want to allow for some wiggle room
             // here and use the closest desired state if it seems reachable
             if closest_time_diff < ROUGH_STEP*1.2 {
-                Some(closest_shooting_player)
+                Some(closest_desired_contact)
             } else {
                 println!("no plan found! closest_time_diff: {}, ROUGH_STEP: {}", closest_time_diff, ROUGH_STEP);
                 None
@@ -170,27 +158,17 @@ fn shoot(game: &GameState) -> PlanResult {
         trajectory_behind = &[];
     }
 
-    let desired_state = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
-        Some(shooting_player) => {
-            DesiredState {
-                ball: None,
-                player: Some(shooting_player),
-            }
-        }
+    let desired_contact = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
+        Some(dc) => dc,
         None => {
             // FIXME
-            let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
+            let fake_desired = DesiredContact::new();
             return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
 
             match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
-                Some(shooting_player) => {
-                    DesiredState {
-                        ball: None,
-                        player: Some(shooting_player),
-                    }
-                }
+                Some(dc) => dc,
                 None => {
-                    let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
+                    let fake_desired = DesiredContact::new();
                     return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
                 }
             }
@@ -203,7 +181,7 @@ fn shoot(game: &GameState) -> PlanResult {
     //    ball: shooting_player
     //})
     let start = Instant::now();
-    let x = plan::plan(&game.player, &game.ball, &desired_state);
+    let x = plan::plan(&game.player, &game.ball, &desired_contact);
     if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
         println!("#############################");
         println!("PLAN DURATION: {:?}", start.elapsed());
@@ -213,7 +191,7 @@ fn shoot(game: &GameState) -> PlanResult {
     x
 }
 
-fn non_admissable_estimated_time(current: &PlayerState, desired: &PlayerState) -> f32 {
+fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact) -> f32 {
     let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
     if let Some(plan) = plan {
         ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
@@ -227,15 +205,7 @@ fn non_admissable_estimated_time(current: &PlayerState, desired: &PlayerState) -
 //}
 
 fn go_to_mid(game: &GameState) -> PlanResult {
-    plan::plan(&game.player, &game.ball, &DesiredState {
-        player: Some(PlayerState {
-            position: Vector3::new(-3000.0, 2000.0, 0.0),
-            velocity: Vector3::new(0.0, 0.0, 0.0),
-            rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),
-            team: Team::Blue, // TODO let's separate stuff like this out, Player vs PlayerState maybe
-        }),
-        ball: None,
-    })
+    plan::plan(&game.player, &game.ball, &DesiredContact::new())
 }
 
 /// main entrypoint for bot to figure out what to do given the current state
