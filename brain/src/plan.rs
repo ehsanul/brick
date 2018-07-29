@@ -415,7 +415,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
             }
 
             if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
-                //println!("omg reached {}", visualization_points.len());
+                println!("omg reached {}", visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
                     desired: desired.clone(),
@@ -553,7 +553,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         }
     }
 
-    //println!("omg failed {}", visualization_points.len());
+    println!("omg failed {}", visualization_points.len());
     PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
 }
 
