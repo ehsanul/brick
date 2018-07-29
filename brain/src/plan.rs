@@ -680,15 +680,15 @@ impl BoundingBox {
         let mut min_x = std::f32::MAX;
         let mut min_y = std::f32::MAX;
         let mut min_z = std::f32::MAX;
-        let mut max_x = 0.0;
-        let mut max_y = 0.0;
-        let mut max_z = 0.0;
+        let mut max_x = std::f32::MIN;
+        let mut max_y = std::f32::MIN;
+        let mut max_z = std::f32::MIN;
         for b in boxes {
             if b.min_x < min_x { min_x = b.min_x }
-            if b.min_z < min_z { min_z = b.min_z }
+            if b.min_y < min_y { min_y = b.min_y }
             if b.min_z < min_z { min_z = b.min_z }
             if b.max_x > max_x { max_x = b.max_x }
-            if b.max_z > max_z { max_z = b.max_z }
+            if b.max_y > max_y { max_y = b.max_y }
             if b.max_z > max_z { max_z = b.max_z }
         }
         BoundingBox { min_x, max_x, min_y, max_y, min_z, max_z }
