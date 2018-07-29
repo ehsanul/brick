@@ -241,20 +241,23 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
             x.lib.get(b"play\0").unwrap()
         };
 
-
         let game_state = &GAME_STATE.read().unwrap();
         //println!("player: {:?}", game_state.player);
-        let PlanResult { plan: mut path, desired, visualization_lines: mut lines } = play(&game_state);
-        let mut visualize_lines = VISUALIZE_LINES.write().unwrap();
-        //println!("path: {:?}, lines: {:?}", path, lines);
+        let PlanResult {
+            plan: mut path, desired,
+            visualization_lines: mut lines,
+            visualization_points: mut points,
+        } = play(&game_state);
+
+        let mut visualize_lines = LINES.write().unwrap();
         visualize_lines.clear();
+
+        // red line from player center to contact point
         let pos = game_state.player.position;
         let dpos = desired.player.unwrap().position; 
         visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
 
-        let mut visualize_points = POINTS.write().unwrap();
-        visualize_points.clear();
-
+        // white line showing planned path
         if let Some(path) = path {
             // first item in path is initial position, so we go to second index. may be missing if we are already there!
             if let Some((_, controller)) = path.get(1) {
@@ -265,15 +268,17 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
             let mut last_position = pos;
             for (ps, _) in &path {
                 last_position = ps.position;
-                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 10.0);
+                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
                 visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
                 last_point = point;
             }
         }
-
         visualize_lines.append(&mut lines);
+
+
+        let mut visualize_points = POINTS.write().unwrap();
+        visualize_points.clear();
         visualize_points.append(&mut points);
-        //println!("path: {:?}, lines: {:?}", path, lines);
     }
 
     input

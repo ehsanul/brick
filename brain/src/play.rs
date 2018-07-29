@@ -61,7 +61,7 @@ fn simple_shooting_player_state(ball: &BallState, desired_ball_position: &Vector
 
 // FIXME this rough step is probably too rough when we're really close,
 //       so probably needs to be dynamic based on distance or some such
-static ROUGH_STEP: f32 = 40.0/120.0;
+static ROUGH_STEP: f32 = 60.0/120.0;
 
 fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<PlayerState> {
     let start = Instant::now();
@@ -170,7 +170,6 @@ fn shoot(game: &GameState) -> PlanResult {
         trajectory_behind = &[];
     }
 
-    println!("x x x x x x x x x x x x");
     let desired_state = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
         Some(shooting_player) => {
             DesiredState {
@@ -183,7 +182,6 @@ fn shoot(game: &GameState) -> PlanResult {
             let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
             return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
 
-            println!("y y y y y y y y y y y y ");
             match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
                 Some(shooting_player) => {
                     DesiredState {
