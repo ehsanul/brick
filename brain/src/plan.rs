@@ -343,7 +343,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         FINE_STEP => 1.0, // TODO tune
         MEDIUM_STEP => 20.0, // TODO tune
         COARSE_STEP => 30.0, // TODO tune
-        VERY_COARSE_STEP => 50.0, // TODO tune
+        VERY_COARSE_STEP => 100.0, // TODO tune
         _ => unimplemented!("slop"),
     };
 
