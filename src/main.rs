@@ -254,7 +254,7 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
 
         // red line from player center to contact point
         let pos = game_state.player.position;
-        let dpos = desired.player.unwrap().position; 
+        let dpos = desired.position;
         visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
 
         // white line showing planned path
