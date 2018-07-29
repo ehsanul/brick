@@ -14,11 +14,12 @@ use std::io::prelude::*;
 use std::thread;
 use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
+use std::f32::consts::PI;
 use std::path::Path;
 
 use state::*;
 
-use na::{Vector3, Point3, Translation3, UnitQuaternion};
+use na::{ Unit, Vector3, Point3, Translation3, UnitQuaternion};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;

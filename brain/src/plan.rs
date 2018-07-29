@@ -1,8 +1,9 @@
 use state::*;
 use predict;
-use na::{ self, Unit, Vector3, Point3, UnitQuaternion };
+use na::{ self, Unit, Vector3, Point3, Rotation3, UnitQuaternion };
 use std::cmp::Ordering;
 use std::f32::consts::PI;
+use std;
 
 use std::collections::BinaryHeap;
 use std::mem;
@@ -84,7 +85,7 @@ lazy_static! {
 const FINE_STEP: f32 = 4.0 / predict::FPS;
 const MEDIUM_STEP: f32 = 10.0 / predict::FPS;
 const COARSE_STEP: f32 = 20.0 / predict::FPS;
-const VERY_COARSE_STEP: f32 = 40.0 / predict::FPS;
+const VERY_COARSE_STEP: f32 = 60.0 / predict::FPS;
 pub(crate) fn appropriate_step(current: &PlayerState, desired: &PlayerState) -> f32 {
     let speed = current.velocity.norm();
     let delta = desired.position - current.position;
@@ -219,11 +220,111 @@ struct RoundedPlayerState {
 // be quite small, and will fit in the below max cost
 fn max_cost(step_duration: f32) -> f32 {
     match step_duration {
-        FINE_STEP => 0.4,
+        FINE_STEP => 0.6,
         MEDIUM_STEP => 1.0,
         COARSE_STEP | VERY_COARSE_STEP => 5.0,
         _ => unimplemented!("max_cost step_duration") // we have only tuned for the values above, not allowing others for now
     }
+}
+
+fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vector3<f32>>, slop: f32) -> Vec<Goal> {
+    let contact_to_car = -(CAR_DIMENSIONS.x/2.0) * desired_hit_direction.as_ref();
+    let car_corner_distance = (CAR_DIMENSIONS.x.powf(2.0) + CAR_DIMENSIONS.y.powf(2.0)).sqrt();
+    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
+    let anti_clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI/2.0);
+
+    let mut goals = vec![];
+
+    // straight on basic hit
+    goals.push(Goal {
+        bounding_box: BoundingBox::new(&(desired_contact + contact_to_car), slop),
+        heading: -Unit::new_normalize(contact_to_car.clone()),
+        min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
+    });
+
+    // slightly off but straight hits
+    let mut offset = slop * 2.0;
+    while offset <= 21.0 {
+        let offset_right = offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
+        goals.push(Goal {
+            bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_right), slop),
+            heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_right),
+            min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
+        });
+
+        let offset_left = -offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
+        goals.push(Goal {
+            bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_left), slop),
+            heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_left),
+            min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
+        });
+
+        offset += slop * 2.0;
+    }
+    let num_straight_goals = goals.len();
+
+    // corner hits from right side of the ball (left side of the car)
+    let mut angle = -PI/2.0 + PI/8.0;
+    let mut i = 0;
+    while angle < -PI/8.0 {
+        // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
+        // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
+        // more goals with slightly different angles
+        // FIXME this weird log thingy is just a hack to get better coverage in the arc. we don't
+        // have good coverage because we are iterating over angles rotating about the wrong point!
+        // we need to rotate about the corner, not about front center
+        let max_arc_length = i as f32 * slop * 1.2 / (1.1 + (i as f32)).log(2.0);
+        i += 1;
+
+        // FIXME we should be rotating about the corner too instead of the front center
+        angle += max_arc_length / car_corner_distance;
+        let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
+        let rotated_contact_to_car = rotation * contact_to_car;
+        // corner offset from front center
+        let offset = (CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).unwrap());
+        goals.push(Goal {
+            bounding_box: BoundingBox::new(&(desired_contact + rotated_contact_to_car + offset), slop),
+            heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
+            min_dot: 0.0, // set later
+        });
+    }
+
+    // corner hits from left side of the ball (right side of car)
+    let mut angle = PI/2.0 - PI/8.0;
+    let mut i = 0;
+    while angle > PI/8.0 {
+        // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
+        // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
+        // more goals with slightly different angles
+        // FIXME this weird log thingy is just a hack to get better coverage in the arc. we don't
+        // have good coverage because we are iterating over angles rotating about the wrong point!
+        // we need to rotate about the corner, not about front center
+        let max_arc_length = i as f32 * slop * 1.2 / (1.1 + (i as f32)).log(2.0);
+        i += 1;
+
+        // FIXME we should be rotating about the corner too instead of the front center
+        angle -= max_arc_length / car_corner_distance;
+        let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
+        let rotated_contact_to_car = rotation * contact_to_car;
+        // corner offset from front center
+        let offset = -(CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).unwrap());
+        goals.push(Goal {
+            bounding_box: BoundingBox::new(&(desired_contact + rotated_contact_to_car + offset), slop),
+            heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
+            min_dot: 0.0, // set later
+        });
+    }
+
+    // set the desired accuracy based on how many different angles we're checking for. the desired
+    // accuracy goes up as we check more angles
+    let num_angle_goals = goals.len() - num_straight_goals;
+    for goal in goals.iter_mut() {
+        if goal.min_dot == 0.0 {
+            (*goal).min_dot = ( (PI - PI/8.0 - PI/8.0) / num_angle_goals as f32 ).cos();
+        }
+    }
+
+    goals
 }
 
 #[no_mangle]
@@ -254,34 +355,52 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
         FINE_STEP => 1.0, // TODO tune
         MEDIUM_STEP => 20.0, // TODO tune
         COARSE_STEP => 30.0, // TODO tune
-        VERY_COARSE_STEP => 200.0, // TODO tune
+        VERY_COARSE_STEP => 50.0, // TODO tune
         _ => unimplemented!("slop"),
     };
 
-    let desired_box = BoundingBox {
-        min_x: desired.position.x - slop,
-        max_x: desired.position.x + slop,
-        min_y: desired.position.y - slop,
-        max_y: desired.position.y + slop,
-        min_z: desired.position.z - slop,
-        max_z: desired.position.z + slop,
+    let desired_contact = desired.position;
+    let desired_hit_direction = Unit::new_normalize(desired.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0));
+    let goals = setup_goals(&desired_contact, &desired_hit_direction, slop);
+
+    let coarse_box = BoundingBox::from_boxes(&(goals.iter().map(|g| g.bounding_box.clone())).collect());
+    let coarse_goal = Goal {
+        bounding_box: coarse_box,
+        heading: desired_hit_direction,
+        min_dot: (PI/2.0 - PI/8.0).cos(),
     };
-    visualization_lines.append(&mut desired_box.lines());
+
+
+    for goal in goals.iter() {
+        let hit_pos = goal.bounding_box.center() + (CAR_DIMENSIONS.x/2.0)*goal.heading.as_ref();
+        visualization_lines.append(&mut goal.bounding_box.lines());
+        for (l, ..) in goal.bounding_box.lines() {
+            visualization_lines.push((
+                Point3::new(l.x, l.y, l.z),
+                Point3::new(hit_pos.x, hit_pos.y, hit_pos.z),
+                Point3::new(0.0, 0.0, 1.0),
+            ));
+        }
+    }
 
     let (_desired_roll, _desired_pitch, desired_yaw) = desired.rotation.to_euler_angles();
 
     let max_cost = max_cost(step_duration);
+    let mut num_iterations = 0;
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
 
         // avoid an infinite graph search
         if cost_so_far > max_cost {
+            println!("short circuit, hit max cost!");
             break;
         }
 
-        // FIXME super hack for debugging
-        //if visualization_lines.len() > 20 {
-        //    break;
-        //}
+        // HACK avoid very large searches completely
+        num_iterations += 1;
+        if num_iterations > 40_000 {
+            println!("short circuit, too many iterations!");
+            break;
+        }
 
 
         let line_start;
@@ -310,7 +429,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 parent_player.position.z += 0.1;
             }
 
-            if player_goal_reached(&desired_box, desired_yaw, &vertex.player, &parent_player) {
+            if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
                 //println!("omg reached {}", visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
@@ -424,6 +543,11 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                                     Point3::new(line_end.x, line_end.y, line_end.z),
                                     Point3::new(0.4, 0.0, 0.0),
                                 ));
+                                //visualization_lines.push((
+                                //    Point3::new(line_start.x, line_start.y, line_start.z),
+                                //    Point3::new(line_end.x, line_end.y, line_end.z),
+                                //    Point3::new(0.4, 0.0, 0.0),
+                                //));
                                 continue;
                             }
                         }
@@ -439,6 +563,11 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
                 Point3::new(line_end.x, line_end.y, line_end.z),
                 Point3::new(0.6, 0.6, 0.6),
             ));
+            //visualization_lines.push((
+            //    Point3::new(line_start.x, line_start.y, line_start.z),
+            //    Point3::new(line_end.x, line_end.y, line_end.z),
+            //    Point3::new(0.6, 0.6, 0.6),
+            //));
 
             // rustc is forcing us to initialize this every time because it doesn't understand data
             // flow, so let's manually make sure we aren't in the initial state which is never right
@@ -459,27 +588,30 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &PlayerState, step_d
     PlanResult { plan: None, desired: DesiredState { player: Some(desired.clone()), ball: None }, visualization_lines, visualization_points }
 }
 
-fn player_goal_reached(desired_box: &BoundingBox, desired_yaw: f32, candidate: &PlayerState, previous: &PlayerState) -> bool {
-    // since the ray collision algorithm doesn't allow for the ray ending early, but does account
-    // for point of origin, we just test it in both directions for a complete line test. minimize
-    // the overhead by using the previous position as the ray origin first, assuming we'll
-    // mostly be moving *towards* the desired position for most expanded a* paths
-    //
-    let (_roll, _pitch, mut yaw) = candidate.rotation.to_euler_angles();
-    let (_roll, _pitch, mut prev_yaw) = previous.rotation.to_euler_angles();
+fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate: &PlayerState, previous: &PlayerState) -> bool {
+    let coarse_box = coarse_goal.bounding_box;
+    let coarse_heading = coarse_goal.heading;
 
-    // remove discontinuity, so we can average these or do 1d itersection, whichever
-    if yaw < 0.0 { yaw = 2.0*PI + yaw; }
-    if prev_yaw < 0.0 { prev_yaw = 2.0*PI + prev_yaw; }
-    let mut desired_yaw = desired_yaw;
-    if desired_yaw < 0.0 { desired_yaw = 2.0*PI + desired_yaw; }
+    // NOTE we are just using the candidate. what we really want is the heading at the closest
+    // positions. well, what we really really want is the heading at every intermediate position.
+    // so we'd need to calculate intersection between the list of headings, and our desired
+    // heading, with some tolerance. but idk the math for that yet so we're just using the
+    // candidate heading
+    let candidate_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
 
-    let division = (PI/4.0); // FIXME should not be hard-coded like this
-    let rounded_yaw = ((yaw/2.0 + prev_yaw/2.0) / division).round();
+    // pretty broad angle check. does this actually make it faster?
+    let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
+    if !correct_coarse_direction { return false };
 
-    rounded_yaw == (desired_yaw / division).round() &&
-        ray_collides_bounding_box(&desired_box, previous.position, candidate.position) &&
-        ray_collides_bounding_box(&desired_box, candidate.position, previous.position)
+    // we avoid checking against all the goals if the overall bounding box doesn't collide
+    let coarse_collision = line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
+    if !coarse_collision { return false };
+
+    precise_goals.iter().any(|goal| {
+        let correct_precise_direction = na::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
+        correct_precise_direction &&
+            line_collides_bounding_box(&goal.bounding_box, previous.position, candidate.position)
+    })
 }
 
 fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
@@ -503,7 +635,7 @@ fn grid_factor(step_duration: f32, speed: f32) -> f32 {
             if speed < 400.0 {
                 0.4
             } else if speed < 1000.0 {
-                0.16 // TODO tune
+                0.12 // TODO tune
             } else {
                 0.08
             }
@@ -514,6 +646,15 @@ fn grid_factor(step_duration: f32, speed: f32) -> f32 {
     }
 }
 
+/// not the opponent's goal. this is the goal for our a* search!
+#[derive(Copy, Clone, Debug)]
+pub struct Goal {
+    bounding_box: BoundingBox,
+    heading: Unit<Vector3<f32>>,
+    min_dot: f32, // desired precision in heading
+}
+
+#[derive(Copy, Clone, Debug)]
 pub struct BoundingBox {
     min_x: f32,
     max_x: f32,
@@ -524,6 +665,43 @@ pub struct BoundingBox {
 }
 
 impl BoundingBox {
+    fn new(pos: &Vector3<f32>, slop: f32) -> BoundingBox {
+        BoundingBox {
+            min_x: pos.x - slop,
+            max_x: pos.x + slop,
+            min_y: pos.y - slop,
+            max_y: pos.y + slop,
+            min_z: pos.z - slop,
+            max_z: pos.z + slop,
+        }
+    }
+
+    fn from_boxes(boxes: &Vec<BoundingBox>) -> BoundingBox {
+        let mut min_x = std::f32::MAX;
+        let mut min_y = std::f32::MAX;
+        let mut min_z = std::f32::MAX;
+        let mut max_x = 0.0;
+        let mut max_y = 0.0;
+        let mut max_z = 0.0;
+        for b in boxes {
+            if b.min_x < min_x { min_x = b.min_x }
+            if b.min_z < min_z { min_z = b.min_z }
+            if b.min_z < min_z { min_z = b.min_z }
+            if b.max_x > max_x { max_x = b.max_x }
+            if b.max_z > max_z { max_z = b.max_z }
+            if b.max_z > max_z { max_z = b.max_z }
+        }
+        BoundingBox { min_x, max_x, min_y, max_y, min_z, max_z }
+    }
+
+    fn center(&self) -> Vector3<f32> {
+        Vector3::new(
+            (self.min_x + self.max_x) / 2.0,
+            (self.min_y + self.max_y) / 2.0,
+            (self.min_z + self.max_z) / 2.0,
+        )
+    }
+
     fn lines(&self) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
         let mut corners = vec![];
         for &x in [self.min_x, self.max_x].iter() {
@@ -588,6 +766,15 @@ pub fn ray_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>
     }
 
     true
+}
+
+//// since the ray collision algorithm doesn't allow for the ray ending early, but does account
+//// for point of origin, we just test it in both directions for a complete line test. minimize
+//// the overhead by using the previous position as the ray origin first, assuming we'll
+//// mostly be moving *towards* the desired position for most expanded a* paths
+pub fn line_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>, end: Vector3<f32>) -> bool {
+    ray_collides_bounding_box(&bounding_box, start, end) &&
+        ray_collides_bounding_box(&bounding_box, end, start)
 }
 
 fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> RoundedPlayerState {

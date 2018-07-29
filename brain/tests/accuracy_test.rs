@@ -30,16 +30,24 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
         let mut desired_player = PlayerState::default();
         desired_player.position.x = x * (17.0 * i as f32).sin();
         desired_player.position.y = y + (y / 4.0) * (11.0 * i as f32).sin();
-        desired_player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, yaw + (13.0 * i as f32).sin() * PI/4.0);
 
-        let PlanResult { plan, visualization_lines, visualization_points } = hybrid_a_star(&player, &desired_player, step);
+        let desired_yaw = if desired_player.position.norm() > 200.0 {
+            yaw + (13.0 * i as f32).sin() * PI/4.0
+        } else {
+            // when close, some angles are not really reachable
+            yaw
+        };
+        desired_player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, desired_yaw);
+
+        let PlanResult { plan, visualization_lines, visualization_points, .. } = hybrid_a_star(&player, &desired_player, step);
         if plan.is_none() {
-            println!("FAILED: {:?}", desired_player.position);
+            println!("FAILED | pos: {:?} | yaw: {}", desired_player.position, desired_yaw);
         }
         assert!(plan.is_some());
 
         if let Some(plan) = plan {
             let plan_len = plan.len();
+
             total_plan_len += plan_len;
             if plan_len > max_plan_len { max_plan_len = plan_len }
             if plan_len < min_plan_len { min_plan_len = plan_len }
@@ -49,6 +57,11 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
             if expansions > max_expansions { max_expansions = expansions }
             if expansions < min_expansions { min_expansions = expansions }
 
+            if expansions > 100000 {
+                println!("SLOW | pos: {:?} | yaw: {}", desired_player.position, desired_yaw);
+            }
+            assert!(expansions < 100000);
+
             let last = plan[plan_len - 1];
             let last2 = plan[plan_len - 2];
             //let position_error = (last.0.position - desired_player.position).norm();
@@ -56,6 +69,9 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
             let a = last2.0.position;
             let n = Unit::new_normalize(last.0.position - last2.0.position).unwrap();
             let p = desired_player.position;
+            // FIXME THIS IS WRONG NOW! we have an array of goals now, so we'd have to find which
+            // one we did best on. we don't provided desired player position anymore, instead it's
+            // desired contact & heading!
             let position_error = ((a - p) - na::dot(&(a - p), &n) * n).norm();
             total_position_error_squared += position_error * position_error;
             if position_error > max_position_error { max_position_error = position_error }

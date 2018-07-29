@@ -181,7 +181,7 @@ fn shoot(game: &GameState) -> PlanResult {
         None => {
             // FIXME
             let fake_desired = DesiredState { player: Some(PlayerState::default()), ball: None };
-            return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![] };
+            return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
 
             println!("y y y y y y y y y y y y ");
             match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
