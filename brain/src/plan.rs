@@ -373,6 +373,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
 
     let max_cost = max_cost(step_duration);
     let mut num_iterations = 0;
+    let max_iterations = match step_duration {
+        VERY_COARSE_STEP => 4000,
+        _ => 100_000,
+    };
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
 
         // avoid an infinite graph search
@@ -383,7 +387,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
 
         // HACK avoid very large searches completely
         num_iterations += 1;
-        if num_iterations > 40_000 {
+        if num_iterations > max_iterations {
             println!("short circuit, too many iterations!");
             break;
         }
