@@ -124,7 +124,7 @@ fn run_visualization(){
 
     // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
     //let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
-    //let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
+    let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
 
     let arena_mesh = MeshManager::load_obj(
                         Path::new("./assets/arena.obj"),
@@ -141,7 +141,7 @@ fn run_visualization(){
     arena.set_local_scale(0.001, 0.001, 0.001);
 
     //sphere.set_color(0.8, 0.8, 0.8);
-    //car.set_color(0.1, 0.4, 1.0);
+    car.set_color(0.1, 0.4, 1.0);
 
     window.set_light(Light::StickToCamera);
 
@@ -156,8 +156,8 @@ fn run_visualization(){
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
         let hitbox_position = game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
-        //car.set_local_translation(Translation3::from_vector(hitbox_position));
-        //car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
+        car.set_local_translation(Translation3::from_vector(hitbox_position));
+        car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
 
         // grid for debugging
         //for x in (-160..160) {
@@ -237,7 +237,7 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
         //println!("{:?}", packet.GameBall);
 
         send_to_bot_logic(&sender);
-        thread::sleep_ms(1000 / 121); // TODO measure time taken and do a diff
+        thread::sleep_ms(1000 / 250); // TODO measure time taken and do a diff
         if let Ok(plan_result) = receiver.try_recv() {
             // FIXME we only want to replace it if it's better! also, what if it can't find a path
             // now, even though it could before and the old one is still ok?
@@ -255,28 +255,62 @@ fn run_test() {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut packet = rlbot::LiveDataPacket::default();
+    rlbot::update_live_data_packet(&mut packet);
+            println!("packet location: {:?}", packet.GameCars[0].Physics.Location);
+
+    /*
     packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0; // XXX opposite of the yaw in our models
     packet.GameCars[0].Physics.Location.X = 25.0; //0.0;
     packet.GameCars[0].Physics.Location.Y = -5567.9844; //0.0;
     packet.GameCars[0].Physics.Location.Z = 27.106;
     packet.GameCars[0].Physics.Velocity.Y = 382.1;
     packet.GameCars[0].Physics.Velocity.Z = -6.956;
+    */
 
-    packet.GameBall.Physics.Location.X = -50.0;
-    packet.GameBall.Physics.Location.Y = -3656.1914; //0.0;
+    packet.GameBall.Physics.Location.X = 0.0;
+    packet.GameBall.Physics.Location.Y = 0.0;
     packet.GameBall.Physics.Location.Z = 92.0; //0.0;
-    packet.GameBall.Physics.Velocity.Y = -418.8107;
+    packet.GameBall.Physics.Velocity.Y = 0.0;
 
+    let mut current_plan_result;
+    {
+        {
+            let mut game_state = GAME_STATE.write().unwrap();
+            update_game_state(&mut game_state, &packet, 0);
+        }
+        {
+            let mut game_state = GAME_STATE.read().unwrap();
+            current_plan_result = get_plan_result(&game_state);
+            update_visualization(&current_plan_result);
+        }
+    }
+    let mut last_steer = 0.0;
     loop {
         //let start = SystemTime::now();
         //packet.GameCars[0].Physics.Rotation.Yaw = PI * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 100000000.0).sin();
         //packet.GameCars[0].Physics.Location.Y = 4000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 110000000.0).sin();
         //packet.GameCars[0].Physics.Location.X = 3000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 70000000.0).sin();
-        println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
-        let player_index = 0;
-        let input = get_test_bot_input(&packet, player_index);
-        //thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
-        thread::sleep_ms(1000); // FIXME testing
+        //println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
+        let player_index = 0;       
+        {
+            rlbot::update_live_data_packet(&mut packet);
+            let mut game_state = GAME_STATE.write().unwrap();
+            update_game_state(&mut game_state, &packet, player_index);
+        }
+
+        let input = next_rlbot_input(&current_plan_result);
+        if last_steer != input.Steer {
+            last_steer = input.Steer;
+            let game_state = GAME_STATE.read().unwrap();
+            println!("pos: {}", game_state.player.position);
+            println!("steer change: {:?}", input.Steer);
+        }
+        rlbot::update_player_input(input, player_index as i32);
+        //let input = get_test_bot_input(&packet, player_index);
+        thread::sleep_ms(1000 / 250); // TODO measure time taken by bot and do diff
+        //thread::sleep_ms(1000); // FIXME testing
+
+
     }
 }
 
@@ -365,6 +399,8 @@ fn next_rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
             let mut last_distance = std::f32::MAX;
             let mut chosen_controller = first.1;
             let game_state = GAME_STATE.read().unwrap();
+            let mut last_position = first.0.position;
+            let mut almost_done = false;
             while let Some((player, controller)) = iter.next() {
                 let distance = (player.position - game_state.player.position).norm();
                 chosen_controller = *controller;
@@ -375,10 +411,15 @@ fn next_rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
                     // plan, ie we have a position for every tick.
                     break;
                 }
+                last_position = player.position;
                 last_distance = distance;
             }
             return convert_controller_to_rlbot_input(&chosen_controller);
+        } else {
+            println!("no first item in plan :/");
         }
+    } else {
+        println!("no plan :/");
     }
 
     // fallback
