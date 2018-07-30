@@ -140,7 +140,46 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &Des
 
     let step_duration = appropriate_step(&player, &desired_contact);
 
-    hybrid_a_star(player, &desired_contact, step_duration)
+    let mut plan_result = hybrid_a_star(player, &desired_contact, step_duration);
+    explode_plan(&mut plan_result, step_duration);
+    plan_result
+}
+
+/// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
+fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
+    // we would get slightly off results with the method below if we don't have an exact multiple
+    assert!(120 % (step_duration * 120.0) as i32 == 0);
+
+    if let Some(ref mut plan) = plan_result.plan {
+        if plan.get(0).is_none() { return }
+        let exploded_length = (plan.len() - 1) * (120.0 * step_duration) as usize; // first item in plan is current position
+        let mut exploded_plan = vec![];
+
+        let mut last_index = 0;
+        let mut last_player = plan[0].0;
+        for i in 0..exploded_length {
+            let t = i as f32 * predict::TICK;
+
+            // index of the controller vlue we want to apply
+            // again, first item is current position, we need controller on next item
+            let original_index = 1 + (t / step_duration) as usize;
+            if original_index > last_index {
+                last_index = original_index;
+
+                // player is from iteration before. by setting it here, we are re-calibrating
+                // to the coarse path. this could help in case there is somehow a divergence in
+                // how we calculate at finer time steps (which wouldn't be good at all, but
+                // might happen regardless).
+                last_player = plan[original_index - 1].0;
+            }
+            let controller = plan[original_index].1;
+            let next_player = predict::player::next_player_state(&last_player, &controller, step_duration);
+            exploded_plan.push((next_player, controller));
+            last_player = next_player;
+        }
+        plan.clear();
+        plan.append(&mut exploded_plan);
+    }
 }
 
 #[derive(Clone, Debug)]

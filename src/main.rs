@@ -371,7 +371,8 @@ fn next_rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
                 if distance > last_distance {
                     // we iterate and choose the controller at the point distance increases. this
                     // is because `controller` is the previous controller input to reach the given
-                    // player.position
+                    // player.position. NOTE this logic is only good if we provide a "exploded"
+                    // plan, ie we have a position for every tick.
                     break;
                 }
                 last_distance = distance;
