@@ -17,7 +17,7 @@ lazy_static! {
     pub static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,
@@ -138,6 +138,18 @@ pub struct PlanResult {
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
     pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,
 }
+
+impl Default for PlanResult {
+    fn default() -> PlanResult {
+        PlanResult {
+            plan: None,
+            desired: DesiredContact::new(),
+            visualization_lines: vec![],
+            visualization_points: vec![],
+        }
+    }
+}
+
 
 // XXX we may want to use different internal structs, since in some cases we may care about
 // position but not velocity, and vice versa

@@ -210,7 +210,7 @@ fn max_cost(step_duration: f32) -> f32 {
     match step_duration {
         FINE_STEP => 0.6,
         MEDIUM_STEP => 1.0,
-        COARSE_STEP | VERY_COARSE_STEP => 5.0,
+        COARSE_STEP | VERY_COARSE_STEP => 10.0,
         _ => unimplemented!("max_cost step_duration") // we have only tuned for the values above, not allowing others for now
     }
 }
@@ -315,12 +315,22 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     goals
 }
 
+fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
+    // we can't fly yet :(
+    desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
+}
+
 #[no_mangle]
 pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
-    let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
-    let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
     let mut visualization_lines = vec![];
     let mut visualization_points = vec![];
+
+    if known_unreachable(&current, &desired) {
+        return PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
+    }
+
+    let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
+    let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
 
     to_see.push(SmallestCostHolder {
         estimated_cost: heuristic_cost(&current, &desired),
@@ -373,6 +383,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
 
     let max_cost = max_cost(step_duration);
     let mut num_iterations = 0;
+    let max_iterations = match step_duration {
+        VERY_COARSE_STEP => 4000,
+        _ => 100_000,
+    };
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
 
         // avoid an infinite graph search
@@ -383,7 +397,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
 
         // HACK avoid very large searches completely
         num_iterations += 1;
-        if num_iterations > 40_000 {
+        if num_iterations > max_iterations {
             println!("short circuit, too many iterations!");
             break;
         }
@@ -415,7 +429,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
             }
 
             if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
-                println!("omg reached {}", visualization_points.len());
+                println!("omg reached! step size: {} | expensions: {}", step_duration * 120.0, visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
                     desired: desired.clone(),
@@ -553,7 +567,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         }
     }
 
-    println!("omg failed {}", visualization_points.len());
+    println!("omg failed! step size: {} | expensions: {}", step_duration * 120.0, visualization_points.len());
     PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
 }
 
@@ -806,7 +820,7 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
     control_branches(&vertex.player).iter().map(|&controller| {
         PlayerVertex {
             player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
-            cost_so_far: vertex.cost_so_far,
+            cost_so_far: vertex.cost_so_far + step_duration,
             prev_controller: controller,
             parent_index: index,
             parent_is_secondary: is_secondary,
@@ -821,8 +835,10 @@ fn heuristic_cost(candidate: &PlayerState, desired: &DesiredContact) -> f32 {
     // NOTE for now we ignore the fact that we are not starting at the max boost velocity pointed
     // directly at the desired position. the heuristic just needs to be a lower bound, until we
     // want to get it more accurate and thus ignore irrelevant branches more efficiently.
-    let distance = (desired.position - candidate.position).norm();
-    let movement_time_cost = distance / predict::player::MAX_BOOST_SPEED;
+    let towards_contact = desired.position - candidate.position;
+    let distance = towards_contact.norm();
+    //let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
+    let movement_time_cost = distance / 1200.0; // FIXME should use predict::player::MAX_BOOST_SPEED, but it checks too many paths. we just get a slightly less optimal path, but get it a lot faster
 
     // NOTE this is weird since we are not taking into account that some of the time cost here may
     // overlap with the distance cost. what we really want to do is find the boost vector that
@@ -837,11 +853,12 @@ fn heuristic_cost(candidate: &PlayerState, desired: &DesiredContact) -> f32 {
     //let relative_velocity = (desired.velocity - candidate.velocity).norm();
     //let acceleration_time_cost = relative_velocity / predict::player::BOOST_ACCELERATION_FACTOR;
 
-    let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let desired_heading = Unit::new_normalize(desired.heading.clone()).unwrap(); // FIXME normalize before
-    let rotation_match_factor = 1.0 - na::dot(&current_heading, &desired_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
-    let distance_factor = (1.0 - distance/400.0).max(0.0); // linearly reduce rotation cost the further we are away. 0 at max distance, ie yaw mismatch is complete ignored if far enough (TODO tune)
-    let rotation_cost = 1.1 * distance_factor * rotation_match_factor; // constant factor here is arbitrary (TODO tune)
+    // let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    // let desired_contact_heading = Unit::new_normalize(desired.heading.clone()).unwrap(); // FIXME normalize before
+    // //let rotation_match_factor = 1.0 - na::dot(&current_heading, &desired_contact_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
+    // let rotation_match_factor = 1.0 - na::dot(&current_heading, &towards_contact_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
+    // let distance_factor = (1.0 - distance/1000.0).max(0.0); // linearly reduce rotation cost the further we are away. 0 at max distance, ie yaw mismatch is complete ignored if far enough (TODO tune)
+    // let rotation_cost = 1.1 * distance_factor * rotation_match_factor; // constant factor here is arbitrary (TODO tune)
     // TODO angular velocity cost
     // the distance between orientation R1 and R2 is:
     //
@@ -860,7 +877,7 @@ fn heuristic_cost(candidate: &PlayerState, desired: &DesiredContact) -> f32 {
     //    }
     // FIXME acceleration_time_cost causing problems, removing temporarily. bring it back when
     // round player state includes velocity again.
-    movement_time_cost + rotation_cost
+    movement_time_cost //+ rotation_cost
 }
 
 #[cfg(test)]

@@ -26,6 +26,7 @@ use std::fs::File;
 use std::net::TcpListener;
 use std::io::prelude::*;
 use std::thread;
+use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
 use std::f32::consts::PI;
@@ -200,8 +201,26 @@ fn run_visualization(){
 }
 
 /// main bot playing loop
+/// this is the entry point for custom logic for this specific bot
 fn run_bot() {
+    let (state_sender, state_receiver): (Sender<GameState>, Receiver<GameState>) = mpsc::channel();
+    let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
+    thread::spawn(move || {
+        bot_logic_loop(plan_sender, state_receiver);
+    });
+    bot_io_loop(state_sender, plan_receiver);
+}
+
+fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
+    while let Ok(game_state) = receiver.recv() {
+        let plan_result = get_plan_result(&game_state);
+        sender.send(plan_result);
+    }
+}
+
+fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
     let mut packet = rlbot::LiveDataPacket::default();
+    let mut current_plan_result = PlanResult::default();
     loop {
         let player_index = *PLAYER_INDEX.lock().unwrap();
         //println!("player index: {:?}", player_index);
@@ -214,12 +233,20 @@ fn run_bot() {
         };
 
         rlbot::update_live_data_packet(&mut packet);
+        update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
         //println!("{:?}", packet.GameBall);
 
-        let input = get_bot_input(&packet, player_index);
-        rlbot::update_player_input(input, player_index as i32);
+        send_to_bot_logic(&sender);
+        thread::sleep_ms(1000 / 121); // TODO measure time taken and do a diff
+        if let Ok(plan_result) = receiver.try_recv() {
+            // FIXME we only want to replace it if it's better! also, what if it can't find a path
+            // now, even though it could before and the old one is still ok?
+            current_plan_result = plan_result;
+            update_visualization(&current_plan_result);
+        }
 
-        thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
+        let input = next_rlbot_input(&current_plan_result);
+        rlbot::update_player_input(input, player_index as i32);
     }
 }
 
@@ -253,6 +280,58 @@ fn run_test() {
     }
 }
 
+fn update_visualization(plan_result: &PlanResult) {
+    let game_state = GAME_STATE.read().unwrap();
+    let PlanResult { plan, desired, visualization_lines: lines, visualization_points: points } = plan_result;
+
+    let mut visualize_lines = LINES.write().unwrap();
+    visualize_lines.clear();
+
+    // red line from player center to contact point
+    let pos = game_state.player.position;
+    let dpos = desired.position;
+    visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
+
+    // white line showing planned path
+    if let Some(plan) = plan {
+        let pos = game_state.player.position;
+        let mut last_point = Point3::new(pos.x, pos.y, pos.z);
+        let mut last_position = pos;
+        for (ps, _) in plan {
+            last_position = ps.position;
+            let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
+            visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
+            last_point = point;
+        }
+    }
+    visualize_lines.append(&mut lines.clone());
+
+
+    let mut visualize_points = POINTS.write().unwrap();
+    visualize_points.clear();
+    visualize_points.append(&mut points.clone());
+}
+
+fn send_to_bot_logic(sender: &Sender<GameState>) {
+    let game_state = GAME_STATE.read().unwrap();
+    sender.send((*game_state).clone()).expect("Sending to bot logic failed");
+}
+
+//fn run_test() {
+//    use std::f32::consts::PI;
+//    let mut packet = rlbot::LiveDataPacket::default();
+//    packet.GameCars[0].Physics.Rotation.Yaw = -PI/2.0;
+//    packet.GameCars[0].Physics.Location.Y = -3000.0;
+//    packet.GameCars[0].Physics.Location.X = -2000.0;
+//    loop {
+//        println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
+//        let player_index = 0;
+//        let input = get_bot_input(&packet, player_index);
+//        //thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
+//        thread::sleep_ms(1000); // FIXME testing
+//    }
+//}
+
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
 fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
@@ -277,17 +356,42 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
     };
 }
 
+fn next_rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
+    // TODO we want to get more sophisticated here and find which point we are in on the plan,
+    // in case of a very slow planning situation
+    if let Some(ref plan) = plan_result.plan {
+        if let Some(first) = plan.get(0) {
+            let mut iter = plan.iter();
+            let mut last_distance = std::f32::MAX;
+            let mut chosen_controller = first.1;
+            let game_state = GAME_STATE.read().unwrap();
+            while let Some((player, controller)) = iter.next() {
+                let distance = (player.position - game_state.player.position).norm();
+                chosen_controller = *controller;
+                if distance > last_distance {
+                    // we iterate and choose the controller at the point distance increases. this
+                    // is because `controller` is the previous controller input to reach the given
+                    // player.position
+                    break;
+                }
+                last_distance = distance;
+            }
+            return convert_controller_to_rlbot_input(&chosen_controller);
+        }
+    }
+
+    // fallback
+    let mut input = rlbot::PlayerInput::default();
+    input.Throttle = 0.5;
+    input
+}
+
 type PlayFunc = extern fn (game: &GameState) -> PlanResult;
 type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
 
-/// this is the entry point for custom logic for this specific bot
-fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
-    let mut input = rlbot::PlayerInput::default();
 
-    //println!("packet player location: {:?}", packet.GameCars[0].Physics.Location);
-    update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
-
+fn get_plan_result(game_state: &GameState) -> PlanResult {
     // FIXME is there a way to unlock without a made up scope?
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
@@ -297,7 +401,6 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
         rh.update(BrainPlugin::reload_callback, &mut p);
     }
 
-    // TODO get extra visualization data and desired controller state from BRAIN
     if let Some(ref x) = BRAIN.lock().unwrap().lib {
         // TODO cache
         let play: Symbol<PlayFunc> = unsafe {
@@ -307,49 +410,11 @@ fn get_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::
             x.lib.get(b"hybrid_a_star\0").unwrap()
         };
 
-        let game_state = &GAME_STATE.read().unwrap();
-        //println!("player: {:?}", game_state.player);
-        let PlanResult {
-            plan: mut plan, desired,
-            visualization_lines: mut lines,
-            visualization_points: mut points,
-        } = play(&game_state);
-
-        let mut visualize_lines = LINES.write().unwrap();
-        visualize_lines.clear();
-
-        // red line from player center to contact point
-        let pos = game_state.player.position;
-        let dpos = desired.position;
-        visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
-
-        let mut visualize_points = POINTS.write().unwrap();
-        visualize_points.clear();
-
-        if let Some(plan) = plan {
-            // first item in plan is initial position, so we go to second index. may be missing if we are already there!
-            if let Some((_, controller)) = plan.get(1) {
-                input = convert_controller_to_rlbot_input(&controller);
-            }
-            let pos = game_state.player.position;
-            let mut last_point = Point3::new(pos.x, pos.y, pos.z);
-            let mut last_position = pos;
-            for (ps, _) in &plan {
-                last_position = ps.position;
-                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
-                visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
-                last_point = point;
-            }
-        }
-        visualize_lines.append(&mut lines);
-
-
-        let mut visualize_points = POINTS.write().unwrap();
-        visualize_points.clear();
-        visualize_points.append(&mut points);
+        play(&game_state)
+    } else {
+        panic!("We need the brain dynamic library!");
+        //PlanResult::default()
     }
-
-    input
 }
 
 /// this is the entry point for custom logic for this specific bot
@@ -357,7 +422,6 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
     use std::time::{SystemTime, UNIX_EPOCH};
     let mut input = rlbot::PlayerInput::default();
 
-    //println!("packet player location: {:?}", packet.GameCars[0].Physics.Location);
     update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
 
     // FIXME is there a way to unlock without a made up scope?
@@ -401,7 +465,6 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
             ));
 
 
-
             let mut desired_contact = DesiredContact::new();
             desired_contact.position.x = 101.0; //300.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
             desired_contact.position.y = 50.0; //1000.0 + 300.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
@@ -412,95 +475,16 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
         } else {
             play(&game_state)
         };
+        println!("TOOK: {}s",  SystemTime::now().duration_since(start).unwrap().as_secs() as f32 + SystemTime::now().duration_since(start).unwrap().subsec_nanos() as f32 / 1000_0000_000.0);
+
+        update_visualization(&result);
         let PlanResult {
             plan: mut plan,
             visualization_lines: mut lines,
             visualization_points: mut points,
             desired: mut desired,
         } = result;
-
-        println!("TOOK: {}s",  SystemTime::now().duration_since(start).unwrap().as_secs() as f32 + SystemTime::now().duration_since(start).unwrap().subsec_nanos() as f32 / 1000_0000_000.0);
-
-        let mut visualize_lines = LINES.write().unwrap();
-        visualize_lines.clear();
-        let pos = game_state.player.position;
-        let dpos = desired.position;
-        visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
-
-        let mut visualize_points = POINTS.write().unwrap();
-        visualize_points.clear();
-
-        println!("desired_position: {:?}", desired.position);
-        if let Some(plan) = plan {
-            // first item in plan is initial position, so we go to second index. may be missing if we are already there!
-            if let Some((_, controller)) = plan.get(1) {
-                input = convert_controller_to_rlbot_input(&controller);
-            }
-            let pos = game_state.player.position;
-            let mut last_point = Point3::new(pos.x, pos.y, pos.z);
-            // TODO // let mut last_position = pos;
-            for (ps, _) in &plan {
-                // TODO // last_position = ps.position;
-                let point = Point3::new(ps.position.x, ps.position.y, ps.position.z);
-                visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
-                last_point = point;
-            }
-            // TODO // let len = plan.len();
-            // TODO // let last = plan[len-1];
-            // TODO // let fallback = (desired_player, BrickControllerState::new());
-            // TODO // let last2 = plan.get(len-2).unwrap_or_else(|| &fallback);
-            // TODO // println!("last_position: {:?}", last.0.position);
-
-            // TODO // // https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
-            // TODO // let a = last2.0.position;
-            // TODO // let n = Unit::new_normalize(last.0.position - last2.0.position).unwrap();
-            // TODO // let p = desired_player.position;
-            // TODO // let error = ((a - p) - na::dot(&(a - p), &n) * n).norm();
-
-            // TODO // // FIXME this error calculation doesn't work now that we actually want the point of
-            // TODO // // contact and have multiple goals. we need to measure closest point of contact
-            // TODO // println!("error: {:?}", error);
-            // TODO // println!("-------------------------------");
-        } else {
-            // TODO // let mut closest_distance = std::f32::MAX;
-            // TODO // let mut closest_positions = [game_state.player.position, game_state.player.position];
-            // TODO // for line in &lines {
-            // TODO //     let pos1 = Vector3::new(line.0.x, line.0.y, line.0.z);
-            // TODO //     let pos2 = Vector3::new(line.1.x, line.1.y, line.1.z);
-            // TODO //     //let distance = (pos - desired_player.position).norm();
-
-            // TODO //     // https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
-            // TODO //     let a = pos1;
-            // TODO //     let n = Unit::new_normalize(pos2 - pos1).unwrap();
-            // TODO //     let p = desired_player.position;
-            // TODO //     let intersection_vector_from_goal = ((a - p) - na::dot(&(a - p), &n) * n);
-            // TODO //     let intersection_point = p + intersection_vector_from_goal;
-
-            // TODO //     let in_range_x = (intersection_point.x > pos1.x && intersection_point.x < pos2.x) ||
-            // TODO //                      (intersection_point.x < pos1.x && intersection_point.x > pos2.x);
-            // TODO //     let in_range_y = (intersection_point.y > pos1.y && intersection_point.y < pos2.y) ||
-            // TODO //                      (intersection_point.y < pos1.y && intersection_point.y > pos2.y);
-            // TODO //     if in_range_x && in_range_y {
-            // TODO //         let distance = intersection_vector_from_goal.norm();
-            // TODO //         if distance < closest_distance {
-            // TODO //             closest_positions = [pos1, pos2];
-            // TODO //             closest_distance = distance;
-            // TODO //         }
-            // TODO //     }
-            // TODO // }
-            // TODO // // FIXME this closest calculation doesn't work now that we actually want the point of
-            // TODO // // contact and have multiple goals. we need to measure closest point of contact
-            // TODO // //println!("closest_positions: {:?}", closest_positions);
-            // TODO // //println!("closest_distance: {:?}", closest_distance);
-            // TODO // //println!("lines: {}", lines.len());
-            // TODO // let len = lines.len();
-            // TODO // println!("-------------------------------");
-        }
-
-        visualize_lines.append(&mut lines);
-        visualize_lines.append(&mut extra_lines);
-        visualize_points.append(&mut points);
-        //println!("plan: {:?}, lines: {:?}", plan, lines);
+        println!("desired contact position: {:?}", desired.position);
     }
 
     input
