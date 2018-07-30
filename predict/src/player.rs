@@ -131,28 +131,28 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
     let translation = Vector3::new(0.0, 0.0, 0.0);
     let rotation = Rotation3::new(Vector3::new(0.0, 0.0, 0.0));
 
-    // based on steer, throttle and boost, gets the right samples
-    let samples: &'static Vec<PlayerState> = sample::get_relevant_turn_samples(&controller);
-
     let mut current_speed = current.velocity.norm();
 
-    // FIXME hack until we implement samples for when our current speed is higher than the max
-    // turning speed!
-    if current_speed > 1235.0 {
-        current_speed = 1235.0;
-    }
+    // we round it so it's possible to find a row that matches! this is specifically an issue at
+    // a speed of 1240uu/s, which takes a long time to reach when turning from either direction,
+    // and seems like the asymptotic value
+    if current_speed.round() == 1240.0 { current_speed = 1239.5 } // HACK to avoid hitting end of sample file
+    let decelerating = current_speed > 1240.0;
+
+    // based on steer, throttle and boost, gets the right samples
+    let samples: &'static Vec<PlayerState> = sample::get_relevant_turn_samples(&controller, decelerating);
 
     // find index of closest matching player state
     let start_index = samples.binary_search_by(|player_state| {
-        let sample_speed = player_state.velocity.norm();
+        let sample_speed = player_state.velocity.norm().round();
         // `std::cmp::Ord` is not implemented for `f32`
         // that's due to NaN and such. we don't care about that, so just do it.
         if sample_speed == current_speed {
             std::cmp::Ordering::Equal
-        } else if sample_speed < current_speed { // uh this might not work when decelerating
-            std::cmp::Ordering::Less
+        } else if sample_speed < current_speed {
+            if decelerating { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less }
         } else {
-            std::cmp::Ordering::Greater
+            if decelerating { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater }
         }
     });
     let start_index = match start_index {
@@ -174,8 +174,8 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
     // tick normally mentioned at 120fps
     let end_index = start_index + (time_step * 240.0).floor() as usize;
 
-    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, {:?}", start_index, controller));
-    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, {:?}", end_index, controller));
+    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, speed: {}, controller: {:?}", start_index, current_speed, controller));
+    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, speed: {}, controller: {:?}", end_index, current_speed, controller));
 
     // TODO use Rotation3 instead of UnitQuaternion for player.rotation
     // get rotation that when multiplied with sample_start_state.rotation, gives us current_rotation
