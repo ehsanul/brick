@@ -199,7 +199,7 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             update_visualization(&current_plan_result);
         }
 
-        let input = rlbot_input(&current_plan_result);
+        let input = next_rlbot_input(&current_plan_result);
         rlbot::update_player_input(input, player_index as i32);
     }
 }
@@ -281,13 +281,27 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
 }
 
 
-fn rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
-    // first item in plan is initial position, so we go to second index. may be missing if we are already there!
+fn next_rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
+    // TODO we want to get more sophisticated here and find which point we are in on the plan,
+    // in case of a very slow planning situation
     if let Some(ref plan) = plan_result.plan {
-        // TODO we want to get more sophisticated here and find which point we are in on the plan,
-        // in case of a very slow planning situation
-        if let Some((_, controller)) = plan.get(1) {
-            return convert_controller_to_rlbot_input(&controller);
+        if let Some(first) = plan.get(0) {
+            let mut iter = plan.iter();
+            let mut last_distance = std::f32::MAX;
+            let mut chosen_controller = first.1;
+            let game_state = GAME_STATE.read().unwrap();
+            while let Some((player, controller)) = iter.next() {
+                let distance = (player.position - game_state.player.position).norm();
+                chosen_controller = *controller;
+                if distance > last_distance {
+                    // we iterate and choose the controller at the point distance increases. this
+                    // is because `controller` is the previous controller input to reach the given
+                    // player.position
+                    break;
+                }
+                last_distance = distance;
+            }
+            return convert_controller_to_rlbot_input(&chosen_controller);
         }
     }
 
@@ -316,7 +330,8 @@ fn get_plan_result(game_state: &GameState) -> PlanResult {
         };
         play(&game_state)
     } else {
-        PlanResult::default()
+        panic!("We need the brain dynamic library!");
+        //PlanResult::default()
     }
 }
 
