@@ -148,15 +148,17 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &Des
 /// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
 fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
     // we would get slightly off results with the method below if we don't have an exact multiple
-    assert!(120 % (step_duration * 120.0) as i32 == 0);
+    let ticks_per_step = (step_duration / predict::TICK) as usize;
+    assert!(120 % ticks_per_step == 0);
 
     if let Some(ref mut plan) = plan_result.plan {
         if plan.get(0).is_none() { return }
-        let exploded_length = (plan.len() - 1) * (120.0 * step_duration) as usize; // first item in plan is current position
+        let exploded_length = (plan.len() - 1) * ticks_per_step; // first item in plan is current position
         let mut exploded_plan = vec![];
 
         let mut last_index = 0;
         let mut last_player = plan[0].0;
+        let mut last_controller = plan[0].1;
         for i in 0..exploded_length {
             let t = i as f32 * predict::TICK;
 
@@ -173,9 +175,20 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
                 last_player = plan[original_index - 1].0;
             }
             let controller = plan[original_index].1;
-            let next_player = predict::player::next_player_state(&last_player, &controller, step_duration);
+            let next_player = predict::player::next_player_state(&last_player, &controller, predict::TICK);
             exploded_plan.push((next_player, controller));
             last_player = next_player;
+
+            // XXX HACK ALERT start turning a few frames early since there's a delay or something. but don't end turning early? tbd.
+            if i >= 4 && controller.steer != last_controller.steer {
+                exploded_plan[i-1].1.steer = controller.steer;
+                exploded_plan[i-2].1.steer = controller.steer;
+                if controller.steer != Steer::Straight  {
+                    exploded_plan[i-3].1.steer = controller.steer;
+                    exploded_plan[i-4].1.steer = controller.steer;
+                }
+            }
+            last_controller = controller;
         }
         plan.clear();
         plan.append(&mut exploded_plan);
