@@ -315,12 +315,22 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     goals
 }
 
+fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
+    // we can't fly yet :(
+    desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
+}
+
 #[no_mangle]
 pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
-    let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
-    let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
     let mut visualization_lines = vec![];
     let mut visualization_points = vec![];
+
+    if known_unreachable(&current, &desired) {
+        return PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
+    }
+
+    let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
+    let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
 
     to_see.push(SmallestCostHolder {
         estimated_cost: heuristic_cost(&current, &desired),
