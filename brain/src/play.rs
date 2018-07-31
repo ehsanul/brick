@@ -33,7 +33,7 @@ fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
 #[no_mangle]
 pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact  {
     let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
-    let desired_velocity = 1000.0 * desired_vector.unwrap();
+    let desired_velocity = 3000.0 * desired_vector.unwrap();
     let velocity_delta = desired_velocity - ball.velocity;
 
     // this is pretty crude, doesn't even consider that the ball will undergo gravity after the
