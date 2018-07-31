@@ -1,5 +1,6 @@
 use state::*;
 use predict;
+use predict::arena::*;
 use na::{ self, Unit, Vector3, Point3, Rotation3, UnitQuaternion };
 use std::cmp::Ordering;
 use std::f32::consts::PI;
@@ -372,6 +373,8 @@ fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
     desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
 }
 
+type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
+
 #[no_mangle]
 pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
     let mut visualization_lines = vec![];
@@ -382,7 +385,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
     }
 
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
-    let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
+    let mut parents: ParentsMap = IndexMap::default();
 
     to_see.push(SmallestCostHolder {
         estimated_cost: heuristic_cost(&current, &desired),
@@ -499,7 +502,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, step_duration)
+            expand_vertex(index, is_secondary, &vertex, step_duration, |_| true)
         };
 
         for new_vertex in new_vertices {
@@ -648,7 +651,7 @@ fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate:
     })
 }
 
-fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
+fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
         let is_secondary = (*vals).1;
@@ -868,7 +871,13 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
     }
 }
 
-fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32) -> Vec<PlayerVertex> {
+fn out_of_bounds(player: &PlayerState) -> bool {
+    let pos = player.position;
+    pos.x > SIDE_WALL_DISTANCE || pos.x < -SIDE_WALL_DISTANCE ||
+        pos.y > BACK_WALL_DISTANCE || pos.y < -BACK_WALL_DISTANCE
+}
+
+fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
     control_branches(&vertex.player).iter().map(|&controller| {
         PlayerVertex {
             player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
@@ -877,6 +886,13 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
             parent_index: index,
             parent_is_secondary: is_secondary,
         }
+    }).filter(|new_vertex| {
+        // if parent (ie vertex) is already out of bounds, allow going out of bounds since we need
+        // to be able to move back in if we start planning from out of bounds (eg player inside
+        // goal)
+        // TODO ideally we'd only allow if we're getting *less* out of bounds than before
+        let outside_arena = out_of_bounds(&new_vertex.player) && !out_of_bounds(&vertex.player);
+        !outside_arena && custom_filter(&new_vertex)
     }).collect::<Vec<PlayerVertex>>()
 }
 
