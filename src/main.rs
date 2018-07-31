@@ -31,6 +31,7 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
 use std::f32::consts::PI;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use state::*;
 
@@ -263,9 +264,9 @@ fn run_test() {
     packet.GameCars[0].Physics.Velocity.Z = -6.956;
 
     packet.GameBall.Physics.Location.X = -50.0;
-    packet.GameBall.Physics.Location.Y = -3656.1914; //0.0;
+    packet.GameBall.Physics.Location.Y = -2656.1914; //0.0;
     packet.GameBall.Physics.Location.Z = 92.0; //0.0;
-    packet.GameBall.Physics.Velocity.Y = -418.8107;
+    packet.GameBall.Physics.Velocity.Y = 1418.8107;
 
     loop {
         //let start = SystemTime::now();
@@ -300,7 +301,7 @@ fn update_visualization(plan_result: &PlanResult) {
         for (ps, _) in plan {
             last_position = ps.position;
             let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
-            visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 1.0, 1.0)));
+            visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 0.0, 1.0)));
             last_point = point;
         }
     }
@@ -449,7 +450,9 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
 
 
         let game_state = &GAME_STATE.read().unwrap();
-        let start = SystemTime::now();
+        let now = SystemTime::now();
+        let start = Instant::now();
+        println!("PLAN DURATION: {:?}", start.elapsed());
 
         let manual = true;
         let mut extra_lines = vec![];
@@ -467,16 +470,16 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
 
 
             let mut desired_contact = DesiredContact::new();
-            desired_contact.position.x = 101.0; //300.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
-            desired_contact.position.y = 50.0; //1000.0 + 300.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
-            desired_contact.position.z = 89.0;
+            desired_contact.position.x = 52.550236; //101.0; //300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
+            desired_contact.position.y = -2563.3354; //1000.0 + 300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
+            desired_contact.position.z = 90.99978;
             desired_contact.heading = dc.heading;
-            let step_duration = 60.0/120.0;
+            let step_duration = 20.0/120.0;
             hybrid_a_star(&game_state.player, &desired_contact, step_duration)
         } else {
             play(&game_state)
         };
-        println!("TOOK: {}s",  SystemTime::now().duration_since(start).unwrap().as_secs() as f32 + SystemTime::now().duration_since(start).unwrap().subsec_nanos() as f32 / 1000_0000_000.0);
+        println!("TOOK: {:?}", start.elapsed());
 
         update_visualization(&result);
         let PlanResult {
