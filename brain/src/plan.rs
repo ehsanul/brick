@@ -94,7 +94,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
 
-    if distance < 500.0 {
+    if distance < 300.0 {
         // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
         // don't go as far along any turning curves, and thus we end up in the same angle, just
         // earlier
@@ -108,7 +108,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < 1000.0 {
+    } else if distance < 600.0 {
 
         let min_dot = if speed < 400.0 {
             // XXX in this measurement, it only managed to go 400uu total, so... we probably need
@@ -127,6 +127,8 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
+    } else if distance < 1000.0 {
+        COARSE_STEP
     } else {
         VERY_COARSE_STEP
     }
