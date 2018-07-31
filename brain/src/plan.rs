@@ -1,5 +1,6 @@
 use state::*;
 use predict;
+use predict::arena::*;
 use na::{ self, Unit, Vector3, Point3, Rotation3, UnitQuaternion };
 use std::cmp::Ordering;
 use std::f32::consts::PI;
@@ -148,15 +149,17 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &Des
 /// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
 fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
     // we would get slightly off results with the method below if we don't have an exact multiple
-    assert!(120 % (step_duration * 120.0) as i32 == 0);
+    let ticks_per_step = (step_duration / predict::TICK) as usize;
+    assert!(120 % ticks_per_step == 0);
 
     if let Some(ref mut plan) = plan_result.plan {
         if plan.get(0).is_none() { return }
-        let exploded_length = (plan.len() - 1) * (120.0 * step_duration) as usize; // first item in plan is current position
+        let exploded_length = (plan.len() - 1) * ticks_per_step; // first item in plan is current position
         let mut exploded_plan = vec![];
 
         let mut last_index = 0;
         let mut last_player = plan[0].0;
+        let mut last_controller = plan[0].1;
         for i in 0..exploded_length {
             let t = i as f32 * predict::TICK;
 
@@ -173,9 +176,20 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
                 last_player = plan[original_index - 1].0;
             }
             let controller = plan[original_index].1;
-            let next_player = predict::player::next_player_state(&last_player, &controller, step_duration);
+            let next_player = predict::player::next_player_state(&last_player, &controller, predict::TICK);
             exploded_plan.push((next_player, controller));
             last_player = next_player;
+
+            // XXX HACK ALERT start turning a few frames early since there's a delay or something. but don't end turning early? tbd.
+            if i >= 4 && controller.steer != last_controller.steer {
+                exploded_plan[i-1].1.steer = controller.steer;
+                exploded_plan[i-2].1.steer = controller.steer;
+                if controller.steer != Steer::Straight  {
+                    exploded_plan[i-3].1.steer = controller.steer;
+                    exploded_plan[i-4].1.steer = controller.steer;
+                }
+            }
+            last_controller = controller;
         }
         plan.clear();
         plan.append(&mut exploded_plan);
@@ -359,6 +373,8 @@ fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
     desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
 }
 
+type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
+
 #[no_mangle]
 pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
     let mut visualization_lines = vec![];
@@ -369,7 +385,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
     }
 
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
-    let mut parents: IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher> = IndexMap::default();
+    let mut parents: ParentsMap = IndexMap::default();
 
     to_see.push(SmallestCostHolder {
         estimated_cost: heuristic_cost(&current, &desired),
@@ -486,7 +502,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, step_duration)
+            expand_vertex(index, is_secondary, &vertex, step_duration, |_| true)
         };
 
         for new_vertex in new_vertices {
@@ -635,7 +651,7 @@ fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate:
     })
 }
 
-fn reverse_path(parents: &IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
+fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
         let is_secondary = (*vals).1;
@@ -855,7 +871,13 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
     }
 }
 
-fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32) -> Vec<PlayerVertex> {
+fn out_of_bounds(player: &PlayerState) -> bool {
+    let pos = player.position;
+    pos.x > SIDE_WALL_DISTANCE || pos.x < -SIDE_WALL_DISTANCE ||
+        pos.y > BACK_WALL_DISTANCE || pos.y < -BACK_WALL_DISTANCE
+}
+
+fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
     control_branches(&vertex.player).iter().map(|&controller| {
         PlayerVertex {
             player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
@@ -864,6 +886,13 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
             parent_index: index,
             parent_is_secondary: is_secondary,
         }
+    }).filter(|new_vertex| {
+        // if parent (ie vertex) is already out of bounds, allow going out of bounds since we need
+        // to be able to move back in if we start planning from out of bounds (eg player inside
+        // goal)
+        // TODO ideally we'd only allow if we're getting *less* out of bounds than before
+        let outside_arena = out_of_bounds(&new_vertex.player) && !out_of_bounds(&vertex.player);
+        !outside_arena && custom_filter(&new_vertex)
     }).collect::<Vec<PlayerVertex>>()
 }
 
