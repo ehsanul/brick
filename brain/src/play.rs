@@ -57,33 +57,55 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
 
     let mut closest_desired_contact = DesiredContact::new();
     let mut closest_time_diff = std::f32::MAX;
-    let shootable_ball_state = ball_trajectory.iter().enumerate().collect::<Vec<_>>().binary_search_by(|(i, ball)| {
-        let ball_time = (*i as f32) * predict::TICK;
-        let start2 = Instant::now();
+
+    let mut estimates = ball_trajectory.iter().enumerate().map(|(i, ball)| {
+        let ball_time = (i as f32) * predict::TICK;
         let desired_contact = simple_desired_contact(ball, &desired_ball_position);
         let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
-        //println!("#############################");
-        //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
-        println!("ball: {:?}", ball);
-        println!("desired_ball_position: {:?}", desired_ball_position);
-        println!("contact position: {:?}", desired_contact.position);
-        println!("shooting time: {}", shooting_time);
-        println!("ball time: {}", ball_time);
-        println!("----------------------");
-
-        let time_diff = (ball_time - shooting_time).abs();
-        if time_diff < closest_time_diff {
-            closest_time_diff = time_diff;
-            closest_desired_contact = desired_contact;
-        }
-        if shooting_time == ball_time {
+        (i, shooting_time)
+    }).collect::<Vec<_>>();
+    estimates.sort_by(|(i, shooting_time), (i2, shooting_time2)| {
+        let ball_time = (*i as f32) * predict::TICK;
+        let ball_time2 = (*i2 as f32) * predict::TICK;
+        let diff1 = (ball_time - shooting_time).abs();
+        let diff2 = (ball_time2 - shooting_time2).abs();
+        if diff1 == diff1 {
             std::cmp::Ordering::Equal
-        } else if shooting_time < ball_time {
-            std::cmp::Ordering::Greater
-        } else {
+        } else if diff1 < diff2 {
             std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
         }
     });
+    let shootable_ball_state = estimates.iter().map(|(i, _)| *i).next(); // next == first
+
+    //let shootable_ball_state = .binary_search_by(|(i, ball)| {
+    //    let ball_time = (*i as f32) * predict::TICK;
+    //    let start2 = Instant::now();
+    //    let desired_contact = simple_desired_contact(ball, &desired_ball_position);
+    //    let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
+    //    //println!("#############################");
+    //    //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
+    //    println!("ball: {:?}", ball);
+    //    println!("desired_ball_position: {:?}", desired_ball_position);
+    //    println!("contact position: {:?}", desired_contact.position);
+    //    println!("shooting time: {}", shooting_time);
+    //    println!("ball time: {}", ball_time);
+    //    println!("----------------------");
+
+    //    let time_diff = (ball_time - shooting_time).abs();
+    //    if time_diff < closest_time_diff {
+    //        closest_time_diff = time_diff;
+    //        closest_desired_contact = desired_contact;
+    //    }
+    //    if shooting_time == ball_time {
+    //        std::cmp::Ordering::Equal
+    //    } else if shooting_time < ball_time {
+    //        std::cmp::Ordering::Greater
+    //    } else {
+    //        std::cmp::Ordering::Less
+    //    }
+    //});
     if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
         println!("#############################");
         println!("TOTAL SHOOTABLE DURATION: {:?}", start.elapsed());
@@ -92,20 +114,21 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     let start = Instant::now();
 
     match shootable_ball_state {
-        Ok(i) => {
+        Some(i) => {
             // TODO don't re-calculate this, store temporarily in a variable instead
             Some(simple_desired_contact(&ball_trajectory[i], &desired_ball_position))
         }
-        Err(i) => {
-            // we may not find an exact match with time. so we want to allow for some wiggle room
-            // here and use the closest desired state if it seems reachable
-            if closest_time_diff < ROUGH_STEP*1.2 {
-                Some(closest_desired_contact)
-            } else {
-                println!("no plan found! closest_time_diff: {}, ROUGH_STEP: {}", closest_time_diff, ROUGH_STEP);
-                None
-            }
-        }
+        None => None,
+        //Err(i) => {
+        //    // we may not find an exact match with time. so we want to allow for some wiggle room
+        //    // here and use the closest desired state if it seems reachable
+        //    if closest_time_diff < ROUGH_STEP*1.2 {
+        //        Some(closest_desired_contact)
+        //    } else {
+        //        println!("no plan found! closest_time_diff: {}, ROUGH_STEP: {}", closest_time_diff, ROUGH_STEP);
+        //        None
+        //    }
+        //}
     }
 }
 
@@ -192,12 +215,35 @@ fn shoot(game: &GameState) -> PlanResult {
 }
 
 fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact) -> f32 {
-    let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
-    if let Some(plan) = plan {
-        ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
-    } else {
-        std::f32::MAX
+    // unreachable, we can't fly
+    if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
+        return std::f32::MAX;
     }
+
+    let towards_contact = desired.position - current.position;
+    let distance = towards_contact.norm();
+    let mut estimated_movement_time = distance / 800.0; // TODO TUNE
+
+    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
+
+    let pointed_right_way_value = na::dot(&current_heading, &towards_contact_heading);
+    let needs_additional_turning_value = na::dot(&towards_contact_heading, &Unit::new_normalize(desired.heading.clone()).unwrap());
+
+    if pointed_right_way_value < 0.0 {
+        estimated_movement_time += 1.5; // TODO TUNE
+    }
+    if needs_additional_turning_value  < 0.0 {
+        estimated_movement_time += 1.5; // TODO TUNE
+    }
+    estimated_movement_time
+
+    // let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
+    // if let Some(plan) = plan {
+    //     ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
+    // } else {
+    //     std::f32::MAX
+    // }
 }
 
 // TODO

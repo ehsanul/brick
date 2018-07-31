@@ -128,7 +128,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             COARSE_STEP
         }
     } else {
-        COARSE_STEP
+        VERY_COARSE_STEP
     }
 }
 
