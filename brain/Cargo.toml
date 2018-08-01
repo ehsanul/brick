@@ -18,6 +18,3 @@ path = "../predict"
 
 [dependencies.rlbot]
 path = "../rlbot"
-
-[lib]
-crate-type = ["rlib", "dylib"]

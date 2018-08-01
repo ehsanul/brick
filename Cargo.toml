@@ -13,5 +13,8 @@ crossbeam = "0.4"
 [dependencies.state]
 path = "./state"
 
+[dependencies.brain]
+path = "./brain"
+
 [dependencies.rlbot]
 path = "./rlbot"

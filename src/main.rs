@@ -1,8 +1,9 @@
 extern crate kiss3d;
 extern crate nalgebra as na;
-extern crate dynamic_reload;
 extern crate state;
 extern crate rlbot;
+extern crate brain;
+
 
 #[macro_use]
 extern crate lazy_static;
@@ -26,9 +27,6 @@ use kiss3d::window::Window;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
 
-use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
-
-
 lazy_static! {
     static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
 
@@ -43,66 +41,8 @@ lazy_static! {
     static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = {
         RwLock::new(vec![])
     };
-
-    static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
-        Mutex::new(
-            DynamicReload::new(Some(vec!["brain/target/release"]),
-                               Some("target/release"),
-                               Search::Default)
-        )
-    };
-
-    static ref RELOAD_HANDLER2: Mutex<DynamicReload<'static>> = {
-        Mutex::new(
-            DynamicReload::new(Some(vec!["brain/target/release"]),
-                               Some("target/release"),
-                               Search::Default)
-        )
-    };
-
-    static ref BRAIN: Mutex<BrainPlugin> = {
-        let lib = match RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER").add_library("brain", PlatformName::Yes) {
-            Ok(lib) => lib,
-            Err(e) => {
-                panic!("Unable to load dynamic lib, err {:?}", e);
-            }
-        };
-        Mutex::new(BrainPlugin { lib: Some(lib) })
-    };
-
-    static ref BRAIN2: Mutex<BrainPlugin> = {
-        let lib = match RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER2").add_library("brain", PlatformName::Yes) {
-            Ok(lib) => lib,
-            Err(e) => {
-                panic!("2Unable to load dynamic lib, err {:?}", e);
-            }
-        };
-        Mutex::new(BrainPlugin { lib: Some(lib) })
-    };
 }
 
-
-struct BrainPlugin {
-    lib: Option<Arc<Lib>>
-}
-
-impl BrainPlugin {
-    fn unload_plugin(&mut self, lib: &Arc<Lib>) {
-        self.lib = None;
-    }
-
-    fn reload_plugin(&mut self, lib: &Arc<Lib>) {
-        self.lib = Some(lib.clone());
-    }
-
-    fn reload_callback(&mut self, state: UpdateState, lib: Option<&Arc<Lib>>) {
-        match state {
-            UpdateState::Before => Self::unload_plugin(self, lib.unwrap()),
-            UpdateState::After => Self::reload_plugin(self, lib.unwrap()),
-            UpdateState::ReloadFailed(_) => println!("Failed to reload"),
-        }
-    }
-}
 
 // TODO refactor for no reliance on grpc
 /*
@@ -305,55 +245,13 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
     };
 }
 
-type NextInputFunc = extern fn (player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
-
 fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
-    {
-        // XXX there must be a reason why this happens, but BRAIN must be locked before
-        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(BrainPlugin::reload_callback, &mut p);
-    }
-
-    if let Some(ref x) = BRAIN2.lock().unwrap().lib {
-        // TODO cache
-        let next_input: Symbol<NextInputFunc> = unsafe {
-            x.lib.get(b"next_input\0").unwrap()
-        };
-
-        let game_state = GAME_STATE.read().unwrap();
-        next_input(&game_state.player, &plan_result, errors)
-    } else {
-        panic!("We need the brain dynamic library!");
-        //PlanResult::default()
-    }
+    let game_state = &GAME_STATE.read().unwrap();
+    brain::play::next_input(&game_state.player, &plan_result, errors)
 }
 
-
-type PlayFunc = extern fn (game: &GameState) -> PlanResult;
-
 fn get_plan_result(game_state: &GameState) -> PlanResult {
-    // FIXME is there a way to unlock without a made up scope?
-    {
-        // XXX there must be a reason why this happens, but BRAIN must be locked before
-        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = BRAIN.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(BrainPlugin::reload_callback, &mut p);
-    }
-
-    if let Some(ref x) = BRAIN.lock().unwrap().lib {
-        // TODO cache
-        let play: Symbol<PlayFunc> = unsafe {
-            x.lib.get(b"play\0").unwrap()
-        };
-
-        play(&game_state)
-    } else {
-        panic!("We need the brain dynamic library!");
-        //PlanResult::default()
-    }
+    brain::play::play(&game_state)
 }
 
 // obtain port to communicate with python agent. must match the port the python agent is configured to send to!
@@ -414,6 +312,6 @@ fn main() {
     });
 
     //run_visualization();
-    thread::spawn(run_visualization);
+    //thread::spawn(run_visualization);
     run_server();
 }
