@@ -173,12 +173,12 @@ fn shoot(game: &GameState) -> PlanResult {
     let trajectory_in_front: &[BallState];
     let trajectory_behind: &[BallState];
     if let Some(transition_index) = transition_index {
-        println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
+        //println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
         let (first, last) = ball_trajectory.split_at(transition_index);
         trajectory_in_front = first;
         trajectory_behind = last;
     } else {
-        println!("no transition");
+        //println!("no transition");
         trajectory_in_front = &ball_trajectory;
         trajectory_behind = &[];
     }
