@@ -212,6 +212,17 @@ fn shoot(game: &GameState) -> PlanResult {
     x
 }
 
+fn go_near_ball(game: &GameState) -> PlanResult {
+    let mut desired = DesiredContact::new();
+    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 1.0);
+    let ball_in_one_sec = ball_trajectory[ball_trajectory.len() - 1];
+    //let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    desired.position.x = ball_in_one_sec.position.x;
+    desired.position.y = ball_in_one_sec.position.y;
+    desired.heading = Unit::new_normalize(ball_in_one_sec.position - game.player.position).unwrap();
+    plan::plan(&game.player, &game.ball, &desired)
+}
+
 fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact) -> f32 {
     // unreachable, we can't fly
     if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
@@ -258,7 +269,7 @@ fn go_to_mid(game: &GameState) -> PlanResult {
 #[no_mangle]
 pub extern fn play(game: &GameState) -> PlanResult {
     let start = Instant::now();
-    let x = match what_do(&game) {
+    let mut x = match what_do(&game) {
         //Action::GoToMid => go_to_mid(&game),
         Action::Shoot => shoot(&game),
     };
@@ -267,6 +278,12 @@ pub extern fn play(game: &GameState) -> PlanResult {
         println!("#############################");
         println!("TOTAL DURATION: {:?}", duration);
         println!("#############################");
+    }
+
+    // fallback when we don't know how to shoot it
+    if x.plan.is_none() {
+        println!("FALLBACK");
+        x = go_near_ball(&game);
     }
 
     x

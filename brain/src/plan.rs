@@ -93,11 +93,11 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
     let distance = delta.norm();
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
-    if distance < 300.0 {
+    if distance < -200.0 {
         // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
         // don't go as far along any turning curves, and thus we end up in the same angle, just
         // earlier
-        let min_dot = 0.9;
+        let min_dot = 0.95;
 
         // check if the desired state within a cone around our heading, whose angle is determined by the speed
         if dot > min_dot {
@@ -107,7 +107,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < 800.0 {
+    } else if distance < -200.0 {
 
         let min_dot = if speed < 400.0 {
             // XXX in this measurement, it only managed to go 400uu total, so... we probably need
@@ -126,7 +126,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < 2000.0 && dot > 0.0 {
+    } else if distance < 2000.0 && distance > 500.0 && dot > 0.5  {
         COARSE_STEP
     } else {
         VERY_COARSE_STEP
@@ -441,7 +441,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
     let mut num_iterations = 0;
     let max_iterations = match step_duration {
         VERY_COARSE_STEP => 4000,
-        _ => 100_000,
+        _ => 10_000,
     };
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
 
@@ -874,8 +874,8 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
 
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
-    pos.x > SIDE_WALL_DISTANCE-200.0 || pos.x < -SIDE_WALL_DISTANCE+200.0 ||
-        pos.y > BACK_WALL_DISTANCE-200.0 || pos.y < -BACK_WALL_DISTANCE+200.0
+    pos.x > SIDE_WALL_DISTANCE || pos.x < -SIDE_WALL_DISTANCE ||
+        pos.y > BACK_WALL_DISTANCE || pos.y < -BACK_WALL_DISTANCE
 }
 
 fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
