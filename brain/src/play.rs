@@ -351,6 +351,9 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
 
     // fallback
     let mut input = rlbot::PlayerInput::default();
+    if current_player.position.z > 150.0 && (current_player.position.z as i32 % 2) == 0 {
+        input.Jump = true;
+    }
     input.Throttle = 0.5;
     input
 }
