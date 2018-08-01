@@ -102,7 +102,7 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
             if closest_time_diff < ROUGH_STEP*1.2 {
                 Some(closest_desired_contact)
             } else {
-                println!("no plan found! closest_time_diff: {}, ROUGH_STEP: {}", closest_time_diff, ROUGH_STEP);
+                println!("no plan found! traj: {}, closest_time_diff: {}, ROUGH_STEP: {}", ball_trajectory.len(), closest_time_diff, ROUGH_STEP);
                 None
             }
         }
@@ -161,10 +161,6 @@ fn shoot(game: &GameState) -> PlanResult {
     let desired_contact = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
         Some(dc) => dc,
         None => {
-            // FIXME
-            let fake_desired = DesiredContact::new();
-            return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
-
             match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
                 Some(dc) => dc,
                 None => {
