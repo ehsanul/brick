@@ -17,10 +17,11 @@ use std::sync::{Arc, RwLock, Mutex};
 use std::f32;
 use std::f32::consts::PI;
 use std::path::Path;
+use std::collections::VecDeque;
 
 use state::*;
 
-use na::{ Unit, Vector3, Point3, Translation3, UnitQuaternion};
+use na::{ Unit, Vector3, Point3, Translation3, UnitQuaternion, Rotation3};
 use kiss3d::window::Window;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
@@ -51,11 +52,29 @@ lazy_static! {
         )
     };
 
+    static ref RELOAD_HANDLER2: Mutex<DynamicReload<'static>> = {
+        Mutex::new(
+            DynamicReload::new(Some(vec!["brain/target/release"]),
+                               Some("target/release"),
+                               Search::Default)
+        )
+    };
+
     static ref BRAIN: Mutex<BrainPlugin> = {
         let lib = match RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER").add_library("brain", PlatformName::Yes) {
             Ok(lib) => lib,
             Err(e) => {
                 panic!("Unable to load dynamic lib, err {:?}", e);
+            }
+        };
+        Mutex::new(BrainPlugin { lib: Some(lib) })
+    };
+
+    static ref BRAIN2: Mutex<BrainPlugin> = {
+        let lib = match RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER2").add_library("brain", PlatformName::Yes) {
+            Ok(lib) => lib,
+            Err(e) => {
+                panic!("2Unable to load dynamic lib, err {:?}", e);
             }
         };
         Mutex::new(BrainPlugin { lib: Some(lib) })
@@ -178,6 +197,7 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
 fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
     let mut packet = rlbot::LiveDataPacket::default();
     let mut current_plan_result = PlanResult::default();
+    let mut errors = VecDeque::new();
     loop {
         let player_index = *PLAYER_INDEX.lock().unwrap();
         //println!("player index: {:?}", player_index);
@@ -202,7 +222,7 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             update_visualization(&current_plan_result);
         }
 
-        let input = next_rlbot_input(&current_plan_result);
+        let input = next_rlbot_input(&current_plan_result, &mut errors);
         rlbot::update_player_input(input, player_index as i32);
     }
 }
@@ -283,37 +303,31 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
     };
 }
 
+type NextInputFunc = extern fn (player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
 
-fn next_rlbot_input(plan_result: &PlanResult) -> rlbot::PlayerInput {
-    // TODO we want to get more sophisticated here and find which point we are in on the plan,
-    // in case of a very slow planning situation
-    if let Some(ref plan) = plan_result.plan {
-        if let Some(first) = plan.get(0) {
-            let mut iter = plan.iter();
-            let mut last_distance = std::f32::MAX;
-            let mut chosen_controller = first.1;
-            let game_state = GAME_STATE.read().unwrap();
-            while let Some((player, controller)) = iter.next() {
-                let distance = (player.position - game_state.player.position).norm();
-                chosen_controller = *controller;
-                if distance > last_distance {
-                    // we iterate and choose the controller at the point distance increases. this
-                    // is because `controller` is the previous controller input to reach the given
-                    // player.position. NOTE this logic is only good if we provide a "exploded"
-                    // plan, ie we have a position for every tick.
-                    break;
-                }
-                last_distance = distance;
-            }
-            return convert_controller_to_rlbot_input(&chosen_controller);
-        }
+fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+    {
+        // XXX there must be a reason why this happens, but BRAIN must be locked before
+        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+        let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
+        let mut rh = RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        rh.update(BrainPlugin::reload_callback, &mut p);
     }
 
-    // fallback
-    let mut input = rlbot::PlayerInput::default();
-    input.Throttle = 0.5;
-    input
+    if let Some(ref x) = BRAIN2.lock().unwrap().lib {
+        // TODO cache
+        let next_input: Symbol<NextInputFunc> = unsafe {
+            x.lib.get(b"next_input\0").unwrap()
+        };
+
+        let game_state = GAME_STATE.read().unwrap();
+        next_input(&game_state.player, &plan_result, errors)
+    } else {
+        panic!("We need the brain dynamic library!");
+        //PlanResult::default()
+    }
 }
+
 
 type PlayFunc = extern fn (game: &GameState) -> PlanResult;
 
@@ -337,27 +351,6 @@ fn get_plan_result(game_state: &GameState) -> PlanResult {
     } else {
         panic!("We need the brain dynamic library!");
         //PlanResult::default()
-    }
-}
-
-fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::PlayerInput {
-    rlbot::PlayerInput {
-        Throttle: match controller.throttle {
-            Throttle::Idle => 0.0,
-            Throttle::Forward => 1.0,
-            Throttle::Reverse => -1.0,
-        },
-        Steer: match controller.steer {
-            Steer::Straight => 0.0,
-            Steer::Left => -1.0,
-            Steer::Right => 1.0,
-        },
-        Pitch: 0.0, // brick is a brick
-        Yaw: 0.0, // brick is a brick
-        Roll: 0.0, // brick is a brick
-        Jump: false, // brick is a brick
-        Boost: false, // brick is a brick
-        Handbrake: false, // brick is a brick
     }
 }
 

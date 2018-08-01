@@ -1,6 +1,7 @@
 extern crate nalgebra as na;
 extern crate state;
 extern crate predict;
+extern crate rlbot;
 extern crate indexmap;
 extern crate fnv;
 extern crate itertools;

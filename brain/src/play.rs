@@ -1,11 +1,13 @@
 use state::*;
 use plan;
 use predict;
+use rlbot;
 use na::{ self, Unit, Vector3, Rotation3, UnitQuaternion };
 use std::f32::consts::PI;
 use std;
 use predict::arena::{ BACK_WALL_DISTANCE, GOAL_Z };
 use std::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 enum Action {
     Shoot,
@@ -276,3 +278,99 @@ pub extern fn play(game: &GameState) -> PlanResult {
     //    fallback
     //})
 }
+
+#[no_mangle]
+pub extern fn next_input(player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+    // TODO we want to get more sophisticated here and find which point we are in on the plan,
+    // in case of a very slow planning situation
+    if let Some(ref plan) = plan_result.plan {
+        if let Some(first) = plan.get(0) {
+            let mut iter = plan.iter();
+            let mut last_distance = std::f32::MAX;
+            let mut last_delta = Vector3::new(0.0, 0.0, 0.0);
+            let mut chosen_controller = first.1;
+            let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            while let Some((player, controller)) = iter.next() {
+                let delta = player.position - player.position;
+                let distance = delta.norm();
+                chosen_controller = *controller;
+                if distance > last_distance {
+                    // we iterate and choose the controller at the point distance increases. this
+                    // is because `controller` is the previous controller input to reach the given
+                    // player.position. NOTE this logic is only good if we provide a "exploded"
+                    // plan, ie we have a position for every tick.
+                    break;
+                }
+                last_delta = delta;
+                last_distance = distance;
+            }
+            let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
+            let relative_right = clockwise_90_rotation * current_heading;
+            let direction = na::dot(&last_delta, &relative_right); // positive for right, negative for left
+            let error = direction * last_distance;
+
+            errors.push_back(error);
+            if errors.len() > 1000 {
+                // keep last 100
+                *errors = errors.split_off(900);
+            }
+
+            let mut input = convert_controller_to_rlbot_input(&chosen_controller);
+            pd_adjust(&mut input, &errors);
+
+            return input;
+        }
+    }
+
+    // fallback
+    let mut input = rlbot::PlayerInput::default();
+    input.Throttle = 0.5;
+    input
+}
+
+const PROPORTIONAL_GAIN: f32 = 0.05;
+const DIFFERENTIAL_GAIN: f32 = 0.2;
+const DIFFERENTIAL_STEPS: usize = 4;
+fn pd_adjust(input: &mut rlbot::PlayerInput, errors: &VecDeque<f32>) {
+    // build up some errors before we do anything
+    if errors.len() < DIFFERENTIAL_STEPS { return; }
+    let last_error = errors[errors.len() - 1];
+    let error_slope = (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
+
+    let proportional_signal = PROPORTIONAL_GAIN * last_error;
+    let differential_signal = DIFFERENTIAL_GAIN * error_slope;
+    let signal = proportional_signal + differential_signal;
+    input.Steer += signal;
+
+    if input.Steer > 1.0 {
+        input.Steer = 1.0;
+        input.Handbrake = true;
+    }
+
+    if input.Steer < -1.0 {
+        input.Steer = -1.0;
+        input.Handbrake = true;
+    }
+}
+
+fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::PlayerInput {
+    rlbot::PlayerInput {
+        Throttle: match controller.throttle {
+            Throttle::Idle => 0.0,
+            Throttle::Forward => 1.0,
+            Throttle::Reverse => -1.0,
+        },
+        Steer: match controller.steer {
+            Steer::Straight => 0.0,
+            Steer::Left => -1.0,
+            Steer::Right => 1.0,
+        },
+        Pitch: 0.0, // brick is a brick
+        Yaw: 0.0, // brick is a brick
+        Roll: 0.0, // brick is a brick
+        Jump: false, // brick is a brick
+        Boost: false, // brick is a brick
+        Handbrake: false, // brick is a brick
+    }
+}
+
