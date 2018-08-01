@@ -166,10 +166,13 @@ fn run_bot() {
 }
 
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
-    while let Ok(game_state) = receiver.recv() {
-        let plan_result = get_plan_result(&game_state);
-        sender.send(plan_result);
-    }
+    let mut game_state = receiver.recv().expect("Coudln't receive game state");
+
+    // make sure we have the latest, drop earlier states
+    while let Ok(gs) = receiver.try_recv() { game_state = gs }
+
+    let plan_result = get_plan_result(&game_state);
+    sender.send(plan_result);
 }
 
 fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
