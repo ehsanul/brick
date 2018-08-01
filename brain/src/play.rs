@@ -280,7 +280,7 @@ pub extern fn play(game: &GameState) -> PlanResult {
 }
 
 #[no_mangle]
-pub extern fn next_input(player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
     // TODO we want to get more sophisticated here and find which point we are in on the plan,
     // in case of a very slow planning situation
     if let Some(ref plan) = plan_result.plan {
@@ -289,10 +289,13 @@ pub extern fn next_input(player: &PlayerState, plan_result: &PlanResult, errors:
             let mut last_distance = std::f32::MAX;
             let mut last_delta = Vector3::new(0.0, 0.0, 0.0);
             let mut chosen_controller = first.1;
-            let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            let current_heading = current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            //println!("--------------------------------------");
             while let Some((player, controller)) = iter.next() {
-                let delta = player.position - player.position;
+                let delta = current_player.position - player.position;
                 let distance = delta.norm();
+                //println!("distance: {:?}, current: {:?}, path: {:?}", distance, current_player.position, player.position);
+
                 chosen_controller = *controller;
                 if distance > last_distance {
                     // we iterate and choose the controller at the point distance increases. this
@@ -307,6 +310,9 @@ pub extern fn next_input(player: &PlayerState, plan_result: &PlanResult, errors:
             let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
             let relative_right = clockwise_90_rotation * current_heading;
             let direction = na::dot(&last_delta, &relative_right); // positive for right, negative for left
+            //println!("last_delta: {:?}", last_delta);
+            //println!("last_distance: {:?}", last_distance);
+            //println!("dir: {:?}", direction);
             let error = direction * last_distance;
 
             errors.push_back(error);
@@ -315,8 +321,12 @@ pub extern fn next_input(player: &PlayerState, plan_result: &PlanResult, errors:
                 *errors = errors.split_off(900);
             }
 
+            //println!("controller: {:?}", chosen_controller);
             let mut input = convert_controller_to_rlbot_input(&chosen_controller);
-            pd_adjust(&mut input, &errors);
+            //println!("input before: {:?}", input);
+            //pd_adjust(&mut input, &errors);
+            //println!("input after: {:?}", input);
+
 
             return input;
         }
@@ -328,28 +338,36 @@ pub extern fn next_input(player: &PlayerState, plan_result: &PlanResult, errors:
     input
 }
 
-const PROPORTIONAL_GAIN: f32 = 0.05;
-const DIFFERENTIAL_GAIN: f32 = 0.2;
+const PROPORTIONAL_GAIN: f32 = 0.005;
+const DIFFERENTIAL_GAIN: f32 = 0.002;
 const DIFFERENTIAL_STEPS: usize = 4;
 fn pd_adjust(input: &mut rlbot::PlayerInput, errors: &VecDeque<f32>) {
     // build up some errors before we do anything
-    if errors.len() < DIFFERENTIAL_STEPS { return; }
+    if errors.len() <= DIFFERENTIAL_STEPS { return; }
     let last_error = errors[errors.len() - 1];
     let error_slope = (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
-
+    println!("last_error: {:?}, error_slope: {:?}", last_error, error_slope);
     let proportional_signal = PROPORTIONAL_GAIN * last_error;
     let differential_signal = DIFFERENTIAL_GAIN * error_slope;
     let signal = proportional_signal + differential_signal;
+    println!("signal: {}, p: {}, d: {}", signal, proportional_signal, differential_signal);
     input.Steer += signal;
 
     if input.Steer > 1.0 {
+        if input.Steer > 2.0 {
+            println!("super right");
+            //input.Handbrake = true;
+        }
+
         input.Steer = 1.0;
-        input.Handbrake = true;
     }
 
     if input.Steer < -1.0 {
+        if input.Steer < -2.0 {
+            println!("super left");
+            //input.Handbrake = true;
+        }
         input.Steer = -1.0;
-        input.Handbrake = true;
     }
 }
 

@@ -179,19 +179,21 @@ fn run_bot() {
     let (state_sender, state_receiver): (Sender<GameState>, Receiver<GameState>) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        bot_logic_loop(plan_sender, state_receiver);
+        bot_io_loop(state_sender, plan_receiver);
     });
-    bot_io_loop(state_sender, plan_receiver);
+    bot_logic_loop(plan_sender, state_receiver);
 }
 
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
-    let mut game_state = receiver.recv().expect("Coudln't receive game state");
+    loop {
+        let mut game_state = receiver.recv().expect("Coudln't receive game state");
 
-    // make sure we have the latest, drop earlier states
-    while let Ok(gs) = receiver.try_recv() { game_state = gs }
+        // make sure we have the latest, drop earlier states
+        while let Ok(gs) = receiver.try_recv() { game_state = gs }
 
-    let plan_result = get_plan_result(&game_state);
-    sender.send(plan_result);
+        let plan_result = get_plan_result(&game_state);
+        sender.send(plan_result);
+    }
 }
 
 fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
@@ -221,8 +223,8 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             current_plan_result = plan_result;
             update_visualization(&current_plan_result);
         }
-
         let input = next_rlbot_input(&current_plan_result, &mut errors);
+
         rlbot::update_player_input(input, player_index as i32);
     }
 }
@@ -261,7 +263,7 @@ fn update_visualization(plan_result: &PlanResult) {
 
 fn send_to_bot_logic(sender: &Sender<GameState>) {
     let game_state = GAME_STATE.read().unwrap();
-    sender.send((*game_state).clone()).expect("Sending to bot logic failed");
+    sender.send((*game_state).clone()); //.expect("Sending to bot logic failed");
 }
 
 //fn run_test() {
@@ -401,6 +403,12 @@ fn main() {
                 //panic::catch_unwind(run_test);
             });
             t.join();
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            
             thread::sleep_ms(1000);
         }
     });

@@ -93,7 +93,6 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
     let distance = delta.norm();
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
-
     if distance < 300.0 {
         // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
         // don't go as far along any turning curves, and thus we end up in the same angle, just
@@ -108,7 +107,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < 600.0 {
+    } else if distance < 800.0 {
 
         let min_dot = if speed < 400.0 {
             // XXX in this measurement, it only managed to go 400uu total, so... we probably need
@@ -127,7 +126,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < 1000.0 {
+    } else if distance < 2000.0 && dot > 0.0 {
         COARSE_STEP
     } else {
         VERY_COARSE_STEP
@@ -151,7 +150,7 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &Des
 /// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
 fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
     // we would get slightly off results with the method below if we don't have an exact multiple
-    let ticks_per_step = (step_duration / predict::TICK) as usize;
+    let ticks_per_step = (step_duration / predict::TICK).round() as usize;
     assert!(120 % ticks_per_step == 0);
 
     if let Some(ref mut plan) = plan_result.plan {
