@@ -874,8 +874,8 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
 
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
-    pos.x > SIDE_WALL_DISTANCE || pos.x < -SIDE_WALL_DISTANCE ||
-        pos.y > BACK_WALL_DISTANCE || pos.y < -BACK_WALL_DISTANCE
+    pos.x > SIDE_WALL_DISTANCE-200.0 || pos.x < -SIDE_WALL_DISTANCE+200.0 ||
+        pos.y > BACK_WALL_DISTANCE-200.0 || pos.y < -BACK_WALL_DISTANCE+200.0
 }
 
 fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
