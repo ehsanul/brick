@@ -1,11 +1,13 @@
 use state::*;
 use plan;
 use predict;
+use rlbot;
 use na::{ self, Unit, Vector3, Rotation3, UnitQuaternion };
 use std::f32::consts::PI;
 use std;
 use predict::arena::{ BACK_WALL_DISTANCE, GOAL_Z };
 use std::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 enum Action {
     Shoot,
@@ -57,33 +59,55 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
 
     let mut closest_desired_contact = DesiredContact::new();
     let mut closest_time_diff = std::f32::MAX;
-    let shootable_ball_state = ball_trajectory.iter().enumerate().collect::<Vec<_>>().binary_search_by(|(i, ball)| {
-        let ball_time = (*i as f32) * predict::TICK;
-        let start2 = Instant::now();
+
+    let mut estimates = ball_trajectory.iter().enumerate().map(|(i, ball)| {
+        let ball_time = (i as f32) * predict::TICK;
         let desired_contact = simple_desired_contact(ball, &desired_ball_position);
         let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
-        //println!("#############################");
-        //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
-        println!("ball: {:?}", ball);
-        println!("desired_ball_position: {:?}", desired_ball_position);
-        println!("contact position: {:?}", desired_contact.position);
-        println!("shooting time: {}", shooting_time);
-        println!("ball time: {}", ball_time);
-        println!("----------------------");
-
-        let time_diff = (ball_time - shooting_time).abs();
-        if time_diff < closest_time_diff {
-            closest_time_diff = time_diff;
-            closest_desired_contact = desired_contact;
-        }
-        if shooting_time == ball_time {
+        (i, shooting_time)
+    }).collect::<Vec<_>>();
+    estimates.sort_by(|(i, shooting_time), (i2, shooting_time2)| {
+        let ball_time = (*i as f32) * predict::TICK;
+        let ball_time2 = (*i2 as f32) * predict::TICK;
+        let diff1 = (ball_time - shooting_time).abs();
+        let diff2 = (ball_time2 - shooting_time2).abs();
+        if diff1 == diff1 {
             std::cmp::Ordering::Equal
-        } else if shooting_time < ball_time {
-            std::cmp::Ordering::Greater
-        } else {
+        } else if diff1 < diff2 {
             std::cmp::Ordering::Less
+        } else {
+            std::cmp::Ordering::Greater
         }
     });
+    let shootable_ball_state = estimates.iter().map(|(i, _)| *i).next(); // next == first
+
+    //let shootable_ball_state = .binary_search_by(|(i, ball)| {
+    //    let ball_time = (*i as f32) * predict::TICK;
+    //    let start2 = Instant::now();
+    //    let desired_contact = simple_desired_contact(ball, &desired_ball_position);
+    //    let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
+    //    //println!("#############################");
+    //    //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
+    //    println!("ball: {:?}", ball);
+    //    println!("desired_ball_position: {:?}", desired_ball_position);
+    //    println!("contact position: {:?}", desired_contact.position);
+    //    println!("shooting time: {}", shooting_time);
+    //    println!("ball time: {}", ball_time);
+    //    println!("----------------------");
+
+    //    let time_diff = (ball_time - shooting_time).abs();
+    //    if time_diff < closest_time_diff {
+    //        closest_time_diff = time_diff;
+    //        closest_desired_contact = desired_contact;
+    //    }
+    //    if shooting_time == ball_time {
+    //        std::cmp::Ordering::Equal
+    //    } else if shooting_time < ball_time {
+    //        std::cmp::Ordering::Greater
+    //    } else {
+    //        std::cmp::Ordering::Less
+    //    }
+    //});
     if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
         println!("#############################");
         println!("TOTAL SHOOTABLE DURATION: {:?}", start.elapsed());
@@ -92,20 +116,21 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     let start = Instant::now();
 
     match shootable_ball_state {
-        Ok(i) => {
+        Some(i) => {
             // TODO don't re-calculate this, store temporarily in a variable instead
             Some(simple_desired_contact(&ball_trajectory[i], &desired_ball_position))
         }
-        Err(i) => {
-            // we may not find an exact match with time. so we want to allow for some wiggle room
-            // here and use the closest desired state if it seems reachable
-            if closest_time_diff < ROUGH_STEP*1.2 {
-                Some(closest_desired_contact)
-            } else {
-                println!("no plan found! closest_time_diff: {}, ROUGH_STEP: {}", closest_time_diff, ROUGH_STEP);
-                None
-            }
-        }
+        None => None,
+        //Err(i) => {
+        //    // we may not find an exact match with time. so we want to allow for some wiggle room
+        //    // here and use the closest desired state if it seems reachable
+        //    if closest_time_diff < ROUGH_STEP*1.2 {
+        //        Some(closest_desired_contact)
+        //    } else {
+        //        println!("no plan found! traj: {}, closest_time_diff: {}, ROUGH_STEP: {}", ball_trajectory.len(), closest_time_diff, ROUGH_STEP);
+        //        None
+        //    }
+        //}
     }
 }
 
@@ -148,12 +173,12 @@ fn shoot(game: &GameState) -> PlanResult {
     let trajectory_in_front: &[BallState];
     let trajectory_behind: &[BallState];
     if let Some(transition_index) = transition_index {
-        println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
+        //println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
         let (first, last) = ball_trajectory.split_at(transition_index);
         trajectory_in_front = first;
         trajectory_behind = last;
     } else {
-        println!("no transition");
+        //println!("no transition");
         trajectory_in_front = &ball_trajectory;
         trajectory_behind = &[];
     }
@@ -161,10 +186,6 @@ fn shoot(game: &GameState) -> PlanResult {
     let desired_contact = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
         Some(dc) => dc,
         None => {
-            // FIXME
-            let fake_desired = DesiredContact::new();
-            return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
-
             match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
                 Some(dc) => dc,
                 None => {
@@ -191,13 +212,47 @@ fn shoot(game: &GameState) -> PlanResult {
     x
 }
 
+fn go_near_ball(game: &GameState) -> PlanResult {
+    let mut desired = DesiredContact::new();
+    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 1.0);
+    let ball_in_one_sec = ball_trajectory[ball_trajectory.len() - 1];
+    //let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    desired.position.x = ball_in_one_sec.position.x;
+    desired.position.y = ball_in_one_sec.position.y;
+    desired.heading = Unit::new_normalize(ball_in_one_sec.position - game.player.position).unwrap();
+    plan::plan(&game.player, &game.ball, &desired)
+}
+
 fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact) -> f32 {
-    let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
-    if let Some(plan) = plan {
-        ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
-    } else {
-        std::f32::MAX
+    // unreachable, we can't fly
+    if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
+        return std::f32::MAX;
     }
+
+    let towards_contact = desired.position - current.position;
+    let distance = towards_contact.norm();
+    let mut estimated_movement_time = distance / 800.0; // TODO TUNE
+
+    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
+
+    let pointed_right_way_value = na::dot(&current_heading, &towards_contact_heading);
+    let needs_additional_turning_value = na::dot(&towards_contact_heading, &Unit::new_normalize(desired.heading.clone()).unwrap());
+
+    if pointed_right_way_value < 0.0 {
+        estimated_movement_time += 1.5; // TODO TUNE
+    }
+    if needs_additional_turning_value  < 0.0 {
+        estimated_movement_time += 1.5; // TODO TUNE
+    }
+    estimated_movement_time
+
+    // let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
+    // if let Some(plan) = plan {
+    //     ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
+    // } else {
+    //     std::f32::MAX
+    // }
 }
 
 // TODO
@@ -214,7 +269,7 @@ fn go_to_mid(game: &GameState) -> PlanResult {
 #[no_mangle]
 pub extern fn play(game: &GameState) -> PlanResult {
     let start = Instant::now();
-    let x = match what_do(&game) {
+    let mut x = match what_do(&game) {
         //Action::GoToMid => go_to_mid(&game),
         Action::Shoot => shoot(&game),
     };
@@ -223,6 +278,12 @@ pub extern fn play(game: &GameState) -> PlanResult {
         println!("#############################");
         println!("TOTAL DURATION: {:?}", duration);
         println!("#############################");
+    }
+
+    // fallback when we don't know how to shoot it
+    if x.plan.is_none() {
+        println!("FALLBACK");
+        x = go_near_ball(&game);
     }
 
     x
@@ -234,3 +295,152 @@ pub extern fn play(game: &GameState) -> PlanResult {
     //    fallback
     //})
 }
+
+#[no_mangle]
+pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+    // TODO we want to get more sophisticated here and find which point we are in on the plan,
+    // in case of a very slow planning situation
+    if let Some(ref plan) = plan_result.plan {
+        if let Some(first) = plan.get(0) {
+            let mut iter = plan.iter();
+            let mut last_distance = std::f32::MAX;
+            let mut last_delta = Vector3::new(0.0, 0.0, 0.0);
+            let mut chosen_controller = first.1;
+            let mut index = 0;
+            let current_heading = current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            //println!("--------------------------------------");
+            while let Some((player, controller)) = iter.next() {
+                let delta = current_player.position - player.position;
+                let distance = delta.norm();
+                //println!("distance: {:?}, current: {:?}, path: {:?}", distance, current_player.position, player.position);
+
+                chosen_controller = *controller;
+                if distance > last_distance {
+                    // we iterate and choose the controller at the point distance increases. this
+                    // is because `controller` is the previous controller input to reach the given
+                    // player.position. NOTE this logic is only good if we provide a "exploded"
+                    // plan, ie we have a position for every tick.
+                    break;
+                }
+                last_delta = delta;
+                last_distance = distance;
+                index += 1;
+            }
+
+            // start controller actions earlier since we get a delayed view of the world!
+            let frame_lag = 3;
+            if index + frame_lag <= plan.len() - 1 {
+                let (_, ctrl) = plan[index + frame_lag];
+                chosen_controller = ctrl;
+            }
+
+            let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
+            let relative_right = clockwise_90_rotation * current_heading;
+            let direction = na::dot(&last_delta, &relative_right); // positive for right, negative for left
+            //println!("last_delta: {:?}", last_delta);
+            //println!("last_distance: {:?}", last_distance);
+            //println!("dir: {:?}", direction);
+            let error = direction * last_distance;
+
+            // gotta go fast
+            if plan.len() > 240 && chosen_controller.steer == Steer::Straight && current_player.velocity.norm() < 2250.0 {
+                chosen_controller.boost = true;
+            }
+
+            // recovery
+            let (roll, pitch, yaw) = current_player.rotation.to_euler_angles();
+            if roll < -0.5 {
+                chosen_controller.roll = 1.0;
+            } else if roll > 0.5 {
+                chosen_controller.roll = -1.0;
+            }
+            if pitch < -0.5 {
+                chosen_controller.pitch = 1.0;
+            } else if pitch > 0.5 {
+                chosen_controller.pitch = -1.0;
+            }
+
+            errors.push_back(error);
+            if errors.len() > 1000 {
+                // keep last 100
+                *errors = errors.split_off(900);
+            }
+
+            //println!("controller: {:?}", chosen_controller);
+            let mut input = convert_controller_to_rlbot_input(&chosen_controller);
+            //println!("input before: {:?}", input);
+            //pd_adjust(&mut input, &errors);
+            //println!("input after: {:?}", input);
+
+
+            return input;
+        }
+    }
+
+    // fallback
+    let mut input = rlbot::PlayerInput::default();
+    input.Throttle = 0.5;
+    if current_player.position.z > 150.0 {
+        if current_player.velocity.z > 200.0 {
+            input.throttle = -1.0;
+        } else if (current_player.position.z as i32 % 2) == 0 {
+            input.Jump = true;
+        }
+    }
+    input
+}
+
+const PROPORTIONAL_GAIN: f32 = 0.005;
+const DIFFERENTIAL_GAIN: f32 = 0.002;
+const DIFFERENTIAL_STEPS: usize = 4;
+fn pd_adjust(input: &mut rlbot::PlayerInput, errors: &VecDeque<f32>) {
+    // build up some errors before we do anything
+    if errors.len() <= DIFFERENTIAL_STEPS { return; }
+    let last_error = errors[errors.len() - 1];
+    let error_slope = (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
+    println!("last_error: {:?}, error_slope: {:?}", last_error, error_slope);
+    let proportional_signal = PROPORTIONAL_GAIN * last_error;
+    let differential_signal = DIFFERENTIAL_GAIN * error_slope;
+    let signal = proportional_signal + differential_signal;
+    println!("signal: {}, p: {}, d: {}", signal, proportional_signal, differential_signal);
+    input.Steer += signal;
+
+    if input.Steer > 1.0 {
+        if input.Steer > 2.0 {
+            println!("super right");
+            //input.Handbrake = true;
+        }
+
+        input.Steer = 1.0;
+    }
+
+    if input.Steer < -1.0 {
+        if input.Steer < -2.0 {
+            println!("super left");
+            //input.Handbrake = true;
+        }
+        input.Steer = -1.0;
+    }
+}
+
+fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::PlayerInput {
+    rlbot::PlayerInput {
+        Throttle: match controller.throttle {
+            Throttle::Idle => 0.0,
+            Throttle::Forward => 1.0,
+            Throttle::Reverse => -1.0,
+        },
+        Steer: match controller.steer {
+            Steer::Straight => 0.0,
+            Steer::Left => -1.0,
+            Steer::Right => 1.0,
+        },
+        Pitch: 0.0, // brick is a brick
+        Yaw: 0.0, // brick is a brick
+        Roll: controller.roll,
+        Jump: false, // brick is a brick
+        Boost: controller.boost,
+        Handbrake: false, // brick is a brick
+    }
+}
+

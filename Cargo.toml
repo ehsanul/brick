@@ -8,6 +8,7 @@ kiss3d = "0.13"
 nalgebra = "0.14"
 lazy_static = "1.0"
 dynamic_reload = "0.3.*"
+crossbeam = "0.4"
 
 [dependencies.state]
 path = "./state"
