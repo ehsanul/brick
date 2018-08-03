@@ -382,7 +382,7 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
     input.Throttle = 0.5;
     if current_player.position.z > 150.0 {
         if current_player.velocity.z > 200.0 {
-            input.throttle = -1.0;
+            input.Throttle = -1.0;
         } else if (current_player.position.z as i32 % 2) == 0 {
             input.Jump = true;
         }
