@@ -306,7 +306,6 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
             let mut last_distance = std::f32::MAX;
             let mut last_delta = Vector3::new(0.0, 0.0, 0.0);
             let mut chosen_controller = first.1;
-            let mut index = 0;
             let current_heading = current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
             //println!("--------------------------------------");
             while let Some((player, controller)) = iter.next() {
@@ -324,16 +323,7 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
                 }
                 last_delta = delta;
                 last_distance = distance;
-                index += 1;
             }
-
-            // start controller actions earlier since we get a delayed view of the world!
-            let frame_lag = 3;
-            if index + frame_lag <= plan.len() - 1 {
-                let (_, ctrl) = plan[index + frame_lag];
-                chosen_controller = ctrl;
-            }
-
             let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
             let relative_right = clockwise_90_rotation * current_heading;
             let direction = na::dot(&last_delta, &relative_right); // positive for right, negative for left
@@ -341,24 +331,6 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
             //println!("last_distance: {:?}", last_distance);
             //println!("dir: {:?}", direction);
             let error = direction * last_distance;
-
-            // gotta go fast
-            if plan.len() > 240 && chosen_controller.steer == Steer::Straight && current_player.velocity.norm() < 2250.0 {
-                chosen_controller.boost = true;
-            }
-
-            // recovery
-            let (roll, pitch, yaw) = current_player.rotation.to_euler_angles();
-            if roll < -0.5 {
-                chosen_controller.roll = 1.0;
-            } else if roll > 0.5 {
-                chosen_controller.roll = -1.0;
-            }
-            if pitch < -0.5 {
-                chosen_controller.pitch = 1.0;
-            } else if pitch > 0.5 {
-                chosen_controller.pitch = -1.0;
-            }
 
             errors.push_back(error);
             if errors.len() > 1000 {
@@ -379,14 +351,10 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
 
     // fallback
     let mut input = rlbot::PlayerInput::default();
-    input.Throttle = 0.5;
-    if current_player.position.z > 150.0 {
-        if current_player.velocity.z > 200.0 {
-            input.throttle = -1.0;
-        } else if (current_player.position.z as i32 % 2) == 0 {
-            input.Jump = true;
-        }
+    if current_player.position.z > 150.0 && (current_player.position.z as i32 % 2) == 0 {
+        input.Jump = true;
     }
+    input.Throttle = 0.5;
     input
 }
 
@@ -437,9 +405,9 @@ fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot
         },
         Pitch: 0.0, // brick is a brick
         Yaw: 0.0, // brick is a brick
-        Roll: controller.roll,
+        Roll: 0.0, // brick is a brick
         Jump: false, // brick is a brick
-        Boost: controller.boost,
+        Boost: false, // brick is a brick
         Handbrake: false, // brick is a brick
     }
 }
