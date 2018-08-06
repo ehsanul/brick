@@ -681,28 +681,26 @@ fn run_server() {
 }
 
 fn main() {
-    //    thread::spawn(|| {
-    //        loop {
-    //            let t = thread::spawn(|| {
-    //                panic::catch_unwind(run_bot);
-    //                //panic::catch_unwind(run_test);
-    //            });
-    //            t.join();
-    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-    //
-    //            thread::sleep_ms(1000);
-    //        }
-    //    });
+    thread::spawn(|| {
+        loop {
+            let t = thread::spawn(|| {
+                //panic::catch_unwind(run_bot);
+                panic::catch_unwind(run_bot_live_test);
+            });
+            t.join();
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
 
-    //    //run_visualization();
-    //    thread::spawn(run_visualization);
-    //    run_server();
+            thread::sleep_ms(1000);
+        }
+    });
+    thread::spawn(run_visualization);
+    run_server();
 
-    thread::spawn(simulate_over_time);
-    //thread::spawn(run_test);
-    run_visualization();
+    // //thread::spawn(run_test);
+    // thread::spawn(simulate_over_time);
+    // run_visualization();
 }
