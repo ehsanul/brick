@@ -143,8 +143,8 @@ fn run_visualization(){
     let mut window = Window::new("Rocket League Visualization");
 
     // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
-    //let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
-    //let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
+    let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
+    let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
 
     let arena_mesh = MeshManager::load_obj(
                         Path::new("./assets/arena.obj"),
@@ -160,8 +160,8 @@ fn run_visualization(){
     arena.set_lines_width(0.1);
     arena.set_local_scale(0.001, 0.001, 0.001);
 
-    //sphere.set_color(0.8, 0.8, 0.8);
-    //car.set_color(0.1, 0.4, 1.0);
+    sphere.set_color(0.8, 0.8, 0.8);
+    car.set_color(0.1, 0.4, 1.0);
 
     window.set_light(Light::StickToCamera);
 
@@ -172,12 +172,12 @@ fn run_visualization(){
         let points = &POINTS.read().unwrap();
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-        //sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
+        sphere.set_local_translation(Translation3::from_vector(game_state.ball.position.map(|c| c / 1000.0)));
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
         let hitbox_position = game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
-        //car.set_local_translation(Translation3::from_vector(hitbox_position));
-        //car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
+        car.set_local_translation(Translation3::from_vector(hitbox_position));
+        car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
 
         // grid for debugging
         //for x in (-160..160) {
@@ -187,13 +187,13 @@ fn run_visualization(){
         //        &Point3::new(0.15, 0.15, 0.15)
         //    );
         //}
-        for x in (-40..40) {
-            window.draw_line(
-                &Point3::new((x as f32) * 100.0 / 1000.0, -10_000.0 / 1000.0, 0.0 / 1000.0),
-                &Point3::new((x as f32) * 100.0 / 1000.0,  10_000.0 / 1000.0, 0.0 / 1000.0),
-                &Point3::new(0.3, 0.3, 0.3)
-            );
-        }
+        //for x in (-40..40) {
+        //    window.draw_line(
+        //        &Point3::new((x as f32) * 100.0 / 1000.0, -10_000.0 / 1000.0, 0.0 / 1000.0),
+        //        &Point3::new((x as f32) * 100.0 / 1000.0,  10_000.0 / 1000.0, 0.0 / 1000.0),
+        //        &Point3::new(0.3, 0.3, 0.3)
+        //    );
+        //}
         //for y in (-160..160) {
         //    window.draw_line(
         //        &Point3::new(-10_000.0 / 1000.0, (y as f32) * 25.0 / 1000.0, 0.0 / 1000.0),
@@ -201,14 +201,13 @@ fn run_visualization(){
         //        &Point3::new(0.15, 0.15, 0.15)
         //    );
         //}
-        for y in (-40..40) {
-            window.draw_line(
-                &Point3::new(-10_000.0 / 1000.0, (y as f32) * 100.0 / 1000.0, 0.0 / 1000.0),
-                &Point3::new( 10_000.0 / 1000.0, (y as f32) * 100.0 / 1000.0, 0.0 / 1000.0),
-                &Point3::new(0.3, 0.3, 0.3)
-            );
-        }
-
+        //for y in (-40..40) {
+        //    window.draw_line(
+        //        &Point3::new(-10_000.0 / 1000.0, (y as f32) * 100.0 / 1000.0, 0.0 / 1000.0),
+        //        &Point3::new( 10_000.0 / 1000.0, (y as f32) * 100.0 / 1000.0, 0.0 / 1000.0),
+        //        &Point3::new(0.3, 0.3, 0.3)
+        //    );
+        //}
 
         for l in lines.iter() {
             window.draw_line(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &Point3::new(l.1.x / 1000.0, l.1.y / 1000.0, l.1.z / 1000.0), &l.2);
@@ -343,21 +342,47 @@ fn send_to_bot_logic(sender: &Sender<GameState>) {
     sender.send((*game_state).clone()); //.expect("Sending to bot logic failed");
 }
 
-//fn run_test() {
-//    use std::f32::consts::PI;
-//    let mut packet = rlbot::LiveDataPacket::default();
-//    packet.GameCars[0].Physics.Rotation.Yaw = -PI/2.0;
-//    packet.GameCars[0].Physics.Location.Y = -3000.0;
-//    packet.GameCars[0].Physics.Location.X = -2000.0;
-//    loop {
-//        println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
-//        let player_index = 0;
-//        let input = get_bot_input(&packet, player_index);
-//        //thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
-//        thread::sleep_ms(1000); // FIXME testing
-//    }
-//}
 
+
+fn simulate_over_time() {
+    thread::sleep_ms(5000);
+    let initial_game_state: GameState;
+    {
+        let mut game_state = GAME_STATE.write().unwrap();
+        game_state.ball.position = Vector3::new(2000.0, 1000.0, 89.0);
+        game_state.ball.velocity = Vector3::new(0.0, 0.0, 0.0);
+
+        game_state.player.position = Vector3::new(0.0, 0.0, 0.0);
+        game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
+
+        initial_game_state = game_state.clone();
+    }
+
+    loop {
+        let plan_result;
+        {
+            let mut game_state = GAME_STATE.read().unwrap();
+            plan_result = get_plan_result(&game_state);
+            update_visualization(&plan_result);
+        }
+
+        if let Some(plan) = plan_result.plan {
+            let mut game_state = GAME_STATE.write().unwrap();
+            if plan.len() >= 2 {
+                game_state.player = plan[1].0
+                // TODO move the ball. but ball velocity is zero for now
+            } else {
+                // we're at the goal, so start over
+                *game_state = initial_game_state.clone();
+            }
+        } else {
+            unimplemented!("go forward 2")
+        }
+        //thread::sleep_ms(1000/61);
+        thread::sleep_ms(1000/1);
+    }
+}
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
 fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
@@ -554,24 +579,28 @@ fn run_server() {
 }
 
 fn main() {
-    thread::spawn(|| {
-        loop {
-            let t = thread::spawn(|| {
-                //panic::catch_unwind(run_bot);
-                panic::catch_unwind(run_test);
-            });
-            t.join();
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            
-            thread::sleep_ms(1000);
-        }
-    });
+    //    thread::spawn(|| {
+    //        loop {
+    //            let t = thread::spawn(|| {
+    //                panic::catch_unwind(run_bot);
+    //                //panic::catch_unwind(run_test);
+    //            });
+    //            t.join();
+    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+    //            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+    //
+    //            thread::sleep_ms(1000);
+    //        }
+    //    });
 
+    //    //run_visualization();
+    //    thread::spawn(run_visualization);
+    //    run_server();
+
+    thread::spawn(simulate_over_time);
+    //thread::spawn(run_test);
     run_visualization();
-    //thread::spawn(run_visualization);
-    //run_server();
 }

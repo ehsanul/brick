@@ -164,7 +164,7 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
         for i in 0..exploded_length {
             let t = i as f32 * predict::TICK;
 
-            // index of the controller vlue we want to apply
+            // index of the controller value we want to apply
             // again, first item is current position, we need controller on next item
             let original_index = 1 + (t / step_duration) as usize;
             if original_index > last_index {
@@ -177,21 +177,30 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
                 last_player = plan[original_index - 1].0;
             }
             let controller = plan[original_index].1;
+            //println!("last_player: {:?}", last_player);
+            //println!("controller.throttle: {:?}", controller.throttle);
+            //println!("controller.steer: {:?}", controller.steer);
             let next_player = predict::player::next_player_state(&last_player, &controller, predict::TICK);
+            //println!("next_player: {:?}", next_player);
             exploded_plan.push((next_player, controller));
             last_player = next_player;
 
-            // XXX HACK ALERT start turning a few frames early since there's a delay or something. but don't end turning early? tbd.
-            if i >= 4 && controller.steer != last_controller.steer {
-                exploded_plan[i-1].1.steer = controller.steer;
-                exploded_plan[i-2].1.steer = controller.steer;
-                if controller.steer != Steer::Straight  {
-                    exploded_plan[i-3].1.steer = controller.steer;
-                    exploded_plan[i-4].1.steer = controller.steer;
-                }
-            }
+            //// XXX HACK ALERT start turning a few frames early since there's a delay or something. but don't end turning early? tbd.
+            //if i >= 4 && controller.steer != last_controller.steer {
+            //    exploded_plan[i-1].1.steer = controller.steer;
+            //    exploded_plan[i-2].1.steer = controller.steer;
+            //    if controller.steer != Steer::Straight  {
+            //        exploded_plan[i-3].1.steer = controller.steer;
+            //        exploded_plan[i-4].1.steer = controller.steer;
+            //    }
+            //}
             last_controller = controller;
         }
+        //println!("===================================");
+        //println!("original: {:?}", plan.iter().map(|(p,c)| (p.position.x, p.position.y, c.steer)).collect::<Vec<_>>());
+        //println!("-----------------------------------");
+        //println!("original: {:?}", exploded_plan.iter().map(|(p,c)| (p.position.x, p.position.y, c.steer)).collect::<Vec<_>>());
+        //println!("===================================");
         plan.clear();
         plan.append(&mut exploded_plan);
     }

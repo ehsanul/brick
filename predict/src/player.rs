@@ -116,6 +116,7 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
         },
         Steer::Right | Steer::Left => {
             let (translation, acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
+            //println!("acceleration: {:?}", acceleration);
             next.position = current.position + translation;
             next.velocity = current.velocity + acceleration;
             next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
@@ -172,7 +173,7 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
 
     // NOTE strangely, the physics sample rate for these is 240fps for some reason, not same as the
     // tick normally mentioned at 120fps
-    let end_index = start_index + (time_step * 240.0).floor() as usize;
+    let end_index = start_index + (time_step * 240.0).round() as usize;
 
     let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, speed: {}, controller: {:?}", start_index, current_speed, controller));
     let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, speed: {}, controller: {:?}", end_index, current_speed, controller));

@@ -282,8 +282,8 @@ pub extern fn play(game: &GameState) -> PlanResult {
 
     // fallback when we don't know how to shoot it
     if x.plan.is_none() {
-        println!("FALLBACK");
-        x = go_near_ball(&game);
+        //println!("FALLBACK");
+        //x = go_near_ball(&game);
     }
 
     x
@@ -327,9 +327,6 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
             let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
             let relative_right = clockwise_90_rotation * current_heading;
             let direction = na::dot(&last_delta, &relative_right); // positive for right, negative for left
-            //println!("last_delta: {:?}", last_delta);
-            //println!("last_distance: {:?}", last_distance);
-            //println!("dir: {:?}", direction);
             let error = direction * last_distance;
 
             errors.push_back(error);
