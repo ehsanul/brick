@@ -42,7 +42,7 @@ use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
 
 use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
-
+pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
 lazy_static! {
     static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
@@ -230,6 +230,15 @@ fn run_bot() {
     bot_logic_loop(plan_sender, state_receiver);
 }
 
+fn run_bot_live_test() {
+    let (state_sender, state_receiver): (Sender<GameState>, Receiver<GameState>) = mpsc::channel();
+    let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
+    thread::spawn(move || {
+        bot_io_loop(state_sender, plan_receiver);
+    });
+    bot_logic_loop_live_test(plan_sender, state_receiver);
+}
+
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
     loop {
         let mut game_state = receiver.recv().expect("Coudln't receive game state");
@@ -239,6 +248,25 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
 
         let plan_result = get_plan_result(&game_state);
         sender.send(plan_result);
+    }
+}
+
+fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
+    let game_state = receiver.recv().expect("Coudln't receive game state");
+    let plan = square_plan(&game_state.player);
+    sender.send(PlanResult {
+        plan: Some(plan),
+        desired: DesiredContact::new(),
+        visualization_lines: vec![],
+        visualization_points: vec![],
+    });
+    // sleep long
+    loop {
+        thread::park();
+        // sleep
+        // calculate error
+        // check if we were getting closer, but not just went farther. if so, we are back at the
+        // start and can report the error
     }
 }
 
@@ -342,6 +370,57 @@ fn send_to_bot_logic(sender: &Sender<GameState>) {
     sender.send((*game_state).clone()); //.expect("Sending to bot logic failed");
 }
 
+fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickControllerState)> {
+    let mut plan = vec![];
+    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
+    let mut controller = BrickControllerState::new();
+    controller.throttle = Throttle::Forward;
+    controller.steer = if angle < 0.0 { Steer::Right } else { Steer::Left };
+
+    // iterate till dot product is minimized (ie we match the desired heading)
+    let mut last_dot = std::f32::MAX;
+    let mut player = current.clone();
+    loop {
+        let new_player = next_player_state(&player, &controller, TICK);
+        let heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+        let dot = na::dot(&heading, &desired_heading);
+        if dot < last_dot {
+            plan.push((new_player, controller));
+            player = new_player;
+            last_dot = dot;
+        } else {
+            break
+        }
+    }
+
+    plan
+}
+
+fn forward_plan(current: &PlayerState, distance: f32) -> Vec<(PlayerState, BrickControllerState)> {
+    let mut plan = vec![];
+
+    let mut controller = BrickControllerState::new();
+    controller.throttle = Throttle::Forward;
+
+    let mut player = current.clone();
+    while (player.position - current.position).norm() < distance {
+        player = next_player_state(&player, &controller, TICK);
+        plan.push((player, controller));
+    }
+    plan
+}
+fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
+    let mut plan = vec![];
+    plan.push((current.clone(), BrickControllerState::new()));
+    for _ in 0..4 {
+        let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0);
+        plan.append(&mut plan_part);
+        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, -PI/2.0);
+        plan.append(&mut plan_part);
+    }
+    plan
+}
 
 
 fn simulate_over_time() {
@@ -407,7 +486,6 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
     };
 }
 
-type NextInputFunc = extern fn (player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
 
 fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
     {
@@ -436,7 +514,31 @@ fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlb
 type PlayFunc = extern fn (game: &GameState) -> PlanResult;
 type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
+type NextInputFunc = extern fn (player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
+type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
+
+fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
+    // FIXME is there a way to unlock without a made up scope?
+    {
+        // XXX there must be a reason why this happens, but BRAIN must be locked before
+        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+        let mut p = BRAIN.lock().expect("Failed to get lock on BRAIN");
+        let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        rh.update(BrainPlugin::reload_callback, &mut p);
+    }
+
+    if let Some(ref x) = BRAIN.lock().unwrap().lib {
+        // TODO cache
+        let next_player_state: Symbol<NextPlayerStateFunc> = unsafe {
+            x.lib.get(b"play\0").unwrap()
+        };
+
+        next_player_state(&current, &controller, time_step)
+    } else {
+        panic!("We need the brain dynamic library!");
+    }
+}
 
 fn get_plan_result(game_state: &GameState) -> PlanResult {
     // FIXME is there a way to unlock without a made up scope?
