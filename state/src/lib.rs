@@ -132,8 +132,10 @@ impl BrickControllerState {
     }
 }
 
+pub type Plan = Vec<(PlayerState, BrickControllerState)>;
+
 pub struct PlanResult {
-    pub plan: Option<Vec<(PlayerState, BrickControllerState)>>,
+    pub plan: Option<Plan>,
     pub desired: DesiredContact,
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
     pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,

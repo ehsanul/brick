@@ -252,27 +252,39 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
 }
 
 fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
-    let game_state = receiver.recv().expect("Coudln't receive game state");
-    let plan = square_plan(&game_state.player);
-    sender.send(PlanResult {
-        plan: Some(plan),
-        desired: DesiredContact::new(),
-        visualization_lines: vec![],
-        visualization_points: vec![],
-    });
-    // sleep long
     loop {
-        thread::park();
-        // sleep
-        // calculate error
-        // check if we were getting closer, but not just went farther. if so, we are back at the
-        // start and can report the error
+        let game_state = receiver.recv().expect("Coudln't receive game state");
+        let mut plan = square_plan(&game_state.player);
+        sender.send(PlanResult {
+            plan: Some(plan.clone()),
+            desired: DesiredContact::new(),
+            visualization_lines: vec![],
+            visualization_points: vec![],
+        });
+
+        let mut square_errors = vec![];
+        loop {
+            let mut game_state = receiver.recv().expect("Coudln't receive game state");
+
+            let closest_index = closest_plan_index(&game_state.player, &plan);
+            plan = plan.split_off(closest_index);
+
+            let square_error = (plan[0].0.position - &game_state.player.position).norm().powf(2.0);
+            square_errors.push(square_error);
+            if plan.len() <= 2 {
+                break;
+            }
+        }
+        println!("========================================");
+        println!("Steps: {}", square_errors.len());
+        println!("RMS Error: {}", square_errors.iter().sum::<f32>() / (square_errors.len() as f32));
+        println!("========================================");
     }
 }
 
 fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
     let mut packet = rlbot::LiveDataPacket::default();
-    let mut current_plan_result = PlanResult::default();
+    let mut current_plan: Option<Plan> = None;
     let mut errors = VecDeque::new();
     loop {
         let player_index = *PLAYER_INDEX.lock().unwrap();
@@ -285,6 +297,8 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             }
         };
 
+        // TODO check if we got the same packet as last time. if so, do a short sleep, so we
+        // minimize ag
         rlbot::update_live_data_packet(&mut packet);
         update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
         //println!("{:?}", packet.GameBall);
@@ -294,11 +308,18 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
         if let Ok(plan_result) = receiver.try_recv() {
             // FIXME we only want to replace it if it's better! also, what if it can't find a path
             // now, even though it could before and the old one is still ok?
-            current_plan_result = plan_result;
-            update_visualization(&current_plan_result);
+            update_visualization(&plan_result);
+            errors.clear();
+            current_plan = plan_result.plan;
         }
-        let input = next_rlbot_input(&current_plan_result, &mut errors);
 
+        // remove part of plan that is no longer relevant since we've already passed it
+        if let Some(ref mut plan) = current_plan {
+            let closest_index = closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
+            *plan = plan.split_off(closest_index);
+        }
+
+        let input = next_rlbot_input(&GAME_STATE.read().unwrap().player, &current_plan, &mut errors);
         rlbot::update_player_input(input, player_index as i32);
     }
 }
@@ -487,7 +508,7 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
 }
 
 
-fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+fn next_rlbot_input(current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
@@ -502,11 +523,9 @@ fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlb
             x.lib.get(b"next_input\0").unwrap()
         };
 
-        let game_state = GAME_STATE.read().unwrap();
-        next_input(&game_state.player, &plan_result, errors)
+        next_input(&current_player, &plan, errors)
     } else {
         panic!("We need the brain dynamic library!");
-        //PlanResult::default()
     }
 }
 
@@ -514,9 +533,30 @@ fn next_rlbot_input(plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlb
 type PlayFunc = extern fn (game: &GameState) -> PlanResult;
 type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
-type NextInputFunc = extern fn (player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
+type NextInputFunc = extern fn (current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
+type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
 type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
+fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
+    {
+        // XXX there must be a reason why this happens, but BRAIN must be locked before
+        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
+        let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
+        let mut rh = RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        rh.update(BrainPlugin::reload_callback, &mut p);
+    }
+
+    if let Some(ref x) = BRAIN2.lock().unwrap().lib {
+        // TODO cache
+        let closest_plan_index: Symbol<ClosestPlanIndexFunc> = unsafe {
+            x.lib.get(b"closest_plan_index\0").unwrap()
+        };
+
+        closest_plan_index(&current_player, &plan)
+    } else {
+        panic!("We need the brain dynamic library!");
+    }
+}
 
 fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
     // FIXME is there a way to unlock without a made up scope?

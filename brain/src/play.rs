@@ -297,11 +297,36 @@ pub extern fn play(game: &GameState) -> PlanResult {
 }
 
 #[no_mangle]
-pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
+    let mut iter = plan.iter();
+    let mut last_distance = std::f32::MAX;
+    let mut index = 0;
+    while let Some((player, controller)) = iter.next() {
+        let delta = current_player.position - player.position;
+        let distance = delta.norm();
+
+        if distance > last_distance {
+            // we iterate and choose the controller at the point distance increases. this
+            // is because `controller` is the previous controller input to reach the given
+            // player.position. NOTE this logic is only good if we provide a "exploded"
+            // plan, ie we have a position for every tick, and also only if we cut parts of
+            // the path off as we pass them
+            break;
+        }
+        last_distance = distance;
+        index += 1;
+    }
+
+    index
+}
+
+#[no_mangle]
+pub extern fn next_input(current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
     // TODO we want to get more sophisticated here and find which point we are in on the plan,
     // in case of a very slow planning situation
-    if let Some(ref plan) = plan_result.plan {
+    if let Some(ref plan) = plan {
         if let Some(first) = plan.get(0) {
+
             let mut iter = plan.iter();
             let mut last_distance = std::f32::MAX;
             let mut last_delta = Vector3::new(0.0, 0.0, 0.0);
@@ -318,7 +343,8 @@ pub extern fn next_input(current_player: &PlayerState, plan_result: &PlanResult,
                     // we iterate and choose the controller at the point distance increases. this
                     // is because `controller` is the previous controller input to reach the given
                     // player.position. NOTE this logic is only good if we provide a "exploded"
-                    // plan, ie we have a position for every tick.
+                    // plan, ie we have a position for every tick, and also only if we cut parts of
+                    // the path off as we pass them
                     break;
                 }
                 last_delta = delta;
