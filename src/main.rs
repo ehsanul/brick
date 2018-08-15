@@ -287,6 +287,7 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
     let mut current_plan: Option<Plan> = None;
     let mut errors = VecDeque::new();
     loop {
+        let start = Instant::now();
         let player_index = *PLAYER_INDEX.lock().unwrap();
         //println!("player index: {:?}", player_index);
         let player_index = match player_index {
@@ -313,14 +314,33 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             current_plan = plan_result.plan;
         }
 
+        let mut closest_index = 0;
         // remove part of plan that is no longer relevant since we've already passed it
         if let Some(ref mut plan) = current_plan {
-            let closest_index = closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
+            closest_index = closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
             *plan = plan.split_off(closest_index);
         }
 
         let input = next_rlbot_input(&GAME_STATE.read().unwrap().player, &current_plan, &mut errors);
         rlbot::update_player_input(input, player_index as i32);
+
+        {
+            println!("---------------------------------------------");
+            println!("i: {} | steer: {} | ELAPSED: {:?}", closest_index, input.Steer, start.elapsed());
+            let player = &GAME_STATE.read().unwrap().player;
+            let pos = player.position;
+            let v = player.velocity;
+            let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+            println!("game: {:?},{:?},{:?},{:?},{:?},{:?},{:?}", pos.x, pos.y, pos.z, v.x, v.y, v.z, yaw);
+
+            if let Some(ref plan) = current_plan {
+                let player = plan[0].0;
+                let pos = player.position;
+                let v = player.velocity;
+                let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+                println!("plan[0]: {:?},{:?},{:?},{:?},{:?},{:?},{:?}", pos.x, pos.y, pos.z, v.x, v.y, v.z, yaw);
+            }
+        }
     }
 }
 
