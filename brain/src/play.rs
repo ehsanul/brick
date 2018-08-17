@@ -317,43 +317,29 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
         index += 1;
     }
 
-    index
+    index - 1
 }
 
 #[no_mangle]
 pub extern fn next_input(current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
-    // TODO we want to get more sophisticated here and find which point we are in on the plan,
-    // in case of a very slow planning situation
+    // TODO DRY with closest_plan_index function
     if let Some(ref plan) = plan {
-        if let Some(first) = plan.get(0) {
+        let index = closest_plan_index(&current_player, &plan);
 
-            let mut iter = plan.iter();
-            let mut last_distance = std::f32::MAX;
-            let mut last_delta = Vector3::new(0.0, 0.0, 0.0);
-            let mut chosen_controller = first.1;
+        // we need to look one past closest index to see the controller to reach next position
+        if index < plan.len() - 1 {
             let current_heading = current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-            //println!("--------------------------------------");
-            while let Some((player, controller)) = iter.next() {
-                let delta = current_player.position - player.position;
-                let distance = delta.norm();
-                //println!("distance: {:?}, current: {:?}, path: {:?}", distance, current_player.position, player.position);
+            let (closest_player, _) = plan[index];
+            let (next_player, controller) = plan[index + 1];
 
-                chosen_controller = *controller;
-                if distance > last_distance {
-                    // we iterate and choose the controller at the point distance increases. this
-                    // is because `controller` is the previous controller input to reach the given
-                    // player.position. NOTE this logic is only good if we provide a "exploded"
-                    // plan, ie we have a position for every tick, and also only if we cut parts of
-                    // the path off as we pass them
-                    break;
-                }
-                last_delta = delta;
-                last_distance = distance;
-            }
+            // FIXME we should account for differences in the tick and interpolate between the two
+            // closest indices to get the real closet delta/distance
+            let closest_delta = current_player.position - closest_player.position;
+            let closest_distance = closest_delta.norm();
             let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
             let relative_right = clockwise_90_rotation * current_heading;
-            let direction = na::dot(&last_delta, &relative_right); // positive for right, negative for left
-            let error = direction * last_distance;
+            let direction = na::dot(&closest_delta, &relative_right); // positive for right, negative for left
+            let error = direction * closest_distance;
 
             errors.push_back(error);
             if errors.len() > 1000 {
@@ -361,8 +347,8 @@ pub extern fn next_input(current_player: &PlayerState, plan: &Option<Plan>, erro
                 *errors = errors.split_off(900);
             }
 
-            //println!("controller: {:?}", chosen_controller);
-            let mut input = convert_controller_to_rlbot_input(&chosen_controller);
+            //println!("controller: {:?}", controller);
+            let mut input = convert_controller_to_rlbot_input(&controller);
             //println!("input before: {:?}", input);
             //pd_adjust(&mut input, &errors);
             //println!("input after: {:?}", input);
