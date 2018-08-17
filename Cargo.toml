@@ -15,3 +15,6 @@ path = "./state"
 
 [dependencies.rlbot]
 path = "./rlbot"
+
+[dependencies.passthrough]
+path = "./passthrough"

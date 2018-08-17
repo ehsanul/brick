@@ -17,6 +17,7 @@ extern crate nalgebra as na;
 extern crate dynamic_reload;
 extern crate state;
 extern crate rlbot;
+extern crate passthrough;
 
 #[macro_use]
 extern crate lazy_static;
@@ -35,6 +36,7 @@ use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 
 use state::*;
+use passthrough::{Gilrs, Gamepad, human_input, update_gamepad};
 
 use na::{ Unit, Vector3, Point3, Translation3, UnitQuaternion, Rotation3};
 use kiss3d::window::Window;
@@ -252,8 +254,18 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
 }
 
 fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
+    let mut gilrs = Gilrs::new().unwrap();
+    let mut gamepad = Gamepad::default();
+
     loop {
         let game_state = receiver.recv().expect("Coudln't receive game state");
+
+        update_gamepad(&mut gilrs, &mut gamepad);
+        if !gamepad.select_toggled {
+            thread::sleep_ms(1000/121);
+            continue;
+        }
+
         let mut plan = square_plan(&game_state.player);
         sender.send(PlanResult {
             plan: Some(plan.clone()),
@@ -274,6 +286,11 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameS
             if plan.len() <= 2 {
                 break;
             }
+
+            update_gamepad(&mut gilrs, &mut gamepad);
+            if !gamepad.select_toggled {
+                break;
+            }
         }
         println!("========================================");
         println!("Steps: {}", square_errors.len());
@@ -286,6 +303,9 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
     let mut packet = rlbot::LiveDataPacket::default();
     let mut current_plan: Option<Plan> = None;
     let mut errors = VecDeque::new();
+    let mut gilrs = Gilrs::new().unwrap();
+    let mut gamepad = Gamepad::default();
+
     loop {
         let start = Instant::now();
         let player_index = *PLAYER_INDEX.lock().unwrap();
@@ -321,7 +341,12 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             *plan = plan.split_off(closest_index);
         }
 
-        let input = next_rlbot_input(&GAME_STATE.read().unwrap().player, &current_plan, &mut errors);
+        update_gamepad(&mut gilrs, &mut gamepad);
+        let input = if gamepad.select_toggled {
+            next_rlbot_input(&GAME_STATE.read().unwrap().player, &current_plan, &mut errors)
+        } else {
+            human_input(&gamepad)
+        };
         rlbot::update_player_input(input, player_index as i32);
 
         {
