@@ -266,7 +266,8 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameS
             continue;
         }
 
-        let mut plan = square_plan(&game_state.player);
+        //let mut plan = square_plan(&game_state.player);
+        let mut plan = offset_forward_plan(&game_state.player);
         sender.send(PlanResult {
             plan: Some(plan.clone()),
             desired: DesiredContact::new(),
@@ -476,6 +477,7 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Vec<(PlayerState, Brick
     }
     plan
 }
+
 fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
     let mut plan = vec![];
     plan.push((current.clone(), BrickControllerState::new()));
@@ -486,6 +488,16 @@ fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)
         plan.append(&mut plan_part);
     }
     plan
+}
+
+fn offset_forward_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
+    let mut offset_player = current.clone();
+    let heading = offset_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
+    let right = clockwise_90_rotation * heading;
+    offset_player.position += 50.0 * right;
+
+    forward_plan(&offset_player, 4000.0)
 }
 
 
