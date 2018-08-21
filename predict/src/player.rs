@@ -202,14 +202,20 @@ pub extern fn predict_test() -> Vector3<f32> {
 
 #[no_mangle]
 pub extern fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
-    match find_prediction_category(&current) {
+    let mut next_player = match find_prediction_category(&current) {
         PredictionCategory::Ground => next_player_state_grounded(&current, &controller, time_step),
         //PredictionCategory::Ground2 => next_velocity_grounded2(&current, &controller, time_step),
         //PredictionCategory::Wall => next_velocity_walled(&current, &controller, time_step),
         //PredictionCategory::Ceiling => next_velocity_ceilinged(&current, &controller, time_step),
         //PredictionCategory::CurveWall => next_velocity_curve_walled(&current, &controller, time_step),
         //PredictionCategory::Air => next_velocity_flying(&current, &controller, time_step),
+    };
+
+    if next_player.position.z < CAR_DIMENSIONS.z / 2.0 {
+        next_player.position.z = CAR_DIMENSIONS.z / 2.0;
     }
+
+    next_player
 }
 
 #[cfg(test)]
