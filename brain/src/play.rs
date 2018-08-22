@@ -267,7 +267,7 @@ fn go_to_mid(game: &GameState) -> PlanResult {
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
 #[no_mangle]
-pub extern fn play(game: &GameState) -> PlanResult {
+pub extern fn play(game: &GameState, bot: &BotState) -> PlanResult {
     let start = Instant::now();
     let mut x = match what_do(&game) {
         //Action::GoToMid => go_to_mid(&game),
@@ -321,9 +321,9 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
 }
 
 #[no_mangle]
-pub extern fn next_input(current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::PlayerInput {
     // TODO DRY with closest_plan_index function
-    if let Some(ref plan) = plan {
+    if let Some(ref plan) = bot.plan {
         let index = closest_plan_index(&current_player, &plan);
 
         // we need to look one past closest index to see the controller to reach next position
@@ -341,16 +341,16 @@ pub extern fn next_input(current_player: &PlayerState, plan: &Option<Plan>, erro
             let direction = na::dot(&closest_delta, &relative_right); // positive for right, negative for left
             let error = direction * closest_distance;
 
-            errors.push_back(error);
-            if errors.len() > 1000 {
+            bot.turn_errors.push_back(error);
+            if bot.turn_errors.len() > 1000 {
                 // keep last 100
-                *errors = errors.split_off(900);
+                bot.turn_errors = bot.turn_errors.split_off(900);
             }
 
             //println!("controller: {:?}", controller);
             let mut input = convert_controller_to_rlbot_input(&controller);
             //println!("input before: {:?}", input);
-            //pd_adjust(&mut input, &errors);
+            //pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
 
 

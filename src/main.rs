@@ -224,7 +224,7 @@ fn run_visualization(){
 /// main bot playing loop
 /// this is the entry point for custom logic for this specific bot
 fn run_bot() {
-    let (state_sender, state_receiver): (Sender<GameState>, Receiver<GameState>) = mpsc::channel();
+    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver);
@@ -233,7 +233,7 @@ fn run_bot() {
 }
 
 fn run_bot_live_test() {
-    let (state_sender, state_receiver): (Sender<GameState>, Receiver<GameState>) = mpsc::channel();
+    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver);
@@ -241,24 +241,27 @@ fn run_bot_live_test() {
     bot_logic_loop_live_test(plan_sender, state_receiver);
 }
 
-fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
+fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
     loop {
-        let mut game_state = receiver.recv().expect("Coudln't receive game state");
+        let (mut game, mut bot) = receiver.recv().expect("Coudln't receive game state");
 
         // make sure we have the latest, drop earlier states
-        while let Ok(gs) = receiver.try_recv() { game_state = gs }
+        while let Ok((g,b)) = receiver.try_recv() {
+            game = g;
+            bot = b;
+        }
 
-        let plan_result = get_plan_result(&game_state);
+        let plan_result = get_plan_result(&game, &bot);
         sender.send(plan_result);
     }
 }
 
-fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameState>) {
+fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
 
     loop {
-        let game_state = receiver.recv().expect("Coudln't receive game state");
+        let (game, bot) = receiver.recv().expect("Coudln't receive game state");
 
         update_gamepad(&mut gilrs, &mut gamepad);
         if !gamepad.select_toggled {
@@ -266,8 +269,8 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameS
             continue;
         }
 
-        //let mut plan = square_plan(&game_state.player);
-        let mut plan = offset_forward_plan(&game_state.player);
+        //let mut plan = square_plan(&game.player);
+        let mut plan = offset_forward_plan(&game.player);
         sender.send(PlanResult {
             plan: Some(plan.clone()),
             desired: DesiredContact::new(),
@@ -277,12 +280,12 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameS
 
         let mut square_errors = vec![];
         loop {
-            let mut game_state = receiver.recv().expect("Coudln't receive game state");
+            let (game, bot) = receiver.recv().expect("Coudln't receive game state");
 
-            let closest_index = closest_plan_index(&game_state.player, &plan);
+            let closest_index = closest_plan_index(&game.player, &plan);
             plan = plan.split_off(closest_index);
 
-            let square_error = (plan[0].0.position - &game_state.player.position).norm().powf(2.0);
+            let square_error = (plan[0].0.position - &game.player.position).norm().powf(2.0);
             square_errors.push(square_error);
             if plan.len() <= 2 {
                 break;
@@ -300,10 +303,9 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<GameS
     }
 }
 
-fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
+fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>) {
     let mut packet = rlbot::LiveDataPacket::default();
-    let mut current_plan: Option<Plan> = None;
-    let mut errors = VecDeque::new();
+    let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
 
@@ -325,26 +327,25 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
         update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
         //println!("{:?}", packet.GameBall);
 
-        send_to_bot_logic(&sender);
+        send_to_bot_logic(&sender, &bot);
         thread::sleep_ms(1000 / 121); // TODO measure time taken and do a diff
         if let Ok(plan_result) = receiver.try_recv() {
             // FIXME we only want to replace it if it's better! also, what if it can't find a path
             // now, even though it could before and the old one is still ok?
-            update_visualization(&plan_result);
-            errors.clear();
-            current_plan = plan_result.plan;
+            update_bot_state(&mut bot, &plan_result);
+            update_visualization(&bot, &plan_result);
         }
 
         let mut closest_index = 0;
         // remove part of plan that is no longer relevant since we've already passed it
-        if let Some(ref mut plan) = current_plan {
+        if let Some(ref mut plan) = bot.plan {
             closest_index = closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
             *plan = plan.split_off(closest_index);
         }
 
         update_gamepad(&mut gilrs, &mut gamepad);
         let input = if gamepad.select_toggled {
-            next_rlbot_input(&GAME_STATE.read().unwrap().player, &current_plan, &mut errors)
+            next_rlbot_input(&GAME_STATE.read().unwrap().player, &mut bot)
         } else {
             human_input(&gamepad)
         };
@@ -359,7 +360,7 @@ fn bot_io_loop(sender: Sender<GameState>, receiver: Receiver<PlanResult>) {
             let (roll, pitch, yaw) = player.rotation.to_euler_angles();
             println!("game: {:?},{:?},{:?},{:?},{:?},{:?},{:?}", pos.x, pos.y, pos.z, v.x, v.y, v.z, yaw);
 
-            if let Some(ref plan) = current_plan {
+            if let Some(ref plan) = bot.plan {
                 let player = plan[0].0;
                 let pos = player.position;
                 let v = player.velocity;
@@ -400,41 +401,62 @@ fn run_test() {
     }
 }
 
-fn update_visualization(plan_result: &PlanResult) {
+fn update_bot_state(bot: &mut BotState, plan_result: &PlanResult) {
+    // TODO check if the plan is better than existing plan before replacing!
+    if let Some(ref plan) = plan_result.plan {
+        bot.plan = plan_result.plan.clone();
+        bot.turn_errors.clear();
+    }
+}
+
+fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+    let mut lines = Vec::with_capacity(plan.len());
+    let pos = plan.get(0).map(|(p, _)| p.position).unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0));
+    let mut last_point = Point3::new(pos.x, pos.y, pos.z);
+    let mut last_position = pos;
+    for (ps, _) in plan {
+        last_position = ps.position;
+        let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
+        lines.push((last_point.clone(), point.clone(), color));
+        last_point = point;
+    }
+    lines
+}
+
+fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
     let game_state = GAME_STATE.read().unwrap();
     let PlanResult { plan, desired, visualization_lines: lines, visualization_points: points } = plan_result;
 
     let mut visualize_lines = LINES.write().unwrap();
     visualize_lines.clear();
 
+    // lines directly from plan result
+    visualize_lines.append(&mut lines.clone());
+
     // red line from player center to contact point
     let pos = game_state.player.position;
     let dpos = desired.position;
     visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
 
-    // white line showing planned path
-    if let Some(plan) = plan {
-        let pos = game_state.player.position;
-        let mut last_point = Point3::new(pos.x, pos.y, pos.z);
-        let mut last_position = pos;
-        for (ps, _) in plan {
-            last_position = ps.position;
-            let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
-            visualize_lines.push((last_point.clone(), point.clone(), Point3::new(1.0, 0.0, 1.0)));
-            last_point = point;
-        }
+    // white line showing best planned path
+    if let Some(ref plan) = bot.plan {
+        visualize_lines.append(&mut plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)));
     }
-    visualize_lines.append(&mut lines.clone());
 
+    // yellow line showing most recently calculated path
+    if let Some(plan) = plan {
+        visualize_lines.append(&mut plan_lines(&plan, Point3::new(0.0, 1.0, 1.0)));
+    }
 
     let mut visualize_points = POINTS.write().unwrap();
     visualize_points.clear();
     visualize_points.append(&mut points.clone());
 }
 
-fn send_to_bot_logic(sender: &Sender<GameState>) {
-    let game_state = GAME_STATE.read().unwrap();
-    sender.send((*game_state).clone()); //.expect("Sending to bot logic failed");
+fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
+    let game = (*GAME_STATE.read().unwrap()).clone();
+    let bot = bot.clone();
+    sender.send((game, bot)); //.expect("Sending to bot logic failed");
 }
 
 fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickControllerState)> {
@@ -504,6 +526,7 @@ fn offset_forward_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControll
 fn simulate_over_time() {
     thread::sleep_ms(5000);
     let initial_game_state: GameState;
+    let mut bot = BotState::default();
     {
         let mut game_state = GAME_STATE.write().unwrap();
         game_state.ball.position = Vector3::new(2000.0, 1000.0, 89.0);
@@ -511,33 +534,39 @@ fn simulate_over_time() {
 
         game_state.player.position = Vector3::new(0.0, 0.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
 
         initial_game_state = game_state.clone();
     }
 
+    let mut last_plan = vec![];
     loop {
         let plan_result;
         {
             let mut game_state = GAME_STATE.read().unwrap();
-            plan_result = get_plan_result(&game_state);
-            update_visualization(&plan_result);
+            plan_result = get_plan_result(&game_state, &bot);
+            update_bot_state(&mut bot, &plan_result);
+            update_visualization(&bot, &plan_result);
         }
 
         if let Some(plan) = plan_result.plan {
             let mut game_state = GAME_STATE.write().unwrap();
             if plan.len() >= 2 {
-                game_state.player = plan[1].0
+                game_state.player = plan[1].0;
+                last_plan = plan;
                 // TODO move the ball. but ball velocity is zero for now
             } else {
                 // we're at the goal, so start over
                 *game_state = initial_game_state.clone();
             }
         } else {
-            unimplemented!("go forward 2")
+            // let mut game_state = GAME_STATE.write().unwrap();
+            // let i = closest_plan_index(&game_state.player, &last_plan);
+            // game_state.player = last_plan[i + 1].0;
+            //unimplemented!("go forward 2")
         }
-        //thread::sleep_ms(1000/61);
-        thread::sleep_ms(1000/1);
+        thread::sleep_ms(1000/61);
+        //thread::sleep_ms(1000/1);
     }
 }
 
@@ -565,7 +594,7 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
 }
 
 
-fn next_rlbot_input(current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput {
+fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::PlayerInput {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
@@ -580,17 +609,17 @@ fn next_rlbot_input(current_player: &PlayerState, plan: &Option<Plan>, errors: &
             x.lib.get(b"next_input\0").unwrap()
         };
 
-        next_input(&current_player, &plan, errors)
+        next_input(&current_player, bot)
     } else {
         panic!("We need the brain dynamic library!");
     }
 }
 
 
-type PlayFunc = extern fn (game: &GameState) -> PlanResult;
+type PlayFunc = extern fn (game: &GameState, bot: &BotState) -> PlanResult;
 type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
-type NextInputFunc = extern fn (current_player: &PlayerState, plan: &Option<Plan>, errors: &mut VecDeque<f32>) -> rlbot::PlayerInput;
+type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::PlayerInput;
 type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
 type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
@@ -637,7 +666,7 @@ fn next_player_state(current: &PlayerState, controller: &BrickControllerState, t
     }
 }
 
-fn get_plan_result(game_state: &GameState) -> PlanResult {
+fn get_plan_result(game_state: &GameState, bot: &BotState) -> PlanResult {
     // FIXME is there a way to unlock without a made up scope?
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
@@ -656,16 +685,16 @@ fn get_plan_result(game_state: &GameState) -> PlanResult {
             x.lib.get(b"hybrid_a_star\0").unwrap()
         };
 
-        play(&game_state)
+        play(&game_state, &bot)
     } else {
         panic!("We need the brain dynamic library!");
         //PlanResult::default()
     }
 }
 
-/// this is the entry point for custom logic for this specific bot
 fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
     use std::time::{SystemTime, UNIX_EPOCH};
+    let mut bot = BotState::default();
     let mut input = rlbot::PlayerInput::default();
 
     update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
@@ -721,11 +750,12 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
             let step_duration = 20.0/120.0;
             hybrid_a_star(&game_state.player, &desired_contact, step_duration)
         } else {
-            play(&game_state)
+            play(&game_state, &bot)
         };
         println!("TOOK: {:?}", start.elapsed());
 
-        update_visualization(&result);
+        update_bot_state(&mut bot, &result);
+        update_visualization(&bot, &result);
         let PlanResult {
             plan: mut plan,
             visualization_lines: mut lines,
