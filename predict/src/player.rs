@@ -159,11 +159,16 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
     let start_index = match start_index {
         Ok(i) => i,
         Err(i) => {
-            // i is point we can insert into the tree. the value at i is lesser and the next value
-            // is greater. we just want the closest one for our purposes
-            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction sample first missing for: {:?} {:?}", current.velocity, controller));
+            // i is point we can insert into the tree, when exact match is not found. the value at
+            // i is lesser and the next value is greater. we just want the closest one for our
+            // purposes
+            let candidate0 = samples.get(i - 1).expect(&format!("ground_turn_prediction sample first missing for: {:?} {:?}", current.velocity, controller));
+            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction sample second missing for: {:?} {:?}", current.velocity, controller));
             let candidate2 = samples.get(i + 1).expect(&format!("ground_turn_prediction sample last missing for: {:?} {:?}", current.velocity, controller));
-            if candidate1.velocity.norm() - current_speed <= candidate2.velocity.norm() - current_speed {
+
+            if candidate0.velocity.norm() - current_speed <= candidate1.velocity.norm() - current_speed {
+                i - 1
+            } else if candidate1.velocity.norm() - current_speed <= candidate2.velocity.norm() - current_speed {
                 i
             } else {
                 i + 1

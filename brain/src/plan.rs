@@ -93,11 +93,14 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
     let distance = delta.norm();
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
-    if distance < -200.0 {
+    let dot2 = na::dot(&current_heading, &Unit::new_normalize(desired.heading).unwrap());
+    println!("appropriate_step: {}, {}, {}", distance, dot, dot2);
+    if (distance < 400.0 && dot2 > 0.0) || (distance < 550.0 && dot2 > -0.3) {
         // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
         // don't go as far along any turning curves, and thus we end up in the same angle, just
         // earlier
-        let min_dot = 0.95;
+        //let min_dot = 0.95;
+        let min_dot = 0.85; // FIXME probably wrong, gives us less way accuracy than we could actually achieve. but it's making the few tested cases work better for now
 
         // check if the desired state within a cone around our heading, whose angle is determined by the speed
         if dot > min_dot {
@@ -107,7 +110,7 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < -200.0 {
+    } else if distance < 1000.0 && dot2 > -0.5 {
 
         let min_dot = if speed < 400.0 {
             // XXX in this measurement, it only managed to go 400uu total, so... we probably need
@@ -119,14 +122,14 @@ pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) 
         };
 
         // check if the desired state within a cone around our heading, whose angle is determined by the speed
-        if dot > min_dot {
+        if dot > min_dot { //&& dot2 > 0.0 {
             MEDIUM_STEP
         } else {
             // we'll probably have to go the long way around as we aren't facing the right way for
             // this, so use a coarse step
             COARSE_STEP
         }
-    } else if distance < 2000.0 && distance > 500.0 && dot > 0.5  {
+    } else if distance < 2000.0 && dot > 0.5 && dot2 > 0.0  {
         COARSE_STEP
     } else {
         VERY_COARSE_STEP
@@ -290,7 +293,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     goals.push(Goal {
         bounding_box: BoundingBox::new(&(desired_contact + contact_to_car), slop),
         heading: -Unit::new_normalize(contact_to_car.clone()),
-        min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
+        min_dot: (PI/4.0).cos(), // FIXME seems this should depend on the step size!
     });
 
     // slightly off but straight hits
@@ -300,14 +303,14 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_right), slop),
             heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_right),
-            min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
+            min_dot: (PI/4.0).cos(), // FIXME seems this should depend on the step size!
         });
 
         let offset_left = -offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_left), slop),
             heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_left),
-            min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
+            min_dot: (PI/4.0).cos(), // FIXME seems this should depend on the step size!
         });
 
         offset += slop * 2.0;
@@ -371,7 +374,9 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     let num_angle_goals = goals.len() - num_straight_goals;
     for goal in goals.iter_mut() {
         if goal.min_dot == 0.0 {
-            (*goal).min_dot = ( (PI - PI/8.0 - PI/8.0) / num_angle_goals as f32 ).cos();
+            // XXX for some reason, the 0.9 factor results in fine steps showing up. i don't get
+            // it. seems emergent. :/
+            (*goal).min_dot = ( 0.9 * PI / num_angle_goals as f32 ).cos(); // TODO TUNE (base it also on step size directly?? number of goals already sorta is)
         }
     }
 
@@ -397,25 +402,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: ParentsMap = IndexMap::default();
 
-    to_see.push(SmallestCostHolder {
-        estimated_cost: heuristic_cost(&current, &desired),
-        cost_so_far: 0.0,
-        index: 0,
-        is_secondary: false,
-    });
-
-    let start = PlayerVertex {
-        player: current.clone(),
-        cost_so_far: 0.0,
-        prev_controller: BrickControllerState::new(),
-        parent_index: usize::MAX,
-        parent_is_secondary: false,
-    };
-
-    parents.insert(round_player_state(&current, step_duration, current.velocity.norm()), (start, None));
-
     let slop = match step_duration {
-        FINE_STEP => 1.0, // TODO tune
+        FINE_STEP => 5.0, // TODO tune
         MEDIUM_STEP => 20.0, // TODO tune
         COARSE_STEP => 30.0, // TODO tune
         VERY_COARSE_STEP => 100.0, // TODO tune
@@ -432,6 +420,24 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         heading: desired_hit_direction,
         min_dot: (PI/2.0 - PI/8.0).cos(),
     };
+    let goal_center = coarse_goal.bounding_box.center();
+
+    to_see.push(SmallestCostHolder {
+        estimated_cost: heuristic_cost(&current, &goal_center),
+        cost_so_far: 0.0,
+        index: 0,
+        is_secondary: false,
+    });
+
+    let start = PlayerVertex {
+        player: current.clone(),
+        cost_so_far: 0.0,
+        prev_controller: BrickControllerState::new(),
+        parent_index: usize::MAX,
+        parent_is_secondary: false,
+    };
+
+    parents.insert(round_player_state(&current, step_duration, current.velocity.norm()), (start, None));
 
 
     for goal in goals.iter() {
@@ -526,7 +532,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
             match parents.entry(new_vertex_rounded) {
                 Vacant(e) => {
                     new_index = e.index();
-                    new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
+                    new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
                     e.insert((new_vertex, None));
 
                 }
@@ -537,13 +543,13 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                     match e.get() {
                         (existing_vertex, None) => {
                             // basically just like the vacant case
-                            new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
+                            new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
                             insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                         },
                         (existing_vertex, Some(existing_secondary_vertex)) => {
                             let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
+                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
                             } else if e.index() == new_vertex.parent_index || new_vertex.parent_index == existing_secondary_vertex.parent_index {
                                 // same cell expansion. due to the consistent nature of the heuristic, a new
                                 // vertex that is closer to the goal will have a higher cost-so-far than its
@@ -576,8 +582,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                                 // same cost so far. we don't want a tie-breaker like Karl's
                                 // version had since we are not comparing against a parent
                                 // directly, but a sibling!
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
-                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + heuristic_cost(&existing_secondary_vertex.player, &desired);
+                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
+                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + heuristic_cost(&existing_secondary_vertex.player, &goal_center);
 
                                 if new_estimated_cost < existing_secondary_estimated_cost {
                                     new_cost_is_lower = true;
@@ -647,9 +653,9 @@ fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate:
     // candidate heading
     let candidate_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     // pretty broad angle check. does this actually make it faster?
-    let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
-
-    if !correct_coarse_direction { return false };
+    // well it does make it wrong when approaching sideways!
+    //let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
+    //if !correct_coarse_direction { return false };
 
     let coarse_collision = line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
     if !coarse_collision { return false };
@@ -906,15 +912,16 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
     }).collect::<Vec<PlayerVertex>>()
 }
 
-fn heuristic_cost(candidate: &PlayerState, desired: &DesiredContact) -> f32 {
+fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>) -> f32 {
     // basic heuristic cost is a lower-bound for how long it would take, given max boost, to reach
     // the desired position and velocity. and we need to do rotation too.
     //
     // NOTE for now we ignore the fact that we are not starting at the max boost velocity pointed
     // directly at the desired position. the heuristic just needs to be a lower bound, until we
     // want to get it more accurate and thus ignore irrelevant branches more efficiently.
-    let towards_contact = desired.position - candidate.position;
-    let distance = towards_contact.norm();
+    //let towards_contact = desired.position - candidate.position;
+    let towards_goal = goal_center - candidate.position;
+    let distance = towards_goal.norm();
     //let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
     let movement_time_cost = distance / 1200.0; // FIXME should use predict::player::MAX_BOOST_SPEED, but it checks too many paths. we just get a slightly less optimal path, but get it a lot faster
 

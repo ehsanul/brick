@@ -301,6 +301,7 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
     let mut iter = plan.iter();
     let mut last_distance = std::f32::MAX;
     let mut index = 0;
+    assert!(plan.len() != 0);
     while let Some((player, controller)) = iter.next() {
         let delta = current_player.position - player.position;
         let distance = delta.norm();

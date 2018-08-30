@@ -332,7 +332,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         if let Ok(plan_result) = receiver.try_recv() {
             // FIXME we only want to replace it if it's better! also, what if it can't find a path
             // now, even though it could before and the old one is still ok?
-            update_bot_state(&mut bot, &plan_result);
+            update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
             update_visualization(&bot, &plan_result);
         }
 
@@ -401,10 +401,19 @@ fn run_test() {
     }
 }
 
-fn update_bot_state(bot: &mut BotState, plan_result: &PlanResult) {
-    // TODO check if the plan is better than existing plan before replacing!
-    if let Some(ref plan) = plan_result.plan {
-        bot.plan = plan_result.plan.clone();
+fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResult) {
+    // TODO also check if existing plan is invalid, if so replace regardless
+    if let Some(ref new_plan) = plan_result.plan {
+        if bot.plan.is_some() {
+            let new_plan_steps = new_plan.len() - 1;
+            let existing_plan_steps = bot.plan.as_ref().unwrap().len() - 1 - closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
+            // bail, we got a worse plan!
+            if new_plan_steps > existing_plan_steps {
+                return;
+            }
+        }
+
+        bot.plan = Some(new_plan.clone());
         bot.turn_errors.clear();
     }
 }
@@ -534,38 +543,50 @@ fn simulate_over_time() {
 
         game_state.player.position = Vector3::new(0.0, 0.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
 
         initial_game_state = game_state.clone();
     }
 
     let mut last_plan = vec![];
     loop {
-        let plan_result;
         {
             let mut game_state = GAME_STATE.read().unwrap();
-            plan_result = get_plan_result(&game_state, &bot);
-            update_bot_state(&mut bot, &plan_result);
+            let plan_result = get_plan_result(&game_state, &bot);
+            update_bot_state(&game_state, &mut bot, &plan_result);
             update_visualization(&bot, &plan_result);
+            if plan_result.plan.is_none() {
+                thread::sleep_ms(5000);
+                continue;
+            }
         }
 
-        if let Some(plan) = plan_result.plan {
+        if let Some(plan) = bot.plan.clone() {
             let mut game_state = GAME_STATE.write().unwrap();
-            if plan.len() >= 2 {
-                game_state.player = plan[1].0;
-                last_plan = plan;
+            let i = closest_plan_index(&game_state.player, &plan);
+            if plan.len() >= i + 2 {
+                game_state.player = plan[i + 1].0;
+                last_plan = plan.clone();
                 // TODO move the ball. but ball velocity is zero for now
             } else {
                 // we're at the goal, so start over
                 *game_state = initial_game_state.clone();
+                bot.plan = None;
+            }
+            if plan.len() - i < 20 {
+                thread::sleep_ms(1000/4);
+            } else {
+                thread::sleep_ms(1000/121);
             }
         } else {
             // let mut game_state = GAME_STATE.write().unwrap();
             // let i = closest_plan_index(&game_state.player, &last_plan);
             // game_state.player = last_plan[i + 1].0;
-            //unimplemented!("go forward 2")
+            unimplemented!("go forward 2")
         }
-        thread::sleep_ms(1000/61);
         //thread::sleep_ms(1000/1);
     }
 }
@@ -756,7 +777,7 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
         };
         println!("TOOK: {:?}", start.elapsed());
 
-        update_bot_state(&mut bot, &result);
+        update_bot_state(&game_state, &mut bot, &result);
         update_visualization(&bot, &result);
         let PlanResult {
             plan: mut plan,
