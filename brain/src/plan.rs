@@ -971,6 +971,7 @@ mod tests {
         PlayerState {
             position: resting_position(),
             velocity: resting_velocity(),
+            angular_velocity: resting_velocity(),
             rotation: resting_rotation(),
             team: Team::Blue,
         }

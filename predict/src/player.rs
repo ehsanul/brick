@@ -223,7 +223,7 @@ mod tests {
     use super::*;
     use std::f32::consts::PI;
 
-    fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
+    fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, CAR_DIMENSIONS.z / 2.0) }
     fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_rotation() -> UnitQuaternion<f32> { UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0) }
 
@@ -231,6 +231,7 @@ mod tests {
         PlayerState {
             position: resting_position(),
             velocity: resting_velocity(),
+            angular_velocity: resting_velocity(),
             rotation: resting_rotation(),
             team: Team::Blue,
         }
@@ -242,6 +243,7 @@ mod tests {
         PlayerState {
             position: resting_position(),
             velocity: max_throttle_velocity(),
+            angular_velocity: resting_velocity(),
             rotation: resting_rotation(),
             team: Team::Blue,
         }
@@ -278,7 +280,7 @@ mod tests {
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(next.position, Vector3::new(0.0, 579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, 579.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(next.velocity, Vector3::new(0.0, 995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -290,7 +292,7 @@ mod tests {
         controller.throttle = Throttle::Reverse;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(next.position, Vector3::new(0.0, -579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, -579.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(next.velocity, Vector3::new(0.0, -995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -303,7 +305,7 @@ mod tests {
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(next.position, Vector3::new(0.0, -579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, -579.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(next.velocity, Vector3::new(0.0, -995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -316,7 +318,7 @@ mod tests {
         controller.throttle = Throttle::Reverse;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(next.position, Vector3::new(0.0, 579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, 579.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(next.velocity, Vector3::new(0.0, 995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -329,7 +331,7 @@ mod tests {
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(round(next.position), Vector3::new(410.0, 410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(410.0, 410.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(704.0, 704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -342,7 +344,7 @@ mod tests {
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(round(next.position), Vector3::new(410.0, -410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(410.0, -410.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(704.0, -704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -355,7 +357,7 @@ mod tests {
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(round(next.position), Vector3::new(-410.0, -410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(-410.0, -410.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(-704.0, -704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -368,7 +370,7 @@ mod tests {
         controller.throttle = Throttle::Forward;
         let next = next_player_state(&current, &controller, 1.0);
 
-        assert_eq!(round(next.position), Vector3::new(-410.0, 410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(-410.0, 410.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(-704.0, 704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -382,7 +384,7 @@ mod tests {
         let next = next_player_state(&current, &controller, 1.0);
 
         // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 1545.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, 1545.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(0.0, 1545.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -394,7 +396,7 @@ mod tests {
         let next = next_player_state(&current, &controller, 1.0);
 
         // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 1495.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, 1495.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(0.0, 1445.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -407,7 +409,7 @@ mod tests {
         let next = next_player_state(&current, &controller, 1.0);
 
         // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 12.0, 0.0)); // FIXME confirm if this value is actually correct in graph
+        assert_eq!(round(next.position), Vector3::new(0.0, 12.0, 15.0)); // FIXME confirm if this value is actually correct in graph
         assert_eq!(next.rotation, current.rotation);
         assert_eq!(round(next.velocity), Vector3::new(0.0, 0.0, 0.0)); // FIXME confirm if this value is actually correct in graph
     }
@@ -421,7 +423,7 @@ mod tests {
     //     controller.throttle = Throttle::Reverse;
     //     let next = next_player_state(&current, &controller, 1.0);
 
-    //     assert_eq!(next.position, Vector3::new(0.0, 579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
+    //     assert_eq!(next.position, Vector3::new(0.0, 579.0, 15.0)); // FIXME confirm if this value is actually correct in graph
     //     assert_eq!(next.rotation, current.rotation);
     //     assert_eq!(next.velocity, Vector3::new(0.0, 995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
     // }

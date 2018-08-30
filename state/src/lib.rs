@@ -42,6 +42,7 @@ pub enum Team {
 pub struct PlayerState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
+    pub angular_velocity: Vector3<f32>,
     pub rotation: UnitQuaternion<f32>, // FIXME switch to Rotation3!
     pub team: Team,
     //pub rotation: Rotation3<f32>,
@@ -52,6 +53,7 @@ impl Default for PlayerState {
         PlayerState {
             position: Vector3::new(0.0, 0.0, 0.0),
             velocity: Vector3::new(0.0, 0.0, 0.0),
+            angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),
             team: Team::Blue,
         }

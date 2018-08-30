@@ -38,6 +38,14 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
                          record.get(4).expect("Invalid row?").parse().expect("Can't convert vy to f32"),
                          record.get(5).expect("Invalid row?").parse().expect("Can't convert vz to f32"),
                       ),
+
+            angular_velocity: Vector3::new(0.0, 0.0, 0.0),
+            // FIXME // angular_velocity: Vector3::new(
+            // FIXME //              record.get(3).expect("Invalid row?").parse().expect("Can't convert vx to f32"),
+            // FIXME //              record.get(4).expect("Invalid row?").parse().expect("Can't convert vy to f32"),
+            // FIXME //              record.get(5).expect("Invalid row?").parse().expect("Can't convert vz to f32"),
+            // FIXME //           ),
+
             rotation: UnitQuaternion::from_euler_angles(
                          record.get(6).expect("Invalid row?").parse().expect("Can't convert roll to f32"),
                          record.get(7).expect("Invalid row?").parse().expect("Can't convert pitch to f32"),

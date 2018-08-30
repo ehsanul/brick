@@ -582,9 +582,11 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
 
     let pl = player.Physics.Location;
     let pv = player.Physics.Velocity;
+    let pav = player.Physics.AngularVelocity;
     let pr = player.Physics.Rotation;
     game_state.player.position = Vector3::new(-pl.X, pl.Y, pl.Z); // x should be positive towards right, it only makes sense
     game_state.player.velocity = Vector3::new(-pv.X, pv.Y, pv.Z); // x should be positive towards right, it only makes sense
+    game_state.player.angular_velocity = Vector3::new(-pav.X, pav.Y, pav.Z); // x should be positive towards right, it only makes sense
     game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.Roll, pr.Pitch, -pr.Yaw);
     game_state.player.team = match player.Team {
         0 => Team::Blue,
