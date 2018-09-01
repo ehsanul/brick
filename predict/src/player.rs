@@ -126,12 +126,7 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
     next
 }
 
-/// returns tuple of (translation, acceleration, rotation)
-// should we return angular acceleration too?
-fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
-    let translation = Vector3::new(0.0, 0.0, 0.0);
-    let rotation = Rotation3::new(Vector3::new(0.0, 0.0, 0.0));
-
+fn ground_turn_matching_samples(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (&'static PlayerState, &'static PlayerState) {
     let mut current_speed = current.velocity.norm();
 
     // we round it so it's possible to find a row that matches! this is specifically an issue at
@@ -175,13 +170,20 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
             }
         },
     };
-
     // NOTE strangely, the physics sample rate for these is 240fps for some reason, not same as the
     // tick normally mentioned at 120fps
     let end_index = start_index + (time_step * 240.0).round() as usize;
 
     let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, speed: {}, controller: {:?}", start_index, current_speed, controller));
     let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, speed: {}, controller: {:?}", end_index, current_speed, controller));
+
+    (sample_start_state, sample_end_state)
+}
+
+/// returns tuple of (translation, acceleration, rotation)
+// should we return angular acceleration too?
+fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
+    let (sample_start_state, sample_end_state) = ground_turn_matching_samples(&current, &controller, time_step);
 
     // TODO use Rotation3 instead of UnitQuaternion for player.rotation
     // get rotation that when multiplied with sample_start_state.rotation, gives us current_rotation
