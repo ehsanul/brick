@@ -271,6 +271,7 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
 
         //let mut plan = square_plan(&game.player);
         let mut plan = offset_forward_plan(&game.player);
+
         sender.send(PlanResult {
             plan: Some(plan.clone()),
             desired: DesiredContact::new(),
@@ -287,6 +288,7 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
 
             let square_error = (plan[0].0.position - &game.player.position).norm().powf(2.0);
             square_errors.push(square_error);
+
             if plan.len() <= 2 {
                 break;
             }
@@ -295,10 +297,15 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
             if !gamepad.select_toggled {
                 break;
             }
+
+            let square_error = (plan[0].0.position - &game.player.position).norm().powf(2.0);
+            square_errors.push(square_error);
+
+            thread::sleep_ms(1000/121);
         }
         println!("========================================");
         println!("Steps: {}", square_errors.len());
-        println!("RMS Error: {}", square_errors.iter().sum::<f32>() / (square_errors.len() as f32));
+        println!("RMS Error: {}", (square_errors.iter().sum::<f32>() / (square_errors.len() as f32)).sqrt());
         println!("========================================");
     }
 }
@@ -358,6 +365,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             let pos = player.position;
             let v = player.velocity;
             let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+            println!("ang vel: {:?}", packet.GameCars[player_index].Physics.AngularVelocity);
             println!("game: {:?},{:?},{:?},{:?},{:?},{:?},{:?}", pos.x, pos.y, pos.z, v.x, v.y, v.z, yaw);
 
             if let Some(ref plan) = bot.plan {
@@ -477,13 +485,13 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickContro
     controller.steer = if angle < 0.0 { Steer::Right } else { Steer::Left };
 
     // iterate till dot product is minimized (ie we match the desired heading)
-    let mut last_dot = std::f32::MAX;
+    let mut last_dot = std::f32::MIN;
     let mut player = current.clone();
     loop {
         let new_player = next_player_state(&player, &controller, TICK);
         let heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let dot = na::dot(&heading, &desired_heading);
-        if dot < last_dot {
+        if dot > last_dot {
             plan.push((new_player, controller));
             player = new_player;
             last_dot = dot;
@@ -511,7 +519,10 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Vec<(PlayerState, Brick
 
 fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
     let mut plan = vec![];
-    plan.push((current.clone(), BrickControllerState::new()));
+    let mut player = current.clone();
+    let max_throttle_speed = 1545.0; // FIXME put in common lib
+    player.velocity = max_throttle_speed * Unit::new_normalize(player.velocity).unwrap();
+    plan.push((player, BrickControllerState::new()));
     for _ in 0..4 {
         let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0);
         plan.append(&mut plan_part);
@@ -524,9 +535,9 @@ fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)
 fn offset_forward_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
     let mut offset_player = current.clone();
     let heading = offset_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
+    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI/2.0);
     let right = clockwise_90_rotation * heading;
-    offset_player.position += 50.0 * right;
+    offset_player.position += 200.0 * right;
 
     forward_plan(&offset_player, 4000.0)
 }
@@ -680,7 +691,7 @@ fn next_player_state(current: &PlayerState, controller: &BrickControllerState, t
     if let Some(ref x) = BRAIN.lock().unwrap().lib {
         // TODO cache
         let next_player_state: Symbol<NextPlayerStateFunc> = unsafe {
-            x.lib.get(b"play\0").unwrap()
+            x.lib.get(b"next_player_state\0").unwrap()
         };
 
         next_player_state(&current, &controller, time_step)
