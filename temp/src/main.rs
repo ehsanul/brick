@@ -16,7 +16,7 @@ struct RecordState {
 
 impl RecordState {
     pub fn save_and_advance(&mut self) {
-        let path = format!("./throttle_left/{}.csv", self.min_speed);
+        let path = format!("../data/samples/throttle_left/{}.csv", self.min_speed);
         let mut wtr = csv::Writer::from_path(path).expect("couldn't open file for writing csv");
 
         for (t, player) in &self.records {
@@ -51,7 +51,7 @@ fn bot_input(packet: &LiveDataPacket, record_state: &mut RecordState) -> PlayerI
     if !record_state.started {
         if game_state.player.velocity.norm() > record_state.min_speed {
             record_state.started = true;
-        } else if record_state.min_speed > 1500.0 {
+        } else if record_state.min_speed >= 1500.0 {
             input.Boost = true;
         }
     }
