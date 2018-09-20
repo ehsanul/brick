@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
+fnv = "1.0"
 nalgebra = "0.14"
 ncollide = "0.14"
 obj-rs = "0.4"
