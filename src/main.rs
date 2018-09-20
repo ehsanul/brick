@@ -3,8 +3,7 @@
 // FIXME remove for final build.
 #![cfg_attr(rustc_nightly, feature(test))]
 #![feature(alloc_system)]
-#![feature(alloc_system)]
-#![feature(global_allocator, allocator_api)]
+#![feature(allocator_api)]
 extern crate alloc_system;
 use alloc_system::System;
 #[global_allocator]
@@ -23,9 +22,6 @@ extern crate passthrough;
 extern crate lazy_static;
 
 use std::panic;
-use std::fs::File;
-use std::net::TcpListener;
-use std::io::prelude::*;
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver};
 use std::sync::{Arc, RwLock, Mutex};
@@ -33,7 +29,7 @@ use std::f32;
 use std::f32::consts::PI;
 use std::path::Path;
 use std::time::{Duration, Instant};
-use std::collections::VecDeque;
+use std::error::Error;
 
 use state::*;
 use passthrough::{Gilrs, Gamepad, human_input, update_gamepad};
@@ -121,25 +117,6 @@ impl BrainPlugin {
     }
 }
 
-// TODO refactor for no reliance on grpc
-/*
-struct BotImpl;
-
-impl Bot for BotImpl {
-    fn get_controller_state(&self, _m: grpc::RequestOptions, packet: GameTickPacket) -> grpc::SingleResponse<ControllerState> {
-        let mut game_state = GAME_STATE.write().unwrap();
-        let mut controller_state = ControllerState::new();
-
-        // no players, ie game hasn't started or has ended, or just in menus, etc
-        if packet.players.len() == 0usize {
-            return grpc::SingleResponse::completed(controller_state);
-        }
-
-
-        grpc::SingleResponse::completed(controller_state)
-    }
-}
-*/
 
 fn run_visualization(){
     let mut window = Window::new("Rocket League Visualization");
@@ -252,7 +229,7 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
         }
 
         let plan_result = get_plan_result(&game, &bot);
-        sender.send(plan_result);
+        sender.send(plan_result).expect("Failed to send plan result");
     }
 }
 
@@ -269,14 +246,20 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
             continue;
         }
 
-        //let mut plan = square_plan(&game.player);
-        let mut plan = offset_forward_plan(&game.player);
+        // TODO configure via args? better yet, move this all out to a separate binary after moving
+        // the shared logic to a reusable lib
+        let mut plan = if false {
+            square_plan(&game.player)
+        } else {
+            offset_forward_plan(&game.player)
+        };
+
         sender.send(PlanResult {
             plan: Some(plan.clone()),
             desired: DesiredContact::new(),
             visualization_lines: vec![],
             visualization_points: vec![],
-        });
+        }).expect("Failed to send plan result");
 
         let mut square_errors = vec![];
         loop {
@@ -373,7 +356,6 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
 fn run_test() {
     use std::f32::consts::PI;
-    use std::time::{SystemTime, UNIX_EPOCH};
 
     let mut packet = rlbot::LiveDataPacket::default();
     packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0; // XXX opposite of the yaw in our models
@@ -389,6 +371,7 @@ fn run_test() {
     packet.GameBall.Physics.Velocity.Y = 1418.8107;
 
     loop {
+        //use std::time::{SystemTime, UNIX_EPOCH};
         //let start = SystemTime::now();
         //packet.GameCars[0].Physics.Rotation.Yaw = PI * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 100000000.0).sin();
         //packet.GameCars[0].Physics.Location.Y = 4000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 110000000.0).sin();
@@ -465,7 +448,7 @@ fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
 fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
     let game = (*GAME_STATE.read().unwrap()).clone();
     let bot = bot.clone();
-    sender.send((game, bot)); //.expect("Sending to bot logic failed");
+    sender.send((game, bot)).expect("Sending to bot logic failed");
 }
 
 fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickControllerState)> {
@@ -716,7 +699,6 @@ fn get_plan_result(game_state: &GameState, bot: &BotState) -> PlanResult {
 }
 
 fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
-    use std::time::{SystemTime, UNIX_EPOCH};
     let mut bot = BotState::default();
     let mut input = rlbot::PlayerInput::default();
 
@@ -746,7 +728,6 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
 
 
         let game_state = &GAME_STATE.read().unwrap();
-        let now = SystemTime::now();
         let start = Instant::now();
         println!("PLAN DURATION: {:?}", start.elapsed());
 
@@ -765,6 +746,8 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
             ));
 
 
+            // let now = SystemTime::now();
+            // use std::time::{SystemTime, UNIX_EPOCH};
             let mut desired_contact = DesiredContact::new();
             desired_contact.position.x = 52.550236; //101.0; //300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
             desired_contact.position.y = -2563.3354; //1000.0 + 300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
@@ -779,78 +762,45 @@ fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rl
 
         update_bot_state(&game_state, &mut bot, &result);
         update_visualization(&bot, &result);
-        let PlanResult {
-            plan: mut plan,
-            visualization_lines: mut lines,
-            visualization_points: mut points,
-            desired: mut desired,
-        } = result;
-        println!("desired contact position: {:?}", desired.position);
+        println!("desired contact position: {:?}", result.desired.position);
     }
 
     input
 }
 
-// obtain port to communicate with python agent. must match the port the python agent is configured to send to!
-fn get_port(filename: &str) -> u16 {
-    let mut port_file = File::open(filename).expect(&format!("{} file not found", filename));
-    let mut contents = String::new();
-    port_file.read_to_string(&mut contents).expect("something went wrong reading the port.cfg file");
-    contents.trim().parse::<u16>().expect(&format!("couldn't parse port: {}", contents))
-}
 
-/// super basic tcp server. only used to get the right index from the python agent for now.
-fn run_server() {
-    let port = get_port("port.cfg");
-    let listener = TcpListener::bind(("127.0.0.1", port)).expect(&format!("Failed to bind port {}", port));
-    let mut message = String::new();
-    for stream in listener.incoming() {
-        message.clear();
-        let mut stream = stream.expect("Failed to accept connection");
-        stream.read_to_string(&mut message).expect("Couldn't read tcp message to utf8 string");
-        let mut split_message = message.split_whitespace();
+fn main() -> Result<(), Box<Error>> {
+    // TODO command line args
+    if false {
+        thread::spawn(|| {
+            loop {
+                let t = thread::spawn(|| {
+                    //panic::catch_unwind(run_bot);
+                    panic::catch_unwind(run_bot_live_test);
+                });
+                t.join();
+                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
 
-        let cmd = split_message.next().expect("Missing cmd");
-        let _name = split_message.next().expect("Missing name");
-        let _team = split_message.next().expect("Missing team");
-        let index = split_message.next().expect("Missing index");
-        let index = index.trim().parse::<usize>().expect(&format!("Couldn't parse index {}", index));
-
-        // TODO use this
-        let dllPath = split_message.next().expect("Missing dllPath");
-
-        match cmd {
-            "add" => *PLAYER_INDEX.lock().unwrap() = Some(index),
-            "remove" => *PLAYER_INDEX.lock().unwrap() = None,
-            _ => unimplemented!(),
-        };
-        println!("---------------------------------------------");
-        println!("message: {}", message);
-        println!("cmd: {}, player_index: {:?}", cmd, *PLAYER_INDEX.lock().unwrap());
+                thread::sleep_ms(1000);
+            }
+        });
+        thread::spawn(run_visualization);
     }
-}
 
-fn main() {
-    thread::spawn(|| {
-        loop {
-            let t = thread::spawn(|| {
-                //panic::catch_unwind(run_bot);
-                panic::catch_unwind(run_bot_live_test);
-            });
-            t.join();
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+    // TODO command line args
+    if false {
+        thread::spawn(run_test);
+    }
 
-            thread::sleep_ms(1000);
-        }
-    });
-    thread::spawn(run_visualization);
-    run_server();
+    // TODO command line args
+    if true {
+        thread::spawn(simulate_over_time);
+        run_visualization();
+    }
 
-    // //thread::spawn(run_test);
-    // thread::spawn(simulate_over_time);
-    // run_visualization();
+    Ok(())
 }
