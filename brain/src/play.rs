@@ -322,7 +322,7 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
 }
 
 #[no_mangle]
-pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::PlayerInput {
+pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput {
     // TODO DRY with closest_plan_index function
     if let Some(ref plan) = bot.plan {
         let index = closest_plan_index(&current_player, &plan);
@@ -360,7 +360,7 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
     }
 
     // fallback
-    let mut input = rlbot::PlayerInput::default();
+    let mut input = rlbot::ffi::PlayerInput::default();
     input.Throttle = 0.5;
     if current_player.position.z > 150.0 {
         if current_player.velocity.z > 200.0 {
@@ -376,7 +376,7 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
 const PROPORTIONAL_GAIN: f32 = 0.005;
 const DIFFERENTIAL_GAIN: f32 = 0.002;
 const DIFFERENTIAL_STEPS: usize = 4;
-fn pd_adjust(input: &mut rlbot::PlayerInput, errors: &VecDeque<f32>) {
+fn pd_adjust(input: &mut rlbot::ffi::PlayerInput, errors: &VecDeque<f32>) {
     // build up some errors before we do anything
     if errors.len() <= DIFFERENTIAL_STEPS { return; }
     let last_error = errors[errors.len() - 1];
@@ -406,8 +406,8 @@ fn pd_adjust(input: &mut rlbot::PlayerInput, errors: &VecDeque<f32>) {
     }
 }
 
-fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::PlayerInput {
-    rlbot::PlayerInput {
+fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::ffi::PlayerInput {
+    rlbot::ffi::PlayerInput {
         Throttle: match controller.throttle {
             Throttle::Idle => 0.0,
             Throttle::Forward => 1.0,

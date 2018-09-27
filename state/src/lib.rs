@@ -184,7 +184,7 @@ impl DesiredContact {
 }
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
-pub fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
+pub fn update_game_state(game_state: &mut GameState, packet: &rlbot::ffi::LiveDataPacket, player_index: usize) {
     let ball = packet.GameBall;
     let player = packet.GameCars[player_index];
 

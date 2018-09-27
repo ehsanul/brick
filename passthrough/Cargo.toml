@@ -5,6 +5,4 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 gilrs = "0.6.0"
-
-[dependencies.rlbot]
-path = "../rlbot"
+rlbot = "0.0.6"

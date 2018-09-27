@@ -287,10 +287,11 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
 }
 
 fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>) {
-    let mut packet = rlbot::LiveDataPacket::default();
+    let mut packet = rlbot::ffi::LiveDataPacket::default();
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
+    let rlbot = rlbot::init().expect("rlbot init failed");
 
     loop {
         let start = Instant::now();
@@ -306,7 +307,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
         // TODO check if we got the same packet as last time. if so, do a short sleep, so we
         // minimize ag
-        rlbot::update_live_data_packet(&mut packet);
+        rlbot.update_live_data_packet(&mut packet);
         update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
         //println!("{:?}", packet.GameBall);
 
@@ -332,7 +333,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         } else {
             human_input(&gamepad)
         };
-        rlbot::update_player_input(input, player_index as i32);
+        rlbot.update_player_input(input, player_index as i32);
 
         {
             println!("---------------------------------------------");
@@ -357,7 +358,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 fn run_test() {
     use std::f32::consts::PI;
 
-    let mut packet = rlbot::LiveDataPacket::default();
+    let mut packet = rlbot::ffi::LiveDataPacket::default();
     packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0; // XXX opposite of the yaw in our models
     packet.GameCars[0].Physics.Location.X = 25.0; //0.0;
     packet.GameCars[0].Physics.Location.Y = -5567.9844; //0.0;
@@ -575,7 +576,7 @@ fn simulate_over_time() {
 }
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
-fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket, player_index: usize) {
+fn update_game_state(game_state: &mut GameState, packet: &rlbot::ffi::LiveDataPacket, player_index: usize) {
     let ball = packet.GameBall;
     let player = packet.GameCars[player_index];
 
@@ -600,7 +601,7 @@ fn update_game_state(game_state: &mut GameState, packet: &rlbot::LiveDataPacket,
 }
 
 
-fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::PlayerInput {
+fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
@@ -625,7 +626,7 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
 type PlayFunc = extern fn (game: &GameState, bot: &BotState) -> PlanResult;
 type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
-type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::PlayerInput;
+type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput;
 type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
 type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
@@ -698,9 +699,9 @@ fn get_plan_result(game_state: &GameState, bot: &BotState) -> PlanResult {
     }
 }
 
-fn get_test_bot_input(packet: &rlbot::LiveDataPacket, player_index: usize) -> rlbot::PlayerInput {
+fn get_test_bot_input(packet: &rlbot::ffi::LiveDataPacket, player_index: usize) -> rlbot::ffi::PlayerInput {
     let mut bot = BotState::default();
-    let mut input = rlbot::PlayerInput::default();
+    let mut input = rlbot::ffi::PlayerInput::default();
 
     update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
 

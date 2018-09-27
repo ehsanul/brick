@@ -70,8 +70,8 @@ pub fn update_gamepad(gilrs: &mut Gilrs, gamepad: &mut Gamepad) {
 
 /// hard-coded my personal mapping here. someone with a different controller mapping can just
 /// ignore this fucntion and make their own.
-pub fn human_input(gamepad: &Gamepad) -> rlbot::PlayerInput {
-    let mut input = rlbot::PlayerInput::default();
+pub fn human_input(gamepad: &Gamepad) -> rlbot::ffi::PlayerInput {
+    let mut input = rlbot::ffi::PlayerInput::default();
     input.Jump = gamepad.south;
     input.Boost = gamepad.east;
     input.Handbrake = gamepad.west;

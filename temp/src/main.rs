@@ -3,9 +3,11 @@ extern crate state;
 extern crate csv;
 extern crate passthrough;
 
-use rlbot::*;
+use rlbot::ffi::{ MatchSettings, LiveDataPacket, PlayerInput };
 use state::*;
 use std::thread;
+use std::time::Duration;
+use std::error::Error;
 use passthrough::{Gilrs, Gamepad, human_input, update_gamepad};
 
 struct RecordState {
@@ -43,7 +45,7 @@ const MAX_BOOST_SPEED: f32 = 2300.0;
 
 fn bot_input(packet: &LiveDataPacket, record_state: &mut RecordState) -> PlayerInput {
     let mut game_state = GameState::default();
-    update_game_state(&mut game_state, &packet, 0);
+    state::update_game_state(&mut game_state, &packet, 0);
 
     let mut input = PlayerInput::default();
     input.Throttle = 1.0;
@@ -66,7 +68,7 @@ fn bot_input(packet: &LiveDataPacket, record_state: &mut RecordState) -> PlayerI
     input
 }
 
-fn main() {
+fn main() -> Result<(), Box<Error>> {
     let mut packet = LiveDataPacket::default();
     let mut record_state = RecordState {
         min_speed: 0.0,
@@ -76,8 +78,21 @@ fn main() {
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
 
+
+    let rlbot = rlbot::init()?;
+    let mut settings = MatchSettings {
+        NumPlayers: 1,
+        ..Default::default()
+    };
+
+    settings.PlayerConfiguration[0].Bot = true;
+    settings.PlayerConfiguration[0].RLBotControlled = true;
+    settings.PlayerConfiguration[0].set_name("Recorder");
+
+    rlbot.start_match(settings)?;
+
     loop {
-        rlbot::update_live_data_packet(&mut packet);
+        rlbot.update_live_data_packet(&mut packet)?;
         //println!("{}: {:?}", count, packet.GameBall);
 
         update_gamepad(&mut gilrs, &mut gamepad);
@@ -97,7 +112,9 @@ fn main() {
             };
         }
 
-        rlbot::update_player_input(input, 0);
-        thread::sleep_ms(1000/500);
+        rlbot.update_player_input(input, 0)?;
+        thread::sleep(Duration::from_millis(1000/250));
     }
+
+    Ok(())
 }
