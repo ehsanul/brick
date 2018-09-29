@@ -27,8 +27,22 @@ lazy_static! {
     pub static ref MAX_SPEED_BRAKE_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
 
 
-    pub static ref REST_THROTTLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/rest_throttle_right/");
-    pub static ref REST_THROTTLE_RIGHT_TURN_INDEXED: SampleMap = index_all_samples(&REST_THROTTLE_RIGHT_TURN_ALL);
+    pub static ref THROTTLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_right/");
+    pub static ref THROTTLE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_RIGHT_TURN_ALL);
+    pub static ref THROTTLE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_left/");
+    pub static ref THROTTLE_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_LEFT_TURN_ALL);
+    pub static ref BOOST_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/boost_right/");
+    pub static ref BOOST_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_RIGHT_TURN_ALL);
+    pub static ref BOOST_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/boost_left/");
+    pub static ref BOOST_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_LEFT_TURN_ALL);
+    pub static ref IDLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/idle_right/");
+    pub static ref IDLE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_RIGHT_TURN_ALL);
+    pub static ref IDLE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/idle_left/");
+    pub static ref IDLE_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_LEFT_TURN_ALL);
+    pub static ref BRAKE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/brake_right/");
+    pub static ref BRAKE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BRAKE_RIGHT_TURN_ALL);
+    pub static ref BRAKE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/brake_left/");
+    pub static ref BRAKE_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BRAKE_LEFT_TURN_ALL);
 }
 
 fn load_sample_file(path: &str) -> Vec<PlayerState> {
@@ -78,15 +92,15 @@ fn files(dir: &str) -> Vec<String> {
     }).collect::<Vec<_>>()
 }
 
-type SampleMap = HashMap<NormalizedPlayerState, &'static [PlayerState], MyHasher>;
+pub type SampleMap<'a> = HashMap<NormalizedPlayerState, &'a [PlayerState], MyHasher>;
 
-fn index_all_samples(all_samples: &'static Vec<Vec<PlayerState>>) -> SampleMap {
+pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMap<'a> {
     let mut indexed = SampleMap::default();
 
     for i in 0..all_samples.len() {
         let sample = &all_samples[i];
         let mut j = 0;
-        while j < sample.len() {
+        while j < sample.len() - 240 { // subtract 240 frames to ensure at least 1 second of simulation ahead in the slice
             let key = normalized_player(&sample[j]);
             // don't overwite values already inserted. this way we keep longer sample slices given
             // an asymptotic sample
@@ -113,7 +127,7 @@ pub struct NormalizedPlayerState {
     //yaw: i16,
 }
 
-fn normalized_player(player: &PlayerState) -> NormalizedPlayerState {
+pub fn normalized_player(player: &PlayerState) -> NormalizedPlayerState {
     NormalizedPlayerState {
         speed: (player.velocity.norm() / 100.0).round() as i16,
         avz: (player.angular_velocity.z * 5.0).round() as i16,
@@ -140,4 +154,24 @@ pub(crate) fn get_relevant_turn_samples(controller: &BrickControllerState, decel
 
         (_, &Steer::Straight, _, _) => panic!("Going straight isn't handled here."),
     }
+}
+
+pub(crate) fn get_relevant_turn_samples_v2(player: &PlayerState, controller: &BrickControllerState) -> &'static [PlayerState] {
+    let normalized = normalized_player(&player);
+
+    let sample_map: &SampleMap = match((&controller.steer, &controller.throttle, controller.boost)) {
+        (&Steer::Right, &Throttle::Forward, false) => &THROTTLE_RIGHT_TURN_INDEXED,
+        (&Steer::Right, _                 , true ) => &BOOST_RIGHT_TURN_INDEXED, // TODO confirm braking plus boosting is same as boosting
+        (&Steer::Right, &Throttle::Idle   , false) => &IDLE_RIGHT_TURN_INDEXED,
+        (&Steer::Right, &Throttle::Reverse, false) => &BRAKE_RIGHT_TURN_INDEXED,
+
+        (&Steer::Left , &Throttle::Forward, false) => &THROTTLE_LEFT_TURN_INDEXED,
+        (&Steer::Left , _                 , true ) => &BOOST_LEFT_TURN_INDEXED,
+        (&Steer::Left , &Throttle::Idle   , false) => &IDLE_LEFT_TURN_INDEXED,
+        (&Steer::Left , &Throttle::Reverse, false) => &BRAKE_LEFT_TURN_INDEXED,
+
+        (&Steer::Straight, _, _) => panic!("Going straight isn't handled here."),
+    };
+
+    sample_map.get(&normalized).expect(&format!("Missing turn sample for player: {:?} & controller: {:?}", normalized, controller))
 }
