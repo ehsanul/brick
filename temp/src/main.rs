@@ -1,15 +1,15 @@
-extern crate rlbot;
-extern crate state;
 extern crate csv;
 extern crate flatbuffers;
+extern crate rlbot;
+extern crate state;
 
+use rlbot::ffi::{LiveDataPacket, MatchSettings, PlayerInput};
 use rlbot::flat;
-use rlbot::ffi::{ MatchSettings, LiveDataPacket, PlayerInput };
 use state::*;
-use std::thread;
-use std::time::Duration;
 use std::error::Error;
 use std::f32::consts::PI;
+use std::thread;
+use std::time::Duration;
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
@@ -25,7 +25,9 @@ impl RecordState {
     pub fn record(&mut self, packet: &LiveDataPacket) {
         let mut game_state = GameState::default();
         state::update_game_state(&mut game_state, &packet, 0);
-        if !self.is_started(&game_state) { return }
+        if !self.is_started(&game_state) {
+            return;
+        }
 
         let latest = (packet.GameInfo.TimeSeconds, game_state.player.clone());
         if self.records.len() > 0 {
@@ -55,6 +57,8 @@ impl RecordState {
             let vel = player.velocity;
             let avel = player.angular_velocity;
             let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+
+            #[rustfmt_skip]
             let row = [
                 *t,
                 pos.x, pos.y, pos.z,
@@ -62,6 +66,7 @@ impl RecordState {
                 avel.x, avel.y, avel.z,
                 roll, pitch, yaw,
             ].iter().map(|x| x.to_string()).collect::<Vec<_>>();
+
             wtr.write_record(&row).expect("csv write failed");
         }
 
@@ -110,7 +115,7 @@ impl RecordState {
             &mut builder,
             &flat::RotatorPartialArgs {
                 pitch: Some(&flat::Float::new(0.0)),
-                yaw: Some(&flat::Float::new(PI/2.0)),
+                yaw: Some(&flat::Float::new(PI / 2.0)),
                 roll: Some(&flat::Float::new(0.0)),
             },
         );
@@ -204,7 +209,7 @@ fn main() -> Result<(), Box<Error>> {
 
         let input = bot_input(&packet, &mut record_state);
         rlbot.update_player_input(input, 0)?;
-        thread::sleep(Duration::from_millis(1000/250));
+        thread::sleep(Duration::from_millis(1000 / 250));
     }
 
     Ok(())
