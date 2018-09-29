@@ -231,14 +231,6 @@ version = "0.2.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
-name = "passthrough"
-version = "0.1.0"
-dependencies = [
- "gilrs 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
-]
-
-[[package]]
 name = "pkg-config"
 version = "0.3.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -300,8 +292,8 @@ name = "temp"
 version = "0.1.0"
 dependencies = [
  "csv 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "flatbuffers 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "gilrs 0.6.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "passthrough 0.1.0",
  "rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "state 0.1.0",
 ]

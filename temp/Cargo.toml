@@ -7,9 +7,7 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 csv = "1"
 gilrs = "0.6.0"
 rlbot = "0.0.6"
+flatbuffers = "0.4.0"
 
 [dependencies.state]
 path = "../state"
-
-[dependencies.passthrough]
-path = "../passthrough"
