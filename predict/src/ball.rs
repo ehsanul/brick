@@ -1,9 +1,7 @@
 use std::f32;
-use std::f32::consts::E;
 
 use na::{self, Isometry3, Vector3, Unit};
 use ncollide;
-use ncollide::query::{self, Proximity};
 
 use state::*;
 use arena::ARENA;

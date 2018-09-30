@@ -1,4 +1,4 @@
-use na::{self, Vector3, Translation3, UnitQuaternion, Rotation3};
+use na::{self, Vector3, UnitQuaternion, Rotation3};
 use std;
 use state::*;
 use sample;
