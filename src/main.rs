@@ -575,32 +575,6 @@ fn simulate_over_time() {
     }
 }
 
-/// updates our game state, which is a representation of the packet, but with our own data types etc
-fn update_game_state(game_state: &mut GameState, packet: &rlbot::ffi::LiveDataPacket, player_index: usize) {
-    let ball = packet.GameBall;
-    let player = packet.GameCars[player_index];
-
-    let bl = ball.Physics.Location;
-    let bv = ball.Physics.Velocity;
-    game_state.ball.position = Vector3::new(-bl.X, bl.Y, bl.Z); // x should be positive towards right, it only makes sense
-    game_state.ball.velocity = Vector3::new(-bv.X, bv.Y, bv.Z); // x should be positive towards right, it only makes sense
-
-    let pl = player.Physics.Location;
-    let pv = player.Physics.Velocity;
-    let pav = player.Physics.AngularVelocity;
-    let pr = player.Physics.Rotation;
-    game_state.player.position = Vector3::new(-pl.X, pl.Y, pl.Z); // x should be positive towards right, it only makes sense
-    game_state.player.velocity = Vector3::new(-pv.X, pv.Y, pv.Z); // x should be positive towards right, it only makes sense
-    game_state.player.angular_velocity = Vector3::new(-pav.X, pav.Y, pav.Z); // x should be positive towards right, it only makes sense
-    game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.Roll, pr.Pitch, -pr.Yaw);
-    game_state.player.team = match player.Team {
-        0 => Team::Blue,
-        1 => Team::Orange,
-        _ => unimplemented!(),
-    };
-}
-
-
 fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
