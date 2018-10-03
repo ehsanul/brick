@@ -13,6 +13,7 @@ use std::time::Duration;
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
+const ANGULAR_GRID: f32 = 0.2;
 
 struct RecordState {
     speed: i16,
@@ -25,8 +26,13 @@ impl RecordState {
     pub fn record(&mut self, packet: &LiveDataPacket) {
         let mut game_state = GameState::default();
         state::update_game_state(&mut game_state, &packet, 0);
-        if !self.is_started(&game_state) {
-            return;
+
+        if !self.started {
+            if self.is_initial_state(&game_state) {
+                self.started = true
+            } else {
+                return;
+            }
         }
 
         let latest = (packet.GameInfo.TimeSeconds, game_state.player.clone());
@@ -40,12 +46,9 @@ impl RecordState {
         }
     }
 
-    fn is_started(&self, game_state: &GameState) -> bool {
-        let pos_threshold = 5.0;
-        let speed_threshold = 0.1;
+    fn is_initial_state(&self, game_state: &GameState) -> bool {
         let pos = game_state.player.position;
-        let speed = game_state.player.velocity.norm();
-        pos.x.abs() < pos_threshold && pos.y.abs() < pos_threshold && speed < speed_threshold
+        pos.x.abs() < 5.0 && pos.y.abs() < 5.0
     }
 
     pub fn save_and_advance(&mut self) {
@@ -58,7 +61,7 @@ impl RecordState {
             let avel = player.angular_velocity;
             let (roll, pitch, yaw) = player.rotation.to_euler_angles();
 
-            #[rustfmt_skip]
+            #[rustfmt::skip]
             let row = [
                 *t,
                 pos.x, pos.y, pos.z,
@@ -107,7 +110,7 @@ impl RecordState {
             &flat::Vector3PartialArgs {
                 x: Some(&flat::Float::new(0.0)),
                 y: Some(&flat::Float::new(0.0)),
-                z: Some(&flat::Float::new(self.angular_speed as f32)),
+                z: Some(&flat::Float::new(self.angular_speed as f32 * ANGULAR_GRID)),
             },
         );
 
@@ -164,10 +167,12 @@ impl RecordState {
     }
 }
 
-fn bot_input(_packet: &LiveDataPacket, _record_state: &mut RecordState) -> PlayerInput {
+fn bot_input(_packet: &LiveDataPacket, record_state: &RecordState) -> PlayerInput {
     let mut input = PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Steer = -1.0;
+    if record_state.started {
+        input.Throttle = 1.0;
+        input.Steer = -1.0;
+    }
 
     input
 }
@@ -176,7 +181,7 @@ fn main() -> Result<(), Box<Error>> {
     let mut packet = LiveDataPacket::default();
     let mut record_state = RecordState {
         speed: 0,
-        angular_speed: 5 * -MAX_ANGULAR_SPEED, // 5 is our scale-up factor used to round to the nearest integer
+        angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
         started: false,
         records: vec![],
     };
@@ -199,7 +204,6 @@ fn main() -> Result<(), Box<Error>> {
         record_state.record(&packet);
         if record_state.sample_complete() {
             record_state.save_and_advance();
-
             if record_state.all_samples_complete() {
                 break;
             } else {
@@ -207,7 +211,7 @@ fn main() -> Result<(), Box<Error>> {
             }
         }
 
-        let input = bot_input(&packet, &mut record_state);
+        let input = bot_input(&packet, &record_state);
         rlbot.update_player_input(input, 0)?;
         thread::sleep(Duration::from_millis(1000 / 250));
     }
