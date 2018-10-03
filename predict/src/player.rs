@@ -128,55 +128,15 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
 }
 
 fn ground_turn_matching_samples(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (&'static PlayerState, &'static PlayerState) {
-    let mut current_speed = current.velocity.norm();
+    // based on current player state, and steer, throttle and boost, gets the right samples
+    let samples: &'static [PlayerState] = sample::get_relevant_turn_samples(&current, &controller);
 
-    // we round it so it's possible to find a row that matches! this is specifically an issue at
-    // a speed of 1240uu/s, which takes a long time to reach when turning from either direction,
-    // and seems like the asymptotic value
-    if current_speed.round() == 1240.0 { current_speed = 1239.5 } // HACK to avoid hitting end of sample file
-    let decelerating = current_speed > 1240.0;
+    let start_index = 0;
+    // XXX NOTE this 120 fps value is based on the frame rate during sample recording!
+    let end_index = start_index + (time_step * 120.0).round() as usize;
 
-    // based on steer, throttle and boost, gets the right samples
-    let samples: &'static Vec<PlayerState> = sample::get_relevant_turn_samples(&controller, decelerating);
-
-    // find index of closest matching player state
-    let start_index = samples.binary_search_by(|player_state| {
-        let sample_speed = player_state.velocity.norm().round();
-        // `std::cmp::Ord` is not implemented for `f32`
-        // that's due to NaN and such. we don't care about that, so just do it.
-        if sample_speed == current_speed {
-            std::cmp::Ordering::Equal
-        } else if sample_speed < current_speed {
-            if decelerating { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less }
-        } else {
-            if decelerating { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater }
-        }
-    });
-    let start_index = match start_index {
-        Ok(i) => i,
-        Err(i) => {
-            // i is point we can insert into the tree, when exact match is not found. the value at
-            // i is lesser and the next value is greater. we just want the closest one for our
-            // purposes
-            let candidate0 = samples.get(i - 1).expect(&format!("ground_turn_prediction sample first missing for: {:?} {:?}", current.velocity, controller));
-            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction sample second missing for: {:?} {:?}", current.velocity, controller));
-            let candidate2 = samples.get(i + 1).expect(&format!("ground_turn_prediction sample last missing for: {:?} {:?}", current.velocity, controller));
-
-            if candidate0.velocity.norm() - current_speed <= candidate1.velocity.norm() - current_speed {
-                i - 1
-            } else if candidate1.velocity.norm() - current_speed <= candidate2.velocity.norm() - current_speed {
-                i
-            } else {
-                i + 1
-            }
-        },
-    };
-    // NOTE strangely, the physics sample rate for these is 240fps for some reason, not same as the
-    // tick normally mentioned at 120fps
-    let end_index = start_index + (time_step * 240.0).round() as usize;
-
-    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, speed: {}, controller: {:?}", start_index, current_speed, controller));
-    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, speed: {}, controller: {:?}", end_index, current_speed, controller));
+    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, player: {:?}, controller: {:?}", start_index, current, controller));
+    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, player: {:?}, controller: {:?}", end_index, current, controller));
 
     (sample_start_state, sample_end_state)
 }

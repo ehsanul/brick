@@ -9,25 +9,6 @@ type MyHasher = BuildHasherDefault<FnvHasher>;
 use csv;
 
 lazy_static! {
-    pub static ref REST_THROTTLE_RIGHT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file("./data/samples/rest_throttle_right.csv");
-    pub static ref MAX_SPEED_THROTTLE_RIGHT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file("./data/samples/max_speed_throttle_right.csv");
-
-    pub static ref REST_BOOST_RIGHT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-    pub static ref MAX_SPEED_BOOST_RIGHT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-
-    pub static ref MAX_SPEED_IDLE_RIGHT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-    pub static ref MAX_SPEED_BRAKE_RIGHT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-
-    pub static ref REST_THROTTLE_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file("./data/samples/rest_throttle_left.csv");
-    pub static ref MAX_SPEED_THROTTLE_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file("./data/samples/max_speed_throttle_left.csv");
-
-    pub static ref REST_BOOST_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-    pub static ref MAX_SPEED_BOOST_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-
-    pub static ref MAX_SPEED_IDLE_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-    pub static ref MAX_SPEED_BRAKE_LEFT_TURN_SAMPLE: Vec<PlayerState> = load_sample_file(""); // TODO
-
-
     pub static ref THROTTLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_right/");
     pub static ref THROTTLE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_RIGHT_TURN_ALL);
     pub static ref THROTTLE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_left/");
@@ -150,29 +131,8 @@ pub fn normalized_player(player: &PlayerState) -> NormalizedPlayerState {
     }
 }
 
-pub(crate) fn get_relevant_turn_samples(controller: &BrickControllerState, decelerating: bool) -> &'static Vec<PlayerState> {
-    match(decelerating, &controller.steer, &controller.throttle, controller.boost) {
-        (false, &Steer::Right, &Throttle::Forward, false) => &REST_THROTTLE_RIGHT_TURN_SAMPLE,
-        (false, &Steer::Right, _                 , true ) => &REST_BOOST_RIGHT_TURN_SAMPLE, // TODO confirm braking plus boosting is same as boosting
-        (true , &Steer::Right, &Throttle::Forward, false) => &MAX_SPEED_THROTTLE_RIGHT_TURN_SAMPLE,
-        (true , &Steer::Right, _                 , true ) => &MAX_SPEED_BOOST_RIGHT_TURN_SAMPLE,
 
-        (_    , &Steer::Right, &Throttle::Idle   , false) => &MAX_SPEED_IDLE_RIGHT_TURN_SAMPLE,
-        (_    , &Steer::Right, &Throttle::Reverse, false) => &MAX_SPEED_BRAKE_RIGHT_TURN_SAMPLE,
-
-        (false, &Steer::Left , &Throttle::Forward, false) => &REST_THROTTLE_LEFT_TURN_SAMPLE,
-        (false, &Steer::Left , _                 , true ) => &REST_BOOST_LEFT_TURN_SAMPLE,
-        (true , &Steer::Left , &Throttle::Forward, false) => &MAX_SPEED_THROTTLE_LEFT_TURN_SAMPLE,
-        (true , &Steer::Left , _                 , true ) => &MAX_SPEED_BOOST_LEFT_TURN_SAMPLE,
-
-        (_    , &Steer::Left , &Throttle::Idle   , false) => &MAX_SPEED_IDLE_LEFT_TURN_SAMPLE,
-        (_    , &Steer::Left , &Throttle::Reverse, false) => &MAX_SPEED_BRAKE_LEFT_TURN_SAMPLE,
-
-        (_, &Steer::Straight, _, _) => panic!("Going straight isn't handled here."),
-    }
-}
-
-pub(crate) fn get_relevant_turn_samples_v2(player: &PlayerState, controller: &BrickControllerState) -> &'static [PlayerState] {
+pub(crate) fn get_relevant_turn_samples(player: &PlayerState, controller: &BrickControllerState) -> &'static [PlayerState] {
     let normalized = normalized_player(&player);
 
     let sample_map: &SampleMap = match(&controller.steer, &controller.throttle, controller.boost) {
