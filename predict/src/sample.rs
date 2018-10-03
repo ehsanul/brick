@@ -1,4 +1,5 @@
 use state::*;
+use player::{ MAX_ANGULAR_SPEED, MAX_BOOST_SPEED };
 use std::fs;
 use na::{Vector3, UnitQuaternion};
 use std::collections::HashMap;
@@ -111,7 +112,23 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         }
     }
 
+    assert_index_complete(&indexed);
+
     indexed
+}
+
+const GROUND_SPEED_GRID_FACTOR: f32 = 100.0;
+const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
+
+fn assert_index_complete<'a>(index: &SampleMap<'a>) {
+    let min_avz = -(MAX_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
+    let max_avz = (MAX_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
+    for speed in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
+        for avz in -min_avz..max_avz {
+            let normalized = NormalizedPlayerState { speed, avz };
+            assert!(index.get(&normalized).is_some());
+        }
+    }
 }
 
 // XXX is the use of i16 here actually helping?
@@ -128,8 +145,8 @@ pub struct NormalizedPlayerState {
 
 pub fn normalized_player(player: &PlayerState) -> NormalizedPlayerState {
     NormalizedPlayerState {
-        speed: (player.velocity.norm() / 100.0).round() as i16,
-        avz: (player.angular_velocity.z * 5.0).round() as i16,
+        speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).round() as i16,
+        avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
     }
 }
 

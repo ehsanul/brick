@@ -5,11 +5,12 @@ use sample;
 use std::f32;
 use std::f32::consts::E;
 
-pub static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
-pub static THROTTLE_ACCELERATION_FACTOR: f32 = 1575.0;
-pub static BOOST_ACCELERATION_FACTOR: f32 = 1000.0; // FIXME get actula value from graph
-pub static MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
-pub static MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph
+pub const NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
+pub const THROTTLE_ACCELERATION_FACTOR: f32 = 1575.0;
+pub const BOOST_ACCELERATION_FACTOR: f32 = 1000.0; // FIXME get actula value from graph
+pub const MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
+pub const MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph
+pub const MAX_ANGULAR_SPEED: f32 = 6.0; // FIXME get exact value from game
 
 pub enum PredictionCategory {
     /// Wheels on ground
