@@ -132,8 +132,8 @@ fn ground_turn_matching_samples(current: &PlayerState, controller: &BrickControl
     let samples: &'static [PlayerState] = sample::get_relevant_turn_samples(&current, &controller);
 
     let start_index = 0;
-    // XXX NOTE this 120 fps value is based on the frame rate during sample recording!
-    let end_index = start_index + (time_step * 120.0).round() as usize;
+    // TODO use the time steps in the file
+    let end_index = start_index + (time_step * sample::RECORD_FPS as f32).round() as usize;
 
     let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, player: {:?}, controller: {:?}", start_index, current, controller));
     let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, player: {:?}, controller: {:?}", end_index, current, controller));

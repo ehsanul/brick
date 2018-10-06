@@ -5,8 +5,11 @@ use na::{Vector3, UnitQuaternion};
 use std::collections::HashMap;
 use std::hash::BuildHasherDefault;
 use fnv::FnvHasher;
+use std::collections::hash_map::Entry::{Occupied, Vacant};
 type MyHasher = BuildHasherDefault<FnvHasher>;
 use csv;
+
+pub const RECORD_FPS: usize = 120;
 
 lazy_static! {
     pub static ref THROTTLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_right/");
@@ -31,28 +34,29 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
     let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(fs::File::open(path).expect(&format!("File doesn't exist: {}", path)));
     rdr.records().map(|record| {
         let record = record.expect("CSV parse failed?");
+        let _time: f32 = record.get(0).expect("Invalid row?").parse().expect("Can't convert time to f32");
         PlayerState {
             position: Vector3::new(
-                         record.get(0).expect("Invalid row?").parse().expect("Can't convert x to f32"),
-                         record.get(1).expect("Invalid row?").parse().expect("Can't convert y to f32"),
-                         record.get(2).expect("Invalid row?").parse().expect("Can't convert z to f32"),
+                         record.get(1).expect("Invalid row?").parse().expect("Can't convert x to f32"),
+                         record.get(2).expect("Invalid row?").parse().expect("Can't convert y to f32"),
+                         record.get(3).expect("Invalid row?").parse().expect("Can't convert z to f32"),
                       ),
             velocity: Vector3::new(
-                         record.get(3).expect("Invalid row?").parse().expect("Can't convert vx to f32"),
-                         record.get(4).expect("Invalid row?").parse().expect("Can't convert vy to f32"),
-                         record.get(5).expect("Invalid row?").parse().expect("Can't convert vz to f32"),
+                         record.get(4).expect("Invalid row?").parse().expect("Can't convert vx to f32"),
+                         record.get(5).expect("Invalid row?").parse().expect("Can't convert vy to f32"),
+                         record.get(6).expect("Invalid row?").parse().expect("Can't convert vz to f32"),
                       ),
 
             angular_velocity: Vector3::new(
-                         record.get(6).expect("Invalid row?").parse().expect("Can't convert avx to f32"),
-                         record.get(7).expect("Invalid row?").parse().expect("Can't convert avy to f32"),
-                         record.get(8).expect("Invalid row?").parse().expect("Can't convert avz to f32"),
+                         record.get(7).expect("Invalid row?").parse().expect("Can't convert roll to f32"),
+                         record.get(8).expect("Invalid row?").parse().expect("Can't convert pitch to f32"),
+                         record.get(9).expect("Invalid row?").parse().expect("Can't convert yaw to f32"),
                       ),
 
             rotation: UnitQuaternion::from_euler_angles(
-                         record.get(9).expect("Invalid row?").parse().expect("Can't convert roll to f32"),
-                         record.get(10).expect("Invalid row?").parse().expect("Can't convert pitch to f32"),
-                         record.get(11).expect("Invalid row?").parse().expect("Can't convert yaw to f32"),
+                         record.get(10).expect("Invalid row?").parse().expect("Can't convert avx to f32"),
+                         record.get(11).expect("Invalid row?").parse().expect("Can't convert avy to f32"),
+                         record.get(12).expect("Invalid row?").parse().expect("Can't convert avz to f32"),
                       ),
 
             team: Team::Blue, // doesn't matter
@@ -81,14 +85,29 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
     for i in 0..all_samples.len() {
         let sample = &all_samples[i];
         let mut j = 0;
-        while j < sample.len() - 240 { // subtract 240 frames to ensure at least 1 second of simulation ahead in the slice
+        while j < sample.len() - RECORD_FPS { // subtract 1s worth of frames to ensure at least 1 second of simulation ahead in the slice
             let key = normalized_player(&sample[j]);
             // don't overwite values already inserted. this way we keep longer sample slices given
             // an asymptotic sample
             // TODO we may have a better sample here than before? in which case we should evaluate
             // the sample quality (eg how far away is the rounded value from the real? or how many
             // samples do we have following, given more is better up to a second).
-            indexed.entry(key).or_insert(&all_samples[i][j..]);
+            match indexed.entry(key) {
+                Vacant(e) => {
+                    e.insert(&all_samples[i][j..]);
+                }
+                Occupied(mut e) => {
+                    let should_replace = {
+                        let existing_sample = e.get();
+                        let existing_delta = (existing_sample[0].velocity.norm() - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32).abs();
+                        let new_delta = (sample[0].velocity.norm() - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32).abs();
+                        new_delta < existing_delta
+                    };
+                    if should_replace {
+                        e.insert(&all_samples[i][j..]);
+                    }
+                }
+            };
             j += 1;
         }
     }
@@ -98,16 +117,18 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
     indexed
 }
 
-const GROUND_SPEED_GRID_FACTOR: f32 = 100.0;
+const GROUND_SPEED_GRID_FACTOR: f32 = 50.0;
 const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
 
 fn assert_index_complete<'a>(index: &SampleMap<'a>) {
     let min_avz = -(MAX_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
     let max_avz = (MAX_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
     for speed in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
-        for avz in -min_avz..max_avz {
+        for avz in min_avz..max_avz {
             let normalized = NormalizedPlayerState { speed, avz };
-            assert!(index.get(&normalized).is_some());
+            if index.get(&normalized).is_none() {
+                panic!(format!("Missing: {:?}", normalized));
+            }
         }
     }
 }
