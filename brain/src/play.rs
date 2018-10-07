@@ -339,10 +339,16 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
             let closest_distance = closest_delta.norm();
             let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
             let relative_right = clockwise_90_rotation * current_heading;
-            let direction = na::dot(&closest_delta, &relative_right); // positive for right, negative for left
-            let error = direction * closest_distance;
 
-            bot.turn_errors.push_back(error);
+            if closest_distance == 0.0 {
+                bot.turn_errors.push_back(0.0);
+            } else {
+                let direction = na::dot(&Unit::new_normalize(closest_delta.clone()).unwrap(), &relative_right); // positive for right, negative for left
+                println!("direction: {}, distance: {}", direction, closest_distance);
+                let error = direction * closest_distance;
+                bot.turn_errors.push_back(error);
+            }
+
             if bot.turn_errors.len() > 1000 {
                 // keep last 100
                 bot.turn_errors = bot.turn_errors.split_off(900);
@@ -351,7 +357,7 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
             //println!("controller: {:?}", controller);
             let mut input = convert_controller_to_rlbot_input(&controller);
             //println!("input before: {:?}", input);
-            //pd_adjust(&mut input, &bot.turn_errors);
+            pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
 
 
@@ -373,16 +379,16 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
     input
 }
 
-const PROPORTIONAL_GAIN: f32 = 0.005;
-const DIFFERENTIAL_GAIN: f32 = 0.002;
-const DIFFERENTIAL_STEPS: usize = 4;
+const PROPORTIONAL_DIST_GAIN: f32 = 0.004;
+const DIFFERENTIAL_GAIN: f32 = 0.35;
+const DIFFERENTIAL_STEPS: usize = 2;
 fn pd_adjust(input: &mut rlbot::ffi::PlayerInput, errors: &VecDeque<f32>) {
     // build up some errors before we do anything
     if errors.len() <= DIFFERENTIAL_STEPS { return; }
     let last_error = errors[errors.len() - 1];
     let error_slope = (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
-    println!("last_error: {:?}, error_slope: {:?}", last_error, error_slope);
-    let proportional_signal = PROPORTIONAL_GAIN * last_error;
+    println!("last_error: {:?}, error_slope: {:?}", last_error, error_slope); // TODO normalize slope to speed!
+    let proportional_signal = PROPORTIONAL_DIST_GAIN * last_error;
     let differential_signal = DIFFERENTIAL_GAIN * error_slope;
     let signal = proportional_signal + differential_signal;
     println!("signal: {}, p: {}, d: {}", signal, proportional_signal, differential_signal);
