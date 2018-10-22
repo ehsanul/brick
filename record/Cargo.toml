@@ -6,7 +6,7 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 [dependencies]
 csv = "1"
 gilrs = "0.6.0"
-rlbot = "0.0.6"
+rlbot = "0.1.0"
 flatbuffers = "0.4.0"
 
 [dependencies.state]

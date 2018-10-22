@@ -2,7 +2,7 @@ extern crate csv;
 extern crate flatbuffers;
 extern crate rlbot;
 extern crate state;
-
+use rlbot::ffi;
 use rlbot::ffi::{LiveDataPacket, MatchSettings, PlayerInput};
 use rlbot::flat;
 use state::*;
@@ -48,11 +48,11 @@ impl RecordState {
 
     fn is_initial_state(&self, game_state: &GameState) -> bool {
         let pos = game_state.player.position;
-        pos.x.abs() < 5.0 && pos.y.abs() < 5.0
+        pos.x.abs() < 100.0 && pos.y.abs() < 100.0
     }
 
     pub fn save_and_advance(&mut self) {
-        let path = format!("./throttle_left/{}_{}.csv", self.speed, self.angular_speed);
+        let path = format!("data/samples/throttle_left/{}_{}.csv", self.speed, self.angular_speed);
         let mut wtr = csv::Writer::from_path(path).expect("couldn't open file for writing csv");
 
         for (t, player) in &self.records {
@@ -177,8 +177,49 @@ fn bot_input(_packet: &LiveDataPacket, record_state: &RecordState) -> PlayerInpu
     input
 }
 
+fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+    let mut builder = flatbuffers::FlatBufferBuilder::new_with_capacity(1024);
+
+    let position = flat::Vector3Partial::create(
+        &mut builder,
+        &flat::Vector3PartialArgs {
+            x: Some(&flat::Float::new(3800.0)),
+            y: Some(&flat::Float::new(4800.0)),
+            z: Some(&flat::Float::new(98.0)),
+        },
+    );
+
+    let physics = flat::DesiredPhysics::create(
+        &mut builder,
+        &flat::DesiredPhysicsArgs {
+            location: Some(position),
+            ..Default::default()
+        },
+    );
+
+    let ball_state = flat::DesiredBallState::create(
+        &mut builder,
+        &flat::DesiredBallStateArgs {
+            physics: Some(physics),
+            ..Default::default()
+        },
+    );
+
+    let desired_game_state = flat::DesiredGameState::create(
+        &mut builder,
+        &flat::DesiredGameStateArgs {
+            ballState: Some(ball_state),
+            ..Default::default()
+        },
+    );
+
+    builder.finish(desired_game_state, None);
+    rlbot.set_game_state(&builder.finished_data())?;
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<Error>> {
-    let mut packet = LiveDataPacket::default();
     let mut record_state = RecordState {
         speed: 0,
         angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
@@ -196,10 +237,26 @@ fn main() -> Result<(), Box<Error>> {
     settings.PlayerConfiguration[0].RLBotControlled = true;
     settings.PlayerConfiguration[0].set_name("Recorder");
 
+    settings.MutatorSettings = ffi::MutatorSettings {
+        MatchLength: ffi::MatchLength::Unlimited,
+        ..Default::default()
+    };
+
     rlbot.start_match(settings)?;
 
+    //thread::sleep(Duration::from_millis(10000));
+    let mut packets = rlbot.packeteer();
+
+    // Wait for the match to start. `packets.next()` sleeps until the next
+    // packet is available, so this loop will not roast your CPU :)
+    while !packets.next()?.GameInfo.RoundActive {}
+
+    // set initial state
+    move_ball_out_of_the_way(&rlbot)?;
+    record_state.set_next_game_state(&rlbot)?;
+
     loop {
-        rlbot.update_live_data_packet(&mut packet)?;
+        let packet = packets.next()?;
 
         record_state.record(&packet);
         if record_state.sample_complete() {
@@ -213,7 +270,6 @@ fn main() -> Result<(), Box<Error>> {
 
         let input = bot_input(&packet, &record_state);
         rlbot.update_player_input(input, 0)?;
-        thread::sleep(Duration::from_millis(1000 / 250));
     }
 
     Ok(())
