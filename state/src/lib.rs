@@ -4,7 +4,7 @@ extern crate rlbot;
 #[macro_use]
 extern crate lazy_static;
 
-use na::{Vector3, UnitQuaternion, Point3};
+use na::{Vector3, Quaternion, UnitQuaternion, Point3};
 use std::f32::consts::PI;
 use std::collections::VecDeque;
 
@@ -28,6 +28,7 @@ pub struct BotState {
 pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,
+    pub frame: i32,
 }
 
 // FIXME check if this order matches up with team integers we get from rlbot interface
@@ -184,26 +185,35 @@ impl DesiredContact {
 }
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
-pub fn update_game_state(game_state: &mut GameState, packet: &rlbot::ffi::LiveDataPacket, player_index: usize) {
-    let ball = packet.GameBall;
-    let player = packet.GameCars[player_index];
+pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBodyTick, player_index: usize) {
+    let ball = tick.ball().expect("Missing ball");
+    let ball = ball.state().expect("Missing rigid body ball state");
+    let players = tick.players().expect("Missing players");
+    let player = players.get(player_index);
+    let player = player.state().expect("Missing rigid body player state");
 
-    let bl = ball.Physics.Location;
-    let bv = ball.Physics.Velocity;
-    game_state.ball.position = Vector3::new(-bl.X, bl.Y, bl.Z); // x should be positive towards right, it only makes sense
-    game_state.ball.velocity = Vector3::new(-bv.X, bv.Y, bv.Z); // x should be positive towards right, it only makes sense
+    let bl = ball.location().expect("Missing ball location");
+    let bv = ball.velocity().expect("Missing ball velocity");
+    let bav = ball.angularVelocity().expect("Missing ball angular velocity");
+    game_state.frame = ball.frame();
+    game_state.ball.position = Vector3::new(-bl.x(), bl.y(), bl.z()); // x should be positive towards right, it only makes sense
+    game_state.ball.velocity = Vector3::new(-bv.x(), bv.y(), bv.z()); // x should be positive towards right, it only makes sense
+    game_state.ball.angular_velocity = Vector3::new(-bav.x(), bav.y(), bav.z()); // x should be positive towards right, it only makes sense
 
-    let pl = player.Physics.Location;
-    let pv = player.Physics.Velocity;
-    let pav = player.Physics.AngularVelocity;
-    let pr = player.Physics.Rotation;
-    game_state.player.position = Vector3::new(-pl.X, pl.Y, pl.Z); // x should be positive towards right, it only makes sense
-    game_state.player.velocity = Vector3::new(-pv.X, pv.Y, pv.Z); // x should be positive towards right, it only makes sense
-    game_state.player.angular_velocity = Vector3::new(-pav.X, pav.Y, pav.Z); // x should be positive towards right, it only makes sense
-    game_state.player.rotation = UnitQuaternion::from_euler_angles(-pr.Roll, pr.Pitch, -pr.Yaw);
-    game_state.player.team = match player.Team {
-        0 => Team::Blue,
-        1 => Team::Orange,
-        _ => unimplemented!(),
-    };
+    let pl = player.location().expect("Missing player location");
+    let pv = player.velocity().expect("Missing player velocity");
+    let pav = player.angularVelocity().expect("Missing player angular velocity");
+    let pr = player.rotation().expect("Missing player rotation");
+    game_state.player.position = Vector3::new(-pl.x(), pl.y(), pl.z()); // x should be positive towards right, it only makes sense
+    game_state.player.velocity = Vector3::new(-pv.x(), pv.y(), pv.z()); // x should be positive towards right, it only makes sense
+    game_state.player.angular_velocity = Vector3::new(-pav.x(), pav.y(), pav.z()); // x should be positive towards right, it only makes sense
+    game_state.player.rotation = UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), -pr.x(), pr.y(), pr.z())); // XXX is reversing the x in a quaterniion a valid way to flip the x axis direction??
+
+    // FIXME we don't get team in the physics tick. maybe we need to seed this with a single
+    //       GameTickPacket to start
+    // game_state.player.team = match player.Team {
+    //     0 => Team::Blue,
+    //     1 => Team::Orange,
+    //     _ => unimplemented!(),
+    // };
 }

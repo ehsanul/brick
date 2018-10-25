@@ -345,6 +345,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rlbot"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "flatbuffers 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "libloading 0.5.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "ratelimit 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "serde"
 version = "1.0.70"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -378,7 +388,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static 1.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "nalgebra 0.14.4 (registry+https://github.com/rust-lang/crates.io-index)",
- "rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rlbot 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -477,6 +487,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum ratelimit 0.4.3 (registry+https://github.com/rust-lang/crates.io-index)" = "4176700668c6ad8629de6970b17b82c5a23593119506ff34085fb46676df6954"
 "checksum rawpointer 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "ebac11a9d2e11f2af219b8b8d833b76b1ea0e054aa0e8d8e9e4cbde353bdf019"
 "checksum rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "798ec321a60fbd89ad4f455d6d0fd74336c13d2f001f8e17ede813f4b56feda6"
+"checksum rlbot 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2bd56b72dd669c4e7b6616431364cefd0be7dfe4662fa97fab08607067c6dabf"
 "checksum serde 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)" = "0c3adf19c07af6d186d91dae8927b83b0553d07ca56cbf7f2f32560455c91920"
 "checksum serde_derive 1.0.70 (registry+https://github.com/rust-lang/crates.io-index)" = "3525a779832b08693031b8ecfb0de81cd71cfd3812088fafe9a7496789572124"
 "checksum slab 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "fdeff4cd9ecff59ec7e3744cbca73dfe5ac35c2aedb2cfba8a1c715a18912e9d"

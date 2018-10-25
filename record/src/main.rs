@@ -2,14 +2,10 @@ extern crate csv;
 extern crate flatbuffers;
 extern crate rlbot;
 extern crate state;
-use rlbot::ffi;
-use rlbot::ffi::{LiveDataPacket, MatchSettings, PlayerInput};
-use rlbot::flat;
+use rlbot::{ ffi, flat };
 use state::*;
 use std::error::Error;
 use std::f32::consts::PI;
-use std::thread;
-use std::time::Duration;
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
@@ -19,13 +15,13 @@ struct RecordState {
     speed: i16,
     angular_speed: i16,
     started: bool,
-    records: Vec<(f32, PlayerState)>,
+    records: Vec<(i32, PlayerState)>,
 }
 
 impl RecordState {
-    pub fn record(&mut self, packet: &LiveDataPacket) {
+    pub fn record(&mut self, tick: &flat::RigidBodyTick) {
         let mut game_state = GameState::default();
-        state::update_game_state(&mut game_state, &packet, 0);
+        state::update_game_state(&mut game_state, &tick, 0);
 
         if !self.started {
             if self.is_initial_state(&game_state) {
@@ -35,7 +31,7 @@ impl RecordState {
             }
         }
 
-        let latest = (packet.GameInfo.TimeSeconds, game_state.player.clone());
+        let latest = (game_state.frame, game_state.player.clone());
         if self.records.len() > 0 {
             let last = self.records[self.records.len() - 1];
             if last != latest {
@@ -55,7 +51,7 @@ impl RecordState {
         let path = format!("data/samples/throttle_left/{}_{}.csv", self.speed, self.angular_speed);
         let mut wtr = csv::Writer::from_path(path).expect("couldn't open file for writing csv");
 
-        for (t, player) in &self.records {
+        for (frame, player) in &self.records {
             let pos = player.position;
             let vel = player.velocity;
             let avel = player.angular_velocity;
@@ -63,7 +59,7 @@ impl RecordState {
 
             #[rustfmt::skip]
             let row = [
-                *t,
+                *frame as f32,
                 pos.x, pos.y, pos.z,
                 vel.x, vel.y, vel.z,
                 avel.x, avel.y, avel.z,
@@ -167,14 +163,19 @@ impl RecordState {
     }
 }
 
-fn bot_input(_packet: &LiveDataPacket, record_state: &RecordState) -> PlayerInput {
-    let mut input = PlayerInput::default();
-    if record_state.started {
-        input.Throttle = 1.0;
-        input.Steer = -1.0;
-    }
-
+fn bot_input() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input.Steer = -1.0;
     input
+}
+
+fn wait_for_match_start(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+    // `packets.next()` sleeps until the next packet is available,
+    // so this loop will not roast your CPU :)
+    let mut packets = rlbot.packeteer();
+    while !packets.next()?.GameInfo.RoundActive {};
+    Ok(())
 }
 
 fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
@@ -228,7 +229,7 @@ fn main() -> Result<(), Box<Error>> {
     };
 
     let rlbot = rlbot::init()?;
-    let mut settings = MatchSettings {
+    let mut settings = ffi::MatchSettings {
         NumPlayers: 1,
         ..Default::default()
     };
@@ -243,22 +244,17 @@ fn main() -> Result<(), Box<Error>> {
     };
 
     rlbot.start_match(settings)?;
-
-    //thread::sleep(Duration::from_millis(10000));
-    let mut packets = rlbot.packeteer();
-
-    // Wait for the match to start. `packets.next()` sleeps until the next
-    // packet is available, so this loop will not roast your CPU :)
-    while !packets.next()?.GameInfo.RoundActive {}
+    wait_for_match_start(&rlbot)?;
 
     // set initial state
     move_ball_out_of_the_way(&rlbot)?;
     record_state.set_next_game_state(&rlbot)?;
 
+    let mut physicist = rlbot.physicist();
     loop {
-        let packet = packets.next()?;
+        let tick = physicist.next_flat()?;
 
-        record_state.record(&packet);
+        record_state.record(&tick);
         if record_state.sample_complete() {
             record_state.save_and_advance();
             if record_state.all_samples_complete() {
@@ -268,8 +264,7 @@ fn main() -> Result<(), Box<Error>> {
             }
         }
 
-        let input = bot_input(&packet, &record_state);
-        rlbot.update_player_input(input, 0)?;
+        rlbot.update_player_input(bot_input(), 0)?;
     }
 
     Ok(())

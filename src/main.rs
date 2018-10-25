@@ -293,11 +293,11 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
 }
 
 fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>) {
-    let mut packet = rlbot::ffi::LiveDataPacket::default();
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
     let rlbot = rlbot::init().expect("rlbot init failed");
+    let mut physicist = rlbot.physicist();
 
     loop {
         let start = Instant::now();
@@ -311,11 +311,8 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             }
         };
 
-        // TODO check if we got the same packet as last time. if so, do a short sleep, so we
-        // minimize ag
-        rlbot.update_live_data_packet(&mut packet);
-        update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
-        //println!("{:?}", packet.GameBall);
+        let tick = physicist.next_flat().expect("Missing physics tick");
+        update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
 
         send_to_bot_logic(&sender, &bot);
         thread::sleep_ms(1000 / 121); // TODO measure time taken and do a diff
@@ -348,7 +345,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             let pos = player.position;
             let v = player.velocity;
             let (roll, pitch, yaw) = player.rotation.to_euler_angles();
-            println!("ang vel: {:?}", packet.GameCars[player_index].Physics.AngularVelocity);
+            //println!("ang vel: {:?}", packet.GameCars[player_index].Physics.AngularVelocity);
             println!("game: {:?},{:?},{:?},{:?},{:?},{:?},{:?}", pos.x, pos.y, pos.z, v.x, v.y, v.z, yaw);
 
             if let Some(ref plan) = bot.plan {
@@ -365,18 +362,18 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 fn run_test() {
     use std::f32::consts::PI;
 
-    let mut packet = rlbot::ffi::LiveDataPacket::default();
-    packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0; // XXX opposite of the yaw in our models
-    packet.GameCars[0].Physics.Location.X = 25.0; //0.0;
-    packet.GameCars[0].Physics.Location.Y = -5567.9844; //0.0;
-    packet.GameCars[0].Physics.Location.Z = 27.106;
-    packet.GameCars[0].Physics.Velocity.Y = 382.1;
-    packet.GameCars[0].Physics.Velocity.Z = -6.956;
+    let mut game_state = GameState::default();
+    //packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0; // XXX opposite of the yaw in our models
+    //packet.GameCars[0].Physics.Location.X = 25.0; //0.0;
+    //packet.GameCars[0].Physics.Location.Y = -5567.9844; //0.0;
+    //packet.GameCars[0].Physics.Location.Z = 27.106;
+    //packet.GameCars[0].Physics.Velocity.Y = 382.1;
+    //packet.GameCars[0].Physics.Velocity.Z = -6.956;
 
-    packet.GameBall.Physics.Location.X = -50.0;
-    packet.GameBall.Physics.Location.Y = -2656.1914; //0.0;
-    packet.GameBall.Physics.Location.Z = 92.0; //0.0;
-    packet.GameBall.Physics.Velocity.Y = 1418.8107;
+    //packet.GameBall.Physics.Location.X = -50.0;
+    //packet.GameBall.Physics.Location.Y = -2656.1914; //0.0;
+    //packet.GameBall.Physics.Location.Z = 92.0; //0.0;
+    //packet.GameBall.Physics.Velocity.Y = 1418.8107;
 
     loop {
         //use std::time::{SystemTime, UNIX_EPOCH};
@@ -384,9 +381,8 @@ fn run_test() {
         //packet.GameCars[0].Physics.Rotation.Yaw = PI * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 100000000.0).sin();
         //packet.GameCars[0].Physics.Location.Y = 4000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 110000000.0).sin();
         //packet.GameCars[0].Physics.Location.X = 3000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 70000000.0).sin();
-        println!("packet player2 location: {:?}", packet.GameCars[0].Physics.Location);
         let player_index = 0;
-        let input = get_test_bot_input(&packet, player_index);
+        let input = get_test_bot_input(&game_state, player_index);
         //thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
         thread::sleep_ms(1000); // FIXME testing
     }
@@ -683,11 +679,9 @@ fn get_plan_result(game_state: &GameState, bot: &BotState) -> PlanResult {
     }
 }
 
-fn get_test_bot_input(packet: &rlbot::ffi::LiveDataPacket, player_index: usize) -> rlbot::ffi::PlayerInput {
+fn get_test_bot_input(game_state: &GameState, player_index: usize) -> rlbot::ffi::PlayerInput {
     let mut bot = BotState::default();
     let mut input = rlbot::ffi::PlayerInput::default();
-
-    update_game_state(&mut GAME_STATE.write().unwrap(), &packet, player_index);
 
     // FIXME is there a way to unlock without a made up scope?
     {
@@ -712,7 +706,6 @@ fn get_test_bot_input(packet: &rlbot::ffi::LiveDataPacket, player_index: usize) 
         };
 
 
-        let game_state = &GAME_STATE.read().unwrap();
         let start = Instant::now();
         println!("PLAN DURATION: {:?}", start.elapsed());
 

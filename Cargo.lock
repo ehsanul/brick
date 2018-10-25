@@ -51,7 +51,7 @@ dependencies = [
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "passthrough 0.1.0",
- "rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rlbot 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "state 0.1.0",
 ]
 
@@ -790,7 +790,7 @@ name = "passthrough"
 version = "0.1.0"
 dependencies = [
  "gilrs 0.6.1 (registry+https://github.com/rust-lang/crates.io-index)",
- "rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rlbot 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -927,7 +927,7 @@ dependencies = [
 
 [[package]]
 name = "rlbot"
-version = "0.0.6"
+version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "flatbuffers 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1012,7 +1012,7 @@ version = "0.1.0"
 dependencies = [
  "lazy_static 1.0.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "nalgebra 0.14.0 (registry+https://github.com/rust-lang/crates.io-index)",
- "rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
+ "rlbot 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1236,7 +1236,7 @@ dependencies = [
 "checksum rayon-core 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "9d24ad214285a7729b174ed6d3bcfcb80177807f959d95fafd5bfc5c4f201ac8"
 "checksum redox_syscall 0.1.37 (registry+https://github.com/rust-lang/crates.io-index)" = "0d92eecebad22b767915e4d529f89f28ee96dbbf5a4810d2b844373f136417fd"
 "checksum remove_dir_all 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "b5d2f806b0fcdabd98acd380dc8daef485e22bcb7cddc811d1337967f2528cf5"
-"checksum rlbot 0.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "798ec321a60fbd89ad4f455d6d0fd74336c13d2f001f8e17ede813f4b56feda6"
+"checksum rlbot 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)" = "2bd56b72dd669c4e7b6616431364cefd0be7dfe4662fa97fab08607067c6dabf"
 "checksum rustc-serialize 0.3.24 (registry+https://github.com/rust-lang/crates.io-index)" = "dcf128d1287d2ea9d80910b5f1120d0b8eede3fbf1abe91c40d39ea7d51e6fda"
 "checksum scoped_threadpool 0.1.9 (registry+https://github.com/rust-lang/crates.io-index)" = "1d51f5df5af43ab3f1360b429fa5e0152ac5ce8c0bd6485cae490332e96846a8"
 "checksum scopeguard 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "94258f53601af11e6a49f722422f6e3425c52b06245a5cf9bc09908b174f5e27"
