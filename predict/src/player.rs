@@ -2,7 +2,6 @@ use na::{self, Vector3, UnitQuaternion, Rotation3};
 use state::*;
 use sample;
 use std::f32;
-use std::f32::consts::E;
 
 pub const NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
 pub const THROTTLE_ACCELERATION_FACTOR: f32 = 1575.0;
@@ -37,93 +36,12 @@ pub fn find_prediction_category(current: &PlayerState) -> PredictionCategory {
 /// arena is also not handled. collisions with other players or ball will never be handled here
 fn next_player_state_grounded(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
     let mut next = (*current).clone();
-    let mut next_speed;
-    let distance;
-    let current_speed = current.velocity.norm(); // current speed (norm is magnitude)
 
-    // probably make it a method on our player info
-    // TODO look at code from main.rs with this stuff to confirm it's right
-    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-
-    // TODO handle boost
-    match controller.throttle {
-        Throttle::Forward | Throttle::Reverse => {
-            // the acceleration factor is different if you are turning
-            let k = match controller.steer {
-                Steer::Straight => THROTTLE_ACCELERATION_FACTOR,
-                Steer::Right | Steer::Left => 1200.0, // TODO get this and confirm velocity curve while steering
-            };
-
-            let t1 = f32::ln(k) - f32::ln(k - current_speed); // confirm this, forgot
-            let t2 = t1 + time_step;
-            let t_intercept = 3.294; // FIXME get exact known value from graph. could also calculate: ln(1575) - ln(1575 - max_speed)
-            // FIXME doesn't handle braking, nor accelerating forwards when moving backwards
-            // FIXME doesn't handle angular velocity, eg when turning has just finished
-            if current_speed > MAX_THROTTLE_SPEED - 1.0 { // TODO confirm this works as expected
-                distance = (t2 - t1) * MAX_THROTTLE_SPEED;
-            } else if t2 > t_intercept {
-                // we are hitting max speed, so have to calculate distance in two sections for the two
-                // different curves
-                let d1 = k*t_intercept + k*E.powf(-t_intercept) - k*t1 - k*E.powf(-t1);
-                let d2 = (t2 - t_intercept) * MAX_THROTTLE_SPEED;
-                distance = d1 + d2;
-            } else {
-                distance = k*t2 + k*E.powf(-t2) - k*t1 - k*E.powf(-t1);
-            }
-
-            next_speed = k * (1.0 - E.powf(-t2));
-        },
-        Throttle::Idle => {
-            let speed_delta = NO_INPUT_DECELERATION * time_step;
-
-            if current_speed <= speed_delta {
-                next_speed = 0.0;
-                let time_to_rest = current_speed / NO_INPUT_DECELERATION;
-                distance = current_speed * time_to_rest / 2.0;
-            } else {
-                next_speed = current_speed - speed_delta;
-                distance = (current_speed + next_speed) * time_step / 2.0;
-            }
-        },
-    }
-
-    // next position/rotation
-    match controller.steer {
-        Steer::Straight => {
-            // straight line is easy
-            let mut translation = current_heading * distance;
-
-            // FIXME this will not work for braking
-            if controller.throttle == Throttle::Reverse {
-                translation *= -1.0;
-            }
-
-            next.position = current.position + translation;
-            next.rotation = current.rotation.clone(); // if we clone from current, this becomes no-op
-
-            let next_heading = next.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-
-            match controller.throttle {
-                Throttle::Forward | Throttle::Reverse => {
-                    if next_speed > MAX_THROTTLE_SPEED {
-                        next_speed = MAX_THROTTLE_SPEED;
-                    }
-                    next.velocity = next_heading * next_speed * controller.throttle.value();
-                },
-                Throttle::Idle => {
-                    next.velocity = next_heading * next_speed;
-                },
-            }
-        },
-        Steer::Right | Steer::Left => {
-            let (translation, acceleration, angular_acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
-            //println!("acceleration: {:?}", acceleration);
-            next.position = current.position + translation;
-            next.velocity = current.velocity + acceleration;
-            next.angular_velocity = current.angular_velocity + angular_acceleration;
-            next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
-        },
-    }
+    let (translation, acceleration, angular_acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
+    next.position = current.position + translation;
+    next.velocity = current.velocity + acceleration;
+    next.angular_velocity = current.angular_velocity + angular_acceleration;
+    next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
 
     next
 }

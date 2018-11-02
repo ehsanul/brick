@@ -12,18 +12,29 @@ use csv;
 pub const RECORD_FPS: usize = 120;
 
 lazy_static! {
+    pub static ref THROTTLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_straight/");
+    pub static ref THROTTLE_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_STRAIGHT_ALL);
     pub static ref THROTTLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_right/");
     pub static ref THROTTLE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_RIGHT_TURN_ALL);
     pub static ref THROTTLE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/throttle_left/");
     pub static ref THROTTLE_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_LEFT_TURN_ALL);
+
+    pub static ref BOOST_STRAIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/boost_straight/");
+    pub static ref BOOST_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_STRAIGHT_ALL);
     pub static ref BOOST_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/boost_right/");
     pub static ref BOOST_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_RIGHT_TURN_ALL);
     pub static ref BOOST_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/boost_left/");
     pub static ref BOOST_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_LEFT_TURN_ALL);
+
+    pub static ref IDLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/idle_straight/");
+    pub static ref IDLE_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_STRAIGHT_ALL);
     pub static ref IDLE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/idle_right/");
     pub static ref IDLE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_RIGHT_TURN_ALL);
     pub static ref IDLE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/idle_left/");
     pub static ref IDLE_LEFT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_LEFT_TURN_ALL);
+
+    pub static ref BRAKE_STRAIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/brake_straight/");
+    pub static ref BRAKE_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&BRAKE_STRAIGHT_ALL);
     pub static ref BRAKE_RIGHT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/brake_right/");
     pub static ref BRAKE_RIGHT_TURN_INDEXED: SampleMap<'static> = index_all_samples(&BRAKE_RIGHT_TURN_ALL);
     pub static ref BRAKE_LEFT_TURN_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/turning/brake_left/");
@@ -167,7 +178,10 @@ pub(crate) fn get_relevant_turn_samples(player: &PlayerState, controller: &Brick
         (&Steer::Left , &Throttle::Idle   , false) => &IDLE_LEFT_TURN_INDEXED,
         (&Steer::Left , &Throttle::Reverse, false) => &BRAKE_LEFT_TURN_INDEXED,
 
-        (&Steer::Straight, _, _) => panic!("Going straight isn't handled here."),
+        (&Steer::Straight, &Throttle::Forward, false) => &THROTTLE_STRAIGHT_INDEXED,
+        (&Steer::Straight, _                 , true ) => &BOOST_STRAIGHT_INDEXED,
+        (&Steer::Straight, &Throttle::Idle   , false) => &IDLE_STRAIGHT_INDEXED,
+        (&Steer::Straight, &Throttle::Reverse, false) => &BRAKE_STRAIGHT_INDEXED,
     };
 
     sample_map.get(&normalized).expect(&format!("Missing turn sample for player: {:?} & controller: {:?}", normalized, controller))
