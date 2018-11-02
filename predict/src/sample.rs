@@ -96,7 +96,7 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
     for i in 0..all_samples.len() {
         let sample = &all_samples[i];
         let mut j = 0;
-        while j < sample.len() - RECORD_FPS { // subtract 1s worth of frames to ensure at least 1 second of simulation ahead in the slice
+        while j < sample.len() - (RECORD_FPS / 2) { // subtract 0.5s worth of frames to ensure at least 0.5 seconds of simulation ahead in the slice
             let key = normalized_player(&sample[j]);
             // don't overwite values already inserted. this way we keep longer sample slices given
             // an asymptotic sample
