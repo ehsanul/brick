@@ -98,16 +98,13 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         let mut j = 0;
         while j < sample.len() - (RECORD_FPS / 2) { // subtract 0.5s worth of frames to ensure at least 0.5 seconds of simulation ahead in the slice
             let key = normalized_player(&sample[j]);
-            // don't overwite values already inserted. this way we keep longer sample slices given
-            // an asymptotic sample
-            // TODO we may have a better sample here than before? in which case we should evaluate
-            // the sample quality (eg how far away is the rounded value from the real? or how many
-            // samples do we have following, given more is better up to a second).
             match indexed.entry(key) {
                 Vacant(e) => {
                     e.insert(&all_samples[i][j..]);
                 }
                 Occupied(mut e) => {
+                    // replace the sample in case we have one closer to the intended normalized
+                    // velocity value
                     let should_replace = {
                         let existing_sample = e.get();
                         let existing_delta = (existing_sample[0].velocity.norm() - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32).abs();
