@@ -1,5 +1,4 @@
 use na::{self, Vector3, UnitQuaternion, Rotation3};
-use std;
 use state::*;
 use sample;
 use std::f32;
@@ -59,7 +58,8 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
             let t2 = t1 + time_step;
             let t_intercept = 3.294; // FIXME get exact known value from graph. could also calculate: ln(1575) - ln(1575 - max_speed)
             // FIXME doesn't handle braking, nor accelerating forwards when moving backwards
-            if current_speed > 1544.0 { // FIXME reference constant, find exact variance from RL
+            // FIXME doesn't handle angular velocity, eg when turning has just finished
+            if current_speed > MAX_THROTTLE_SPEED - 1.0 { // TODO confirm this works as expected
                 distance = (t2 - t1) * MAX_THROTTLE_SPEED;
             } else if t2 > t_intercept {
                 // we are hitting max speed, so have to calculate distance in two sections for the two
@@ -116,10 +116,11 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
             }
         },
         Steer::Right | Steer::Left => {
-            let (translation, acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
+            let (translation, acceleration, angular_acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
             //println!("acceleration: {:?}", acceleration);
             next.position = current.position + translation;
             next.velocity = current.velocity + acceleration;
+            next.angular_velocity = current.angular_velocity + angular_acceleration;
             next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
         },
     }
@@ -141,9 +142,8 @@ fn ground_turn_matching_samples(current: &PlayerState, controller: &BrickControl
     (sample_start_state, sample_end_state)
 }
 
-/// returns tuple of (translation, acceleration, rotation)
-// should we return angular acceleration too?
-fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
+/// returns tuple of (translation, acceleration, angular_acceleration, rotation)
+fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
     let (sample_start_state, sample_end_state) = ground_turn_matching_samples(&current, &controller, time_step);
 
     // TODO use Rotation3 instead of UnitQuaternion for player.rotation
@@ -154,10 +154,12 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
     // relative position is translation. same for velocity -> acceleration
     let non_normalized_translation = sample_end_state.position - sample_start_state.position;
     let non_normalized_acceleration = sample_end_state.velocity - sample_start_state.velocity;
+    let non_normalized_angular_acceleration = sample_end_state.angular_velocity - sample_start_state.angular_velocity;
 
     (
         normalization_rotation * non_normalized_translation,
         normalization_rotation * non_normalized_acceleration,
+        normalization_rotation * non_normalized_angular_acceleration,
         normalization_rotation * sample_end_state.rotation.to_rotation_matrix(),
     )
 }
