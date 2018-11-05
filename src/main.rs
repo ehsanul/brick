@@ -11,16 +11,37 @@ static A: System = System;
 // FIXME remove above for final build.
 
 
+const USAGE: &'static str = "
+Brick
+
+Usage:
+  brick --bot
+  brick --bot-test
+  brick --simulate
+  brick --plan-test
+
+Options:
+  -h --help     Show this screen.
+  --version     Show version.
+  --bot         Run regular bot in a match.
+  --bot-test    Run regular bot using test plan.
+  --simulate    Simulate game over time.
+  --plan-test   Test & visualize a single plan.
+";
+
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate dynamic_reload;
 extern crate state;
 extern crate rlbot;
 extern crate passthrough;
+extern crate docopt;
 
 #[macro_use]
 extern crate lazy_static;
 
+
+use docopt::Docopt;
 use std::panic;
 use std::thread;
 use std::sync::mpsc::{self, Sender, Receiver};
@@ -93,6 +114,7 @@ lazy_static! {
         Mutex::new(BrainPlugin { lib: Some(lib) })
     };
 }
+
 
 
 struct BrainPlugin {
@@ -748,13 +770,20 @@ fn get_test_bot_input(game_state: &GameState, player_index: usize) -> rlbot::ffi
 
 
 fn main() -> Result<(), Box<Error>> {
-    // TODO command line args
-    if false {
-        thread::spawn(|| {
+    let args = Docopt::new(USAGE)
+                      .and_then(|dopt| dopt.parse())
+                      .unwrap_or_else(|e| e.exit());
+
+    let test_bot = args.get_bool("--bot-test");
+    if args.get_bool("--bot") || test_bot {
+        thread::spawn(move || {
             loop {
-                let t = thread::spawn(|| {
-                    //panic::catch_unwind(run_bot);
-                    panic::catch_unwind(run_bot_live_test);
+                let t = thread::spawn(move || {
+                    if test_bot {
+                        panic::catch_unwind(run_bot_live_test);
+                    } else {
+                        panic::catch_unwind(run_bot);
+                    }
                 });
                 t.join();
                 println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
@@ -766,19 +795,13 @@ fn main() -> Result<(), Box<Error>> {
                 thread::sleep_ms(1000);
             }
         });
-        thread::spawn(run_visualization);
-    }
-
-    // TODO command line args
-    if false {
+    } else if args.get_bool("--simulate") {
+        thread::spawn(simulate_over_time);
+    } else if args.get_bool("--test") {
         thread::spawn(run_test);
     }
 
-    // TODO command line args
-    if true {
-        thread::spawn(simulate_over_time);
-        run_visualization();
-    }
+    run_visualization();
 
     Ok(())
 }

@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Ehsanul"]
 
 [dependencies]
+docopt = "1"
 kiss3d = "0.13"
 nalgebra = "0.14"
 lazy_static = "1.0"
