@@ -163,30 +163,37 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>) -> PlanResul
 
     // since we binary search the trajectory, it's useful to do that over two slices,
     // depending on whether we have to turn to reach the ball or not. this ensures we
-    //  don't think we need to turn to hit a ball that will be behind us in 5 seconds,
+    // don't think we need to turn to hit a ball that will be behind us in 5 seconds,
     // given it's coming towards us and right in front already.
     let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let mut last_dot = None;
     let transition_index = ball_trajectory.iter().position(|ball| {
         let towards_ball = Unit::new_normalize(ball.position - game.player.position);
-        na::dot(&current_heading, &towards_ball) < 0.65 // FIXME tune
+        let dot = na::dot(&current_heading, &towards_ball);
+        if let Some(last_dot_value) = last_dot {
+            last_dot_value * dot < 0.0 // if only one is negative, we've transitioned
+        } else {
+            last_dot = Some(dot);
+            false
+        }
     });
-    let trajectory_in_front: &[BallState];
-    let trajectory_behind: &[BallState];
+    let trajectory_segment1: &[BallState];
+    let trajectory_segment2: &[BallState];
     if let Some(transition_index) = transition_index {
         //println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
         let (first, last) = ball_trajectory.split_at(transition_index);
-        trajectory_in_front = first;
-        trajectory_behind = last;
+        trajectory_segment1 = first;
+        trajectory_segment2 = last;
     } else {
         //println!("no transition");
-        trajectory_in_front = &ball_trajectory;
-        trajectory_behind = &[];
+        trajectory_segment1 = &ball_trajectory;
+        trajectory_segment2 = &[];
     }
 
-    let desired_contact = match reachable_desired_player_state(&game.player, &trajectory_in_front, &desired_ball_position) {
+    let desired_contact = match reachable_desired_player_state(&game.player, &trajectory_segment1, &desired_ball_position) {
         Some(dc) => dc,
         None => {
-            match reachable_desired_player_state(&game.player, &trajectory_behind, &desired_ball_position) {
+            match reachable_desired_player_state(&game.player, &trajectory_segment2, &desired_ball_position) {
                 Some(dc) => dc,
                 None => {
                     let fake_desired = DesiredContact::new();
