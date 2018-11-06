@@ -134,26 +134,26 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     }
 }
 
-// 1. get desired ball position to shoot at
-// 2. binary search the ball trajectory
-// 3. for each search pivot point, determine a set of car states (position/velocity) that collide
+fn shoot(game: &GameState) -> PlanResult {
+    let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
+    hit_ball(&game, &desired_ball_position)
+}
+
+// 1. binary search the ball trajectory
+// 2. for each search pivot point, determine a set of car states (position/velocity) that collide
 //    with the ball in such a way as to cause the ball to head towards the desired ball position
-// 4. based on that desired player state (shooting_player_state), we now need to determine the
+// 3. based on that desired player state (shooting_player_state), we now need to determine the
 //    time by which we can arrive at that point. this is a guestimate, maybe we can use very
 //    coarse a* for this if it's fast enough, or just a version of the heuristic_cost function
 //    that isn't so admissible (ie more realistic/average timing).
-// 5. compare that to the time in the ball trajectory
-// 6. if we arrived earlier than the ball, we know we can hit it at an earlier point in it's
+// 4. compare that to the time in the ball trajectory
+// 5. if we arrived earlier than the ball, we know we can hit it at an earlier point in it's
 //    trajectory. if we arrived later, then we hope we can hit it on time at a later point in
 //    the trajctory
-// 7. boom we found the earliest point at which it's possible to hit the ball into its desired
+// 6. boom we found the earliest point at which it's possible to hit the ball into its desired
 //    position, and got the corresponding desired player state all at once.
-// 8. plan motion to reach desired player state
-//
-// XXX maybe some of this logic should go in plan::plan, by taking a desired ball position. this
-// way we can reuse that for passing, goal keeping, shadow defending, etc, etc
-fn shoot(game: &GameState) -> PlanResult {
-    let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
+// 7. plan motion to reach desired player state
+fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>) -> PlanResult {
     let start = Instant::now();
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 10.0);
     //println!("#############################");
