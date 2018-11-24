@@ -159,7 +159,7 @@ impl RecordState {
     }
 
     pub fn all_samples_complete(&self) -> bool {
-        self.speed > MAX_BOOST_SPEED && self.angular_speed > MAX_ANGULAR_SPEED
+        self.angular_speed > MAX_ANGULAR_SPEED
     }
 }
 
