@@ -194,15 +194,6 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
             exploded_plan.push((next_player, controller));
             last_player = next_player;
 
-            //// XXX HACK ALERT start turning a few frames early since there's a delay or something. but don't end turning early? tbd.
-            //if i >= 4 && controller.steer != last_controller.steer {
-            //    exploded_plan[i-1].1.steer = controller.steer;
-            //    exploded_plan[i-2].1.steer = controller.steer;
-            //    if controller.steer != Steer::Straight  {
-            //        exploded_plan[i-3].1.steer = controller.steer;
-            //        exploded_plan[i-4].1.steer = controller.steer;
-            //    }
-            //}
             last_controller = controller;
         }
 
