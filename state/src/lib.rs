@@ -207,7 +207,9 @@ pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBo
     game_state.player.position = Vector3::new(-pl.x(), pl.y(), pl.z()); // x should be positive towards right, it only makes sense
     game_state.player.velocity = Vector3::new(-pv.x(), pv.y(), pv.z()); // x should be positive towards right, it only makes sense
     game_state.player.angular_velocity = Vector3::new(-pav.x(), pav.y(), pav.z()); // x should be positive towards right, it only makes sense
-    game_state.player.rotation = UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), -pr.x(), pr.y(), pr.z())); // XXX is reversing the x in a quaterniion a valid way to flip the x axis direction??
+
+    // XXX not sure how to flip the x axis direction, but I know flipping the x value isn't right!
+    game_state.player.rotation = UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), pr.y(), pr.z()));
 
     // FIXME we don't get team in the physics tick. maybe we need to seed this with a single
     //       GameTickPacket to start

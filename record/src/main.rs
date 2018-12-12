@@ -88,7 +88,7 @@ impl RecordState {
             &flat::Vector3PartialArgs {
                 x: Some(&flat::Float::new(0.0)),
                 y: Some(&flat::Float::new(0.0)),
-                z: Some(&flat::Float::new(18.0)),
+                z: Some(&flat::Float::new(18.65)), // batmobile resting z
             },
         );
 

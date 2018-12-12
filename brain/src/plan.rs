@@ -152,20 +152,26 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &Des
 
 /// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
 fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
+    // using the sample-based planning, we do get some inaccuracies when exploding at full 120 fps,
+    // whereas 60fps seems to work fine and is sufficient for our path following
+    const exploded_step_duration: f32 = 2.0 * predict::TICK;
+
     // we would get slightly off results with the method below if we don't have an exact multiple
-    let ticks_per_step = (step_duration / predict::TICK).round() as usize;
+    let ticks_per_step = (step_duration / exploded_step_duration).round() as usize;
     assert!(120 % ticks_per_step == 0);
+    assert!((exploded_step_duration * ticks_per_step as f32 - step_duration).abs() < 0.000001); // ensure exact multiple
 
     if let Some(ref mut plan) = plan_result.plan {
         if plan.get(0).is_none() { return }
-        let exploded_length = (plan.len() - 1) * ticks_per_step; // first item in plan is current position
-        let mut exploded_plan = vec![];
+        let exploded_length = 1 + (plan.len() - 1) * ticks_per_step; // first item in plan is current position
+        let mut exploded_plan = Vec::with_capacity(exploded_length);
+        exploded_plan.push(plan[0]);
 
         let mut last_index = 0;
         let mut last_player = plan[0].0;
         let mut last_controller = plan[0].1;
-        for i in 0..exploded_length {
-            let t = i as f32 * predict::TICK;
+        for i in 1..exploded_length {
+            let t = (i - 1) as f32 * exploded_step_duration;
 
             // index of the controller value we want to apply
             // again, first item is current position, we need controller on next item
@@ -183,7 +189,7 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
             //println!("last_player: {:?}", last_player);
             //println!("controller.throttle: {:?}", controller.throttle);
             //println!("controller.steer: {:?}", controller.steer);
-            let next_player = predict::player::next_player_state(&last_player, &controller, predict::TICK);
+            let next_player = predict::player::next_player_state(&last_player, &controller, exploded_step_duration);
             //println!("next_player: {:?}", next_player);
             exploded_plan.push((next_player, controller));
             last_player = next_player;
@@ -199,10 +205,16 @@ fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
             //}
             last_controller = controller;
         }
+
+
         //println!("===================================");
-        //println!("original: {:?}", plan.iter().map(|(p,c)| (p.position.x, p.position.y, c.steer)).collect::<Vec<_>>());
+        //println!("original: {:?}", plan.iter().map(|(p, c)| {
+        //    (p.velocity.x, p.velocity.y, p.position.x, p.position.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer)
+        //}).collect::<Vec<_>>());
         //println!("-----------------------------------");
-        //println!("original: {:?}", exploded_plan.iter().map(|(p,c)| (p.position.x, p.position.y, c.steer)).collect::<Vec<_>>());
+        //println!("exploded: {:?}", exploded_plan.iter().map(|(p, c)| {
+        //    (p.velocity.x, p.velocity.y, p.position.x, p.position.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer)
+        //}).collect::<Vec<_>>());
         //println!("===================================");
         plan.clear();
         plan.append(&mut exploded_plan);
