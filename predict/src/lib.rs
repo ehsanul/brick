@@ -12,6 +12,3 @@ pub mod arena;
 pub mod player;
 pub mod ball;
 pub mod sample;
-
-pub const FPS:f32 = 120.0;
-pub const TICK: f32 = 1.0 / FPS; // matches RL's internal fixed physics tick rate

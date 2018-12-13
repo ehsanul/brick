@@ -57,18 +57,18 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     let start = Instant::now();
 
 
-    let mut closest_desired_contact = DesiredContact::new();
+    let mut closest_desired_contact = DesiredContact::default();
     let mut closest_time_diff = std::f32::MAX;
 
     let mut estimates = ball_trajectory.iter().enumerate().map(|(i, ball)| {
-        let ball_time = (i as f32) * predict::TICK;
+        let ball_time = (i as f32) * TICK;
         let desired_contact = simple_desired_contact(ball, &desired_ball_position);
         let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
         (i, shooting_time)
     }).collect::<Vec<_>>();
     estimates.sort_by(|(i, shooting_time), (i2, shooting_time2)| {
-        let ball_time = (*i as f32) * predict::TICK;
-        let ball_time2 = (*i2 as f32) * predict::TICK;
+        let ball_time = (*i as f32) * TICK;
+        let ball_time2 = (*i2 as f32) * TICK;
         let diff1 = (ball_time - shooting_time).abs();
         let diff2 = (ball_time2 - shooting_time2).abs();
         if diff1 == diff1 {
@@ -82,7 +82,7 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     let shootable_ball_state = estimates.iter().map(|(i, _)| *i).next(); // next == first
 
     //let shootable_ball_state = .binary_search_by(|(i, ball)| {
-    //    let ball_time = (*i as f32) * predict::TICK;
+    //    let ball_time = (*i as f32) * TICK;
     //    let start2 = Instant::now();
     //    let desired_contact = simple_desired_contact(ball, &desired_ball_position);
     //    let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
@@ -196,7 +196,7 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>) -> PlanResul
             match reachable_desired_player_state(&game.player, &trajectory_segment2, &desired_ball_position) {
                 Some(dc) => dc,
                 None => {
-                    let fake_desired = DesiredContact::new();
+                    let fake_desired = DesiredContact::default();
                     return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
                 }
             }
@@ -220,7 +220,7 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>) -> PlanResul
 }
 
 fn go_near_ball(game: &GameState) -> PlanResult {
-    let mut desired = DesiredContact::new();
+    let mut desired = DesiredContact::default();
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 1.0);
     let ball_in_one_sec = ball_trajectory[ball_trajectory.len() - 1];
     //let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
@@ -267,7 +267,7 @@ fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact
 //}
 
 fn go_to_mid(game: &GameState) -> PlanResult {
-    plan::plan(&game.player, &game.ball, &DesiredContact::new())
+    plan::plan(&game.player, &game.ball, &DesiredContact::default())
 }
 
 /// main entrypoint for bot to figure out what to do given the current state

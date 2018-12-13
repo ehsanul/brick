@@ -278,7 +278,7 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
 
         sender.send(PlanResult {
             plan: Some(plan.clone()),
-            desired: DesiredContact::new(),
+            desired: DesiredContact::default(),
             visualization_lines: vec![],
             visualization_points: vec![],
         }).expect("Failed to send plan result");
@@ -555,8 +555,8 @@ fn simulate_over_time() {
 
         game_state.player.position = Vector3::new(0.0, 0.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
-        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
 
@@ -626,7 +626,7 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
 
 
 type PlayFunc = extern fn (game: &GameState, bot: &BotState) -> PlanResult;
-type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult;
+type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, config: &SearchConfig) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
 type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput;
 type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
@@ -748,13 +748,14 @@ fn get_test_bot_input(game_state: &GameState, player_index: usize) -> rlbot::ffi
 
             // let now = SystemTime::now();
             // use std::time::{SystemTime, UNIX_EPOCH};
-            let mut desired_contact = DesiredContact::new();
+            let mut desired_contact = DesiredContact::default();
             desired_contact.position.x = 52.550236; //101.0; //300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
             desired_contact.position.y = -2563.3354; //1000.0 + 300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
             desired_contact.position.z = 90.99978;
             desired_contact.heading = dc.heading;
-            let step_duration = 20.0/120.0;
-            hybrid_a_star(&game_state.player, &desired_contact, step_duration)
+            let mut config = SearchConfig::default();
+            config.step_duration = 20.0/120.0;
+            hybrid_a_star(&game_state.player, &desired_contact, &config)
         } else {
             play(&game_state, &bot)
         };

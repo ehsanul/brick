@@ -33,12 +33,12 @@ fn find_prediction_category(current: &BallState) -> PredictionCategory {
 #[no_mangle]
 pub extern fn ball_trajectory(current: &BallState, duration: f32) -> Vec<BallState> {
     let mut t = 0.0;
-    let mut trajectory = Vec::with_capacity((duration / ::TICK).ceil() as usize);
+    let mut trajectory = Vec::with_capacity((duration / TICK).ceil() as usize);
     let mut ball_now = current.clone();
     while t < duration {
         trajectory.push(ball_now);
-        t += ::TICK;
-        ball_now = next_ball_state_dt(trajectory.last().unwrap(), ::TICK);
+        t += TICK;
+        ball_now = next_ball_state_dt(trajectory.last().unwrap(), TICK);
     }
     trajectory
 }

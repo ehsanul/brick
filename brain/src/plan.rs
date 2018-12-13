@@ -22,6 +22,7 @@ type MyHasher = BuildHasherDefault<FnvHasher>;
 
 lazy_static! {
     pub static ref GROUND_CONTROL_BRANCHES: Vec<BrickControllerState> = {
+        // boost
         let mut left_boost = BrickControllerState::new();
         left_boost.boost = true;
         left_boost.steer = Steer::Left;
@@ -33,6 +34,7 @@ lazy_static! {
         let mut straight_boost = BrickControllerState::new();
         straight_boost.boost = true;
 
+        // throttle
         let mut left_throttle = BrickControllerState::new();
         left_throttle.throttle = Throttle::Forward;
         left_throttle.steer = Steer::Left;
@@ -44,6 +46,27 @@ lazy_static! {
         let mut straight_throttle = BrickControllerState::new();
         straight_throttle.throttle = Throttle::Forward;
 
+        // drift + boost
+        let mut left_drift_boost = left_boost.clone();
+        left_drift_boost.handbrake = true;
+
+        let mut right_drift_boost = right_boost.clone();
+        right_drift_boost.handbrake = true;
+
+        let mut straight_drift_boost = straight_boost.clone();
+        straight_drift_boost.handbrake = true;
+
+        // drift + throttle
+        let mut left_drift_throttle = left_throttle.clone();
+        left_drift_throttle.handbrake = true;
+
+        let mut right_drift_throttle = right_throttle.clone();
+        right_drift_throttle.handbrake = true;
+
+        let mut straight_drift_throttle = straight_throttle.clone();
+        straight_drift_throttle.handbrake = true;
+
+        // idle
         let mut left_idle = BrickControllerState::new();
         left_idle.steer = Steer::Left;
 
@@ -52,16 +75,17 @@ lazy_static! {
 
         let mut straight_idle = BrickControllerState::new();
 
-        let mut left_brake = BrickControllerState::new();
-        left_brake.throttle = Throttle::Reverse;
-        left_brake.steer = Steer::Left;
+        // reverse
+        let mut left_reverse = BrickControllerState::new();
+        left_reverse.throttle = Throttle::Reverse;
+        left_reverse.steer = Steer::Left;
 
-        let mut right_brake = BrickControllerState::new();
-        right_brake.throttle = Throttle::Reverse;
-        right_brake.steer = Steer::Right;
+        let mut right_reverse = BrickControllerState::new();
+        right_reverse.throttle = Throttle::Reverse;
+        right_reverse.steer = Steer::Right;
 
-        let mut straight_brake = BrickControllerState::new();
-        straight_brake.throttle = Throttle::Reverse;
+        let mut straight_reverse = BrickControllerState::new();
+        straight_reverse.throttle = Throttle::Reverse;
 
         vec![
             //left_boost,
@@ -72,81 +96,34 @@ lazy_static! {
             right_throttle,
             straight_throttle,
 
+            //left_drift_throttle,
+            //right_drift_throttle,
+            //straight_drift_throttle,
+
+            //left_drift_boost,
+            //right_drift_boost,
+            //straight_drift_boost,
+
             //left_idle,
             //right_idle,
             //straight_idle,
 
-            //left_brake,
-            //right_brake,
-            //straight_brake,
+            //left_reverse,
+            //right_reverse,
+            //straight_reverse,
         ]
     };
 }
 
-const FINE_STEP: f32 = 4.0 / predict::FPS;
-const MEDIUM_STEP: f32 = 10.0 / predict::FPS;
-const COARSE_STEP: f32 = 20.0 / predict::FPS;
-const VERY_COARSE_STEP: f32 = 60.0 / predict::FPS;
-pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) -> f32 {
-    let speed = current.velocity.norm();
-    let delta = desired.position - current.position;
-    let distance = delta.norm();
-    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
-    let dot2 = na::dot(&current_heading, &Unit::new_normalize(desired.heading).unwrap());
-    println!("appropriate_step: {}, {}, {}", distance, dot, dot2);
-    if (distance < 400.0 && dot2 > 0.0) || (distance < 550.0 && dot2 > -0.3) {
-        // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
-        // don't go as far along any turning curves, and thus we end up in the same angle, just
-        // earlier
-        //let min_dot = 0.95;
-        let min_dot = 0.85; // FIXME probably wrong, gives us less way accuracy than we could actually achieve. but it's making the few tested cases work better for now
-
-        // check if the desired state within a cone around our heading, whose angle is determined by the speed
-        if dot > min_dot {
-            FINE_STEP
-        } else {
-            // we'll probably have to go the long way around as we aren't facing the right way for
-            // this, so use a coarse step
-            COARSE_STEP
-        }
-    } else if distance < 1000.0 && dot2 > -0.5 {
-
-        let min_dot = if speed < 400.0 {
-            // XXX in this measurement, it only managed to go 400uu total, so... we probably need
-            // to do something smarter here long-term
-            0.68
-        } else {
-            // fastest, so it's the tighest angle
-            0.75
-        };
-
-        // check if the desired state within a cone around our heading, whose angle is determined by the speed
-        if dot > min_dot { //&& dot2 > 0.0 {
-            MEDIUM_STEP
-        } else {
-            // we'll probably have to go the long way around as we aren't facing the right way for
-            // this, so use a coarse step
-            COARSE_STEP
-        }
-    } else if distance < 2000.0 && dot > 0.5 && dot2 > 0.0  {
-        COARSE_STEP
-    } else {
-        VERY_COARSE_STEP
-    }
-}
 
 /// given the current state and a desired state, return one frame of input that will take us to the
 /// desired state, if any is possible.
-// TODO maybe we should take the entire gamestate instead. we also need a history component
+// TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
 #[no_mangle]
 pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &DesiredContact) -> PlanResult {
-    let mut controller = BrickControllerState::new();
-
-    let step_duration = appropriate_step(&player, &desired_contact);
-
-    let mut plan_result = hybrid_a_star(player, &desired_contact, step_duration);
-    explode_plan(&mut plan_result, step_duration);
+    let mut config = SearchConfig::default();
+    let mut plan_result = hybrid_a_star(player, &desired_contact, &config);
+    explode_plan(&mut plan_result, config.step_duration);
     plan_result
 }
 
@@ -154,11 +131,10 @@ pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &Des
 fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
     // using the sample-based planning, we do get some inaccuracies when exploding at full 120 fps,
     // whereas 60fps seems to work fine and is sufficient for our path following
-    const exploded_step_duration: f32 = 2.0 * predict::TICK;
+    const exploded_step_duration: f32 = 2.0 * TICK;
 
     // we would get slightly off results with the method below if we don't have an exact multiple
     let ticks_per_step = (step_duration / exploded_step_duration).round() as usize;
-    assert!(120 % ticks_per_step == 0);
     assert!((exploded_step_duration * ticks_per_step as f32 - step_duration).abs() < 0.000001); // ensure exact multiple
 
     if let Some(ref mut plan) = plan_result.plan {
@@ -268,20 +244,6 @@ struct RoundedPlayerState {
     //roll: i16,
     //pitch: i16,
     yaw: i16,
-}
-
-
-// it's a lot more expensive to do the search with small step durations, so we impose a low max
-// cost in that case, which represents the amount of time we can simulate into the future. it is
-// expected that the caller specifies a low step duration only when the search space is supposed to
-// be quite small, and will fit in the below max cost
-fn max_cost(step_duration: f32) -> f32 {
-    match step_duration {
-        FINE_STEP => 0.6,
-        MEDIUM_STEP => 1.0,
-        COARSE_STEP | VERY_COARSE_STEP => 10.0,
-        _ => unimplemented!("max_cost step_duration") // we have only tuned for the values above, not allowing others for now
-    }
 }
 
 fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vector3<f32>>, slop: f32) -> Vec<Goal> {
@@ -394,7 +356,7 @@ fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
 type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
 
 #[no_mangle]
-pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
+pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, config: &SearchConfig) -> PlanResult {
     let mut visualization_lines = vec![];
     let mut visualization_points = vec![];
 
@@ -405,17 +367,9 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: ParentsMap = IndexMap::default();
 
-    let slop = match step_duration {
-        FINE_STEP => 5.0, // TODO tune
-        MEDIUM_STEP => 20.0, // TODO tune
-        COARSE_STEP => 30.0, // TODO tune
-        VERY_COARSE_STEP => 100.0, // TODO tune
-        _ => unimplemented!("slop"),
-    };
-
     let desired_contact = desired.position;
     let desired_hit_direction = Unit::new_normalize(desired.heading.clone());
-    let goals = setup_goals(&desired_contact, &desired_hit_direction, slop);
+    let goals = setup_goals(&desired_contact, &desired_hit_direction, config.slop);
 
     let coarse_box = BoundingBox::from_boxes(&(goals.iter().map(|g| g.bounding_box.clone())).collect());
     let coarse_goal = Goal {
@@ -440,11 +394,11 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         parent_is_secondary: false,
     };
 
-    parents.insert(round_player_state(&current, step_duration, current.velocity.norm()), (start, None));
+    parents.insert(round_player_state(&current, config.step_duration, current.velocity.norm()), (start, None));
 
 
     for goal in goals.iter() {
-        let hit_pos = goal.bounding_box.center() + (slop + CAR_DIMENSIONS.x/2.0)*goal.heading.as_ref();
+        let hit_pos = goal.bounding_box.center() + (config.slop + CAR_DIMENSIONS.x/2.0)*goal.heading.as_ref();
         visualization_lines.append(&mut goal.bounding_box.lines());
         for (l, ..) in goal.bounding_box.lines() {
             visualization_lines.push((
@@ -455,23 +409,19 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         }
     }
 
-    let max_cost = max_cost(step_duration);
     let mut num_iterations = 0;
-    let max_iterations = match step_duration {
-        VERY_COARSE_STEP => 4000,
-        _ => 10_000,
-    };
+
     while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
 
         // avoid an infinite graph search
-        if cost_so_far > max_cost {
+        if cost_so_far > config.max_cost {
             println!("short circuit, hit max cost!");
             break;
         }
 
         // HACK avoid very large searches completely
         num_iterations += 1;
-        if num_iterations > max_iterations {
+        if num_iterations > config.max_iterations {
             println!("short circuit, too many iterations!");
             break;
         }
@@ -503,7 +453,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
             }
 
             if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
-                println!("omg reached! step size: {} | expensions: {}", step_duration * 120.0, visualization_points.len());
+                println!("omg reached! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_points.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
                     desired: desired.clone(),
@@ -512,7 +462,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 };
             }
 
-            // We may have inserted a node several time into the binary heap if we found
+            // We may have inserted a node several times into the binary heap if we found
             // a better way to access it. Ensure that we are currently dealing with the
             // best path and discard the others.
             //
@@ -521,11 +471,11 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, step_duration, |_| true)
+            expand_vertex(index, is_secondary, &vertex, config.step_duration, |_| true)
         };
 
         for new_vertex in new_vertices {
-            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, new_vertex.player.velocity.norm());
+            let new_vertex_rounded = round_player_state(&new_vertex.player, config.step_duration, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
@@ -641,7 +591,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         }
     }
 
-    println!("omg failed! step size: {} | expensions: {}", step_duration * 120.0, visualization_points.len());
+    println!("omg failed! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_points.len());
     PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
 }
 
@@ -683,23 +633,6 @@ fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary
     }).collect::<Vec<_>>();
 
     path.into_iter().rev().collect()
-}
-
-fn grid_factor(step_duration: f32, speed: f32) -> f32 {
-    match step_duration {
-        FINE_STEP => {
-            if speed < 400.0 {
-                0.4
-            } else if speed < 1000.0 {
-                0.12 // TODO tune
-            } else {
-                0.08
-            }
-        }
-        MEDIUM_STEP => 1.0, // TODO tune
-        COARSE_STEP | VERY_COARSE_STEP => 1.0, // TODO tune
-        _ => unimplemented!("grid factor") // we have only tuned for the values above, not allowing others for now
-    }
 }
 
 /// not the opponent's goal. this is the goal for our a* search!
@@ -849,7 +782,7 @@ fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> R
     }
     let rounded_speed = rounded_speed * rounding_factor;
 
-    let mut grid_size = step_duration * rounded_speed * grid_factor(step_duration, speed);
+    let mut grid_size = step_duration * rounded_speed;
     let velocity_margin = 250.0; // TODO tune
     let (roll, pitch, yaw) = player.rotation.to_euler_angles();
 
@@ -973,6 +906,11 @@ mod tests {
     use super::*;
     use std::f32::consts::PI;
 
+    const FINE_STEP: f32 = 8.0 * TICK;
+    const MEDIUM_STEP: f32 = 16.0 * TICK;
+    const COARSE_STEP: f32 = 16.0 * TICK;
+    const VERY_COARSE_STEP: f32 = 16.0 * TICK;
+
     fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_rotation() -> UnitQuaternion<f32> { UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0) }
@@ -984,6 +922,13 @@ mod tests {
             angular_velocity: resting_velocity(),
             rotation: resting_rotation(),
             team: Team::Blue,
+        }
+    }
+
+    fn test_desired_contact() -> DesiredContact {
+        DesiredContact {
+            position: resting_position(),
+            heading: Vector3::new(0.0, 1.0, 0.0),
         }
     }
 
@@ -1075,14 +1020,12 @@ mod tests {
     fn just_drive_straight() {
         let mut count = 0;
         let mut failures = vec![];
-        for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-            let mut current = resting_player_state();
-            current.position.y = -1000.0;
-            let desired = resting_player_state();
-            let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-            //assert!(plan.is_some());
-            if plan.is_some(){ count += 1 } else { failures.push(step_duration) }
-        }
+        let mut current = resting_player_state();
+        current.position.y = -1000.0;
+        let desired = test_desired_contact();
+        let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, 0.5);
+        //assert!(plan.is_some());
+        if plan.is_some(){ count += 1 } else { failures.push(true) }
         println!("WORKED {} TIMES", count);
         println!("FAILED {} TIMES", failures.len());
         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
@@ -1095,75 +1038,10 @@ mod tests {
         let mut count = 0;
         let mut failures = vec![];
         for distance in -500..0 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
+            for &step_duration in [0.5].iter() {
                 let mut current = resting_player_state();
                 current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
-
-    #[test]
-    fn just_drive_straight_fuzz2() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -1000..-500 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
-
-    #[test]
-    fn just_drive_straight_fuzz3() {
-        let mut count = 0;
-        let mut failures = vec![];
-        //for distance in -2000..-1000 {
-        for distance in -2000..-1900 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-            //for &step_duration in [COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
-
-    #[test]
-    fn just_drive_straight_fuzz4() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -4000..-2000 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
+                let desired = test_desired_contact();
                 let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
                 //assert!(plan.is_some());
                 if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
@@ -1177,15 +1055,80 @@ mod tests {
     }
 
     // #[test]
-    // fn unreachable() {
+    // fn just_drive_straight_fuzz2() {
     //     let mut count = 0;
-    //     let distance = -10_000;
-    //     for &step_duration in [FINE_STEP, MEDIUM_STEP, COARSE_STEP, VERY_COARSE_STEP].iter() {
-    //         let mut current = resting_player_state();
-    //         current.position.y = distance as f32;
-    //         let desired = resting_player_state();
-    //         let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-    //         assert!(plan.is_none());
+    //     let mut failures = vec![];
+    //     for distance in -1000..-500 {
+    //         for &step_duration in [0.5].iter() {
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = test_desired_contact();
+    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(plan.is_some());
+    //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+    //         }
     //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.len() == 0);
     // }
+
+    // #[test]
+    // fn just_drive_straight_fuzz3() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     //for distance in -2000..-1000 {
+    //     for distance in -2000..-1900 {
+    //         for &step_duration in [0.5].iter() {
+    //         //for &step_duration in [COARSE_STEP].iter() {
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = test_desired_contact();
+    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(plan.is_some());
+    //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.len() == 0);
+    // }
+
+    // #[test]
+    // fn just_drive_straight_fuzz4() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     for distance in -4000..-2000 {
+    //         for &step_duration in [0.5].iter() {
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = test_desired_contact();
+    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //             //assert!(plan.is_some());
+    //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.len() == 0);
+    // }
+
+    #[test]
+    fn unreachable() {
+        let mut count = 0;
+        let distance = -10_000;
+        for &step_duration in [FINE_STEP, MEDIUM_STEP, COARSE_STEP, VERY_COARSE_STEP].iter() {
+            let mut current = resting_player_state();
+            current.position.y = distance as f32;
+            let desired = test_desired_contact();
+            let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+            assert!(plan.is_none());
+        }
+    }
 }

@@ -2,12 +2,17 @@ extern crate brain;
 extern crate state;
 extern crate nalgebra as na;
 
-use na::{ Unit, Vector3, UnitQuaternion };
-use state::{ PlayerState, PlanResult };
+use na::{ Unit, Vector3, UnitQuaternion, Rotation3 };
+use state::{ PlayerState, PlanResult, DesiredContact };
 use brain::plan::hybrid_a_star;
 use std::f32::consts::PI;
 
 fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
+    // need to re-do the accuracy calculation since we now need to check how accurate our contact
+    // with the ball is instead
+    assert!(false);
+    return;
+
     let mut total_position_error_squared = 0.0;
     let mut min_position_error = std::f32::MAX;
     let mut max_position_error = 0.0;
@@ -27,21 +32,21 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
     for i in 0..num {
         let mut player = PlayerState::default();
 
-        let mut desired_player = PlayerState::default();
-        desired_player.position.x = x * (17.0 * i as f32).sin();
-        desired_player.position.y = y + (y / 4.0) * (11.0 * i as f32).sin();
+        let mut desired = DesiredContact::default();
+        desired.position.x = x * (17.0 * i as f32).sin();
+        desired.position.y = y + (y / 4.0) * (11.0 * i as f32).sin();
 
-        let desired_yaw = if desired_player.position.norm() > 200.0 {
+        let desired_yaw = if desired.position.norm() > 200.0 {
             yaw + (13.0 * i as f32).sin() * PI/4.0
         } else {
             // when close, some angles are not really reachable
             yaw
         };
-        desired_player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, desired_yaw);
+        desired.heading = Rotation3::from_euler_angles(0.0, 0.0, desired_yaw) * desired.heading;
 
-        let PlanResult { plan, visualization_lines, visualization_points, .. } = hybrid_a_star(&player, &desired_player, step);
+        let PlanResult { plan, visualization_lines, visualization_points, .. } = hybrid_a_star(&player, &desired, step);
         if plan.is_none() {
-            println!("FAILED | pos: {:?} | yaw: {}", desired_player.position, desired_yaw);
+            println!("FAILED | pos: {:?} | yaw: {}", desired.position, desired_yaw);
         }
         assert!(plan.is_some());
 
@@ -58,31 +63,33 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
             if expansions < min_expansions { min_expansions = expansions }
 
             if expansions > 100000 {
-                println!("SLOW | pos: {:?} | yaw: {}", desired_player.position, desired_yaw);
+                println!("SLOW | pos: {:?} | yaw: {}", desired.position, desired_yaw);
             }
             assert!(expansions < 100000);
 
             let last = plan[plan_len - 1];
             let last2 = plan[plan_len - 2];
-            //let position_error = (last.0.position - desired_player.position).norm();
+
             // https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line#Vector_formulation
-            let a = last2.0.position;
-            let n = Unit::new_normalize(last.0.position - last2.0.position).unwrap();
-            let p = desired_player.position;
+            //
             // FIXME THIS IS WRONG NOW! we have an array of goals now, so we'd have to find which
             // one we did best on. we don't provided desired player position anymore, instead it's
             // desired contact & heading!
-            let position_error = ((a - p) - na::dot(&(a - p), &n) * n).norm();
-            total_position_error_squared += position_error * position_error;
-            if position_error > max_position_error { max_position_error = position_error }
-            if position_error < min_position_error { min_position_error = position_error }
-
-            let desired_heading = desired_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-            let heading = last2.0.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-            let rotation_error = 1.0 - na::dot(&heading, &desired_heading);
-            total_rotation_error_squared += rotation_error * rotation_error;
-            if rotation_error > max_rotation_error { max_rotation_error = rotation_error }
-            if rotation_error < min_rotation_error { min_rotation_error = rotation_error }
+            //
+            //let a = last2.0.position;
+            //let n = Unit::new_normalize(last.0.position - last2.0.position).unwrap();
+            //let p = desired.position;
+            //let position_error = ((a - p) - na::dot(&(a - p), &n) * n).norm();
+            //total_position_error_squared += position_error * position_error;
+            //if position_error > max_position_error { max_position_error = position_error }
+            //if position_error < min_position_error { min_position_error = position_error }
+            //
+            //let desired_heading = desired_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            //let heading = last2.0.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            //let rotation_error = 1.0 - na::dot(&heading, &desired_heading);
+            //total_rotation_error_squared += rotation_error * rotation_error;
+            //if rotation_error > max_rotation_error { max_rotation_error = rotation_error }
+            //if rotation_error < min_rotation_error { min_rotation_error = rotation_error }
         }
     }
     println!("");

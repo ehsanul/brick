@@ -8,6 +8,9 @@ use na::{Vector3, Quaternion, UnitQuaternion, Point3};
 use std::f32::consts::PI;
 use std::collections::VecDeque;
 
+pub const FPS: f32 = 120.0;
+pub const TICK: f32 = 1.0 / FPS; // matches RL's internal fixed physics tick rate
+
 // XXX must confirm. this might include height of the ball in free play when it first starts
 // floating above the ground, which would be no good. 91.25 has been seen in RLBounce
 pub static BALL_RADIUS: f32 = 93.143;
@@ -155,9 +158,27 @@ impl Default for PlanResult {
     fn default() -> PlanResult {
         PlanResult {
             plan: None,
-            desired: DesiredContact::new(),
+            desired: DesiredContact::default(),
             visualization_lines: vec![],
             visualization_points: vec![],
+        }
+    }
+}
+
+pub struct SearchConfig {
+    pub step_duration: f32,
+    pub slop: f32,
+    pub max_cost: f32,
+    pub max_iterations: i32,
+}
+
+impl Default for SearchConfig {
+    fn default() -> SearchConfig {
+        SearchConfig {
+            step_duration: 8.0 * TICK,
+            slop: 10.0,
+            max_cost: 10.0,
+            max_iterations: 50_000,
         }
     }
 }
@@ -175,8 +196,9 @@ pub struct DesiredContact {
     pub position: Vector3<f32>,
     pub heading: Vector3<f32>,
 }
-impl DesiredContact {
-    pub fn new() -> DesiredContact {
+
+impl Default for DesiredContact {
+    fn default() -> DesiredContact {
         DesiredContact {
             position: Vector3::new(0.0, 0.0, 0.0),
             heading: Vector3::new(0.0, 1.0, 0.0),
