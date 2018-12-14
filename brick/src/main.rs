@@ -80,7 +80,7 @@ lazy_static! {
 
     static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
         Mutex::new(
-            DynamicReload::new(Some(vec!["brain/target/release"]),
+            DynamicReload::new(Some(vec!["target/release"]),
                                Some("target/release"),
                                Search::Default)
         )
@@ -88,7 +88,7 @@ lazy_static! {
 
     static ref RELOAD_HANDLER2: Mutex<DynamicReload<'static>> = {
         Mutex::new(
-            DynamicReload::new(Some(vec!["brain/target/release"]),
+            DynamicReload::new(Some(vec!["target/release"]),
                                Some("target/release"),
                                Search::Default)
         )

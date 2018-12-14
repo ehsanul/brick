@@ -1,0 +1,19 @@
+[package]
+name = "brick"
+version = "0.1.0"
+authors = ["Ehsanul"]
+
+[dependencies]
+docopt = "1"
+kiss3d = "0.13"
+nalgebra = "0.14"
+lazy_static = "1.0"
+dynamic_reload = "0.3.*"
+crossbeam = "0.4"
+rlbot = "0.1.0"
+
+[dependencies.state]
+path = "../state"
+
+[dependencies.passthrough]
+path = "../passthrough"
