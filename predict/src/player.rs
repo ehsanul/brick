@@ -3,18 +3,6 @@ use state::*;
 use sample;
 use std::f32;
 
-pub const NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
-pub const THROTTLE_ACCELERATION_FACTOR: f32 = 1575.0;
-pub const BOOST_ACCELERATION_FACTOR: f32 = 1000.0; // FIXME get actula value from graph
-pub const MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
-pub const MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph
-pub const MAX_ANGULAR_SPEED: f32 = 5.5; // FIXME get exact value from game
-pub const MAX_GROUND_ANGULAR_SPEED: f32 = 4.85; // NOTE this is based on the turning sample collection, though we might be able to redo a few samples to move this up
-
-// batmobile
-pub const RESTING_Z: f32 = 18.65;
-pub const RESTING_Z_VELOCITY: f32 = 8.0;
-
 pub enum PredictionCategory {
     /// Wheels on ground
     Ground,

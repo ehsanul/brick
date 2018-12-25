@@ -5,7 +5,6 @@ use rlbot;
 use na::{ self, Unit, Vector3, Rotation3, UnitQuaternion };
 use std::f32::consts::PI;
 use std;
-use predict::arena::{ BACK_WALL_DISTANCE, GOAL_Z };
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
 

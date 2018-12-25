@@ -1,5 +1,4 @@
 use state::*;
-use player::{ MAX_GROUND_ANGULAR_SPEED, MAX_BOOST_SPEED };
 use std::fs;
 use na::{Vector3, UnitQuaternion};
 use std::collections::HashMap;

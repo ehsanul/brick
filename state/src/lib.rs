@@ -4,12 +4,34 @@ extern crate rlbot;
 #[macro_use]
 extern crate lazy_static;
 
+#[macro_use]
+extern crate serde_derive;
+extern crate bincode;
+
 use na::{Vector3, Quaternion, UnitQuaternion, Point3};
 use std::f32::consts::PI;
 use std::collections::VecDeque;
 
+// general constants
 pub const FPS: f32 = 120.0;
 pub const TICK: f32 = 1.0 / FPS; // matches RL's internal fixed physics tick rate
+
+// arena constants
+pub const SIDE_WALL_DISTANCE: f32 = 4096.0;
+pub const BACK_WALL_DISTANCE: f32 = 5140.0;
+pub const CEILING_DISTANCE: f32 = 2044.0;
+pub const GOAL_X: f32 = 892.75;
+pub const GOAL_Z: f32 = 640.0;
+
+
+// car constants
+pub const MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph, rename to MAX_SPEED
+pub const MAX_ANGULAR_SPEED: f32 = 5.5;
+pub const MAX_GROUND_ANGULAR_SPEED: f32 = 4.85; // NOTE this is based on the turning sample collection, though we might be able to redo a few samples to move this up
+
+// batmobile
+pub const RESTING_Z: f32 = 18.65;
+pub const RESTING_Z_VELOCITY: f32 = 8.0;
 
 // XXX must confirm. this might include height of the ball in free play when it first starts
 // floating above the ground, which would be no good. 91.25 has been seen in RLBounce
@@ -35,14 +57,14 @@ pub struct GameState {
 }
 
 // FIXME check if this order matches up with team integers we get from rlbot interface
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Debug)]
 pub enum Team {
     Blue,
     Orange,
 }
 
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub struct PlayerState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
@@ -82,7 +104,7 @@ impl Default for BallState {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Debug)]
 pub enum Steer {
     Right,
     Left,
@@ -100,7 +122,7 @@ impl Steer {
 }
 
 
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Debug)]
 pub enum Throttle {
     Forward,
     Reverse,
@@ -118,7 +140,7 @@ impl Throttle {
 }
 
 // XXX this was copied from the grpc generated game_data.rs file, from the ControllerState struct
-#[derive(Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct BrickControllerState {
     pub throttle: Throttle,
     pub steer: Steer,
@@ -146,6 +168,9 @@ impl BrickControllerState {
 }
 
 pub type Plan = Vec<(PlayerState, BrickControllerState)>;
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializablePlan(Plan);
 
 pub struct PlanResult {
     pub plan: Option<Plan>,
