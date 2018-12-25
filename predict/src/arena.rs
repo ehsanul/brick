@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::sync::Arc;
 use obj::*;
-use ncollide::shape::TriMesh3;
+use ncollide::shape::TriMesh;
 use na::Point3;
 
 pub static SIDE_WALL_DISTANCE: f32 = 4096.0;
@@ -12,7 +12,7 @@ pub static GOAL_X: f32 = 892.75;
 pub static GOAL_Z: f32 = 640.0;
 
 lazy_static! {
-    pub static ref ARENA: TriMesh3<f32> = {
+    pub static ref ARENA: TriMesh<f32> = {
         let file = File::open("./assets/arena.obj").expect("Couldn't open arena.obj file");
         let input = BufReader::new(file);
         let arena: Obj = load_obj(input).expect("failed to parse arena.obj file in predict");
@@ -25,11 +25,10 @@ lazy_static! {
             Point3::new(indices[0] as usize, indices[1] as usize, indices[2] as usize)
         ).collect();
 
-        TriMesh3::new(
-            Arc::new(vertices), // Arc<Vec<P>>,
-            Arc::new(indices), // Arc<Vec<Point<usize, U3>>>,
-            None, // uvs: Option<Arc<Vec<Point<<P as EuclideanSpace>::Real, U2>>>>,
-            None, // normals: Option<Arc<Vec<<P as Point>::Vector>>>
+        TriMesh::new(
+            vertices, // Vec<P>,
+            indices, // Vec<Point<usize, U3>>,
+            None, // uvs: Option<Vec<Point2<N>>>,
         )
     };
 }

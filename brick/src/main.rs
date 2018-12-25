@@ -1,16 +1,3 @@
-// NOTE using system allocator so that we can interface with a dylib and share heap-allocated
-// structures *for live reloading purposes ONLY*
-// FIXME remove for final build.
-#![cfg_attr(rustc_nightly, feature(test))]
-#![feature(alloc_system)]
-#![feature(allocator_api)]
-extern crate alloc_system;
-use alloc_system::System;
-#[global_allocator]
-static A: System = System;
-// FIXME remove above for final build.
-
-
 const USAGE: &'static str = "
 Brick
 

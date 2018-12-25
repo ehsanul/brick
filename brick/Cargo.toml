@@ -5,8 +5,8 @@ authors = ["Ehsanul"]
 
 [dependencies]
 docopt = "1"
-kiss3d = "0.13"
-nalgebra = "0.14"
+nalgebra = "*"
+kiss3d = "0.17"
 lazy_static = "1.0"
 dynamic_reload = "0.3.*"
 crossbeam = "0.4"

@@ -546,15 +546,19 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                             if new_cost_is_lower {
                                 insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                             } else {
-                                visualization_points.push((
-                                    Point3::new(line_end.x, line_end.y, line_end.z),
-                                    Point3::new(0.4, 0.0, 0.0),
-                                ));
-                                //visualization_lines.push((
-                                //    Point3::new(line_start.x, line_start.y, line_start.z),
+                                //visualization_points.push((
                                 //    Point3::new(line_end.x, line_end.y, line_end.z),
                                 //    Point3::new(0.4, 0.0, 0.0),
                                 //));
+                                visualization_lines.push((
+                                    Point3::new(line_start.x, line_start.y, line_start.z),
+                                    Point3::new(
+                                        0.1 * (line_end.x - line_start.x) + line_start.x,
+                                        0.1 * (line_end.y - line_start.y) + line_start.y,
+                                        0.1 * (line_end.z - line_start.z) + line_start.z,
+                                    ),
+                                    Point3::new(0.4, 0.0, 0.0),
+                                ));
                                 continue;
                             }
                         }
@@ -566,15 +570,19 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                 }
             }
 
-            visualization_points.push((
-                Point3::new(line_end.x, line_end.y, line_end.z),
-                Point3::new(0.6, 0.6, 0.6),
-            ));
-            //visualization_lines.push((
-            //    Point3::new(line_start.x, line_start.y, line_start.z),
+            //visualization_points.push((
             //    Point3::new(line_end.x, line_end.y, line_end.z),
             //    Point3::new(0.6, 0.6, 0.6),
             //));
+            visualization_lines.push((
+                Point3::new(line_start.x, line_start.y, line_start.z),
+                Point3::new(
+                    0.1 * (line_end.x - line_start.x) + line_start.x,
+                    0.1 * (line_end.y - line_start.y) + line_start.y,
+                    0.1 * (line_end.z - line_start.z) + line_start.z,
+                ),
+                Point3::new(0.6, 0.6, 0.6),
+            ));
 
             // rustc is forcing us to initialize this every time because it doesn't understand data
             // flow, so let's manually make sure we aren't in the initial state which is never right

@@ -1,5 +1,5 @@
 extern crate nalgebra as na;
-extern crate ncollide;
+extern crate ncollide3d as ncollide;
 extern crate fnv;
 extern crate obj;
 extern crate csv;

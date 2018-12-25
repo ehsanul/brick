@@ -4,6 +4,9 @@ version = "0.1.0"
 authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
-nalgebra = "0.14"
 lazy_static = "1.0"
 rlbot = "0.1.0"
+
+[dependencies.nalgebra]
+version = "0.16.12"
+features = ["serde-serialize"]
