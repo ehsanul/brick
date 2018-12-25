@@ -1,0 +1,12 @@
+[package]
+name = "generate-data"
+version = "0.1.0"
+authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
+
+[dependencies]
+
+[dependencies.state]
+path = "../state"
+
+[dependencies.brain]
+path = "../brain"
