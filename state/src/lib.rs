@@ -170,7 +170,7 @@ impl BrickControllerState {
 pub type Plan = Vec<(PlayerState, BrickControllerState)>;
 
 #[derive(Serialize, Deserialize)]
-pub struct SerializablePlan(Plan);
+pub struct SerializablePlan(pub Plan);
 
 pub struct PlanResult {
     pub plan: Option<Plan>,

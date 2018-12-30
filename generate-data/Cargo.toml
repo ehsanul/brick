@@ -5,6 +5,8 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 nalgebra = "*"
+bincode = "*"
+flate2 = "1.0"
 
 [dependencies.state]
 path = "../state"
