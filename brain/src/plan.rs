@@ -115,74 +115,53 @@ lazy_static! {
     };
 }
 
+const EXPLODED_STEP_DURATION: f32 = 2.0 * TICK;
 
 /// given the current state and a desired state, return one frame of input that will take us to the
 /// desired state, if any is possible.
 // TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
 #[no_mangle]
-pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &DesiredContact) -> PlanResult {
+pub extern fn plan(player: &PlayerState, desired_contact: &DesiredContact, last_plan: Option<&Plan>) -> PlanResult {
     let mut config = SearchConfig::default();
+    if let Some(last_plan) = last_plan {
+        config.max_cost = (10.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
+    }
+
     let mut plan_result = hybrid_a_star(player, &desired_contact, &config);
-    explode_plan(&mut plan_result, config.step_duration);
+    explode_plan(&mut plan_result);
     plan_result
 }
 
-/// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
-fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
-    // using the sample-based planning, we do get some inaccuracies when exploding at full 120 fps,
-    // whereas 60fps seems to work fine and is sufficient for our path following
-    const exploded_step_duration: f32 = 2.0 * TICK;
-
-    // we would get slightly off results with the method below if we don't have an exact multiple
-    let ticks_per_step = (step_duration / exploded_step_duration).round() as usize;
-    assert!((exploded_step_duration * ticks_per_step as f32 - step_duration).abs() < 0.000001); // ensure exact multiple
+/// modifies the plan to use finer-grained steps
+fn explode_plan(plan_result: &mut PlanResult) {
 
     if let Some(ref mut plan) = plan_result.plan {
         if plan.get(0).is_none() { return }
-        let exploded_length = 1 + (plan.len() - 1) * ticks_per_step; // first item in plan is current position
-        let mut exploded_plan = Vec::with_capacity(exploded_length);
+        let mut exploded_plan = Vec::with_capacity(plan.len()); // will be at least this long
         exploded_plan.push(plan[0]);
 
-        let mut last_index = 0;
-        let mut last_player = plan[0].0;
-        let mut last_controller = plan[0].1;
-        for i in 1..exploded_length {
-            let t = (i - 1) as f32 * exploded_step_duration;
+        for i in 1..plan.len() {
+            assert!((plan[i].2 % EXPLODED_STEP_DURATION).abs() < 0.000001); // ensure multiple, ignoring fp inaccuracies
+            let exploded_length = (plan[i].2 / EXPLODED_STEP_DURATION).round() as i32;
+            let last_player = plan[i - 1].0;
+            let controller = plan[i].1;
 
-            // index of the controller value we want to apply
-            // again, first item is current position, we need controller on next item
-            let original_index = 1 + (t / step_duration) as usize;
-            if original_index > last_index {
-                last_index = original_index;
-
-                // player is from iteration before. by setting it here, we are re-calibrating
-                // to the coarse path. this could help in case there is somehow a divergence in
-                // how we calculate at finer time steps (which wouldn't be good at all, but
-                // might happen regardless).
-                last_player = plan[original_index - 1].0;
+            for j in 1..=exploded_length {
+                let next_player = predict::player::next_player_state(&last_player, &controller, j as f32 * EXPLODED_STEP_DURATION);
+                exploded_plan.push((next_player, controller, EXPLODED_STEP_DURATION));
             }
-            let controller = plan[original_index].1;
-            //println!("last_player: {:?}", last_player);
-            //println!("controller.throttle: {:?}", controller.throttle);
-            //println!("controller.steer: {:?}", controller.steer);
-            let next_player = predict::player::next_player_state(&last_player, &controller, exploded_step_duration);
-            //println!("next_player: {:?}", next_player);
-            exploded_plan.push((next_player, controller));
-            last_player = next_player;
-
-            last_controller = controller;
         }
 
-
         //println!("===================================");
-        //println!("original: {:?}", plan.iter().map(|(p, c)| {
-        //    (p.velocity.x, p.velocity.y, p.position.x, p.position.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer)
+        //println!("original: {:?}", plan.iter().map(|(p, c, s)| {
+        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer, s)
         //}).collect::<Vec<_>>());
         //println!("-----------------------------------");
-        //println!("exploded: {:?}", exploded_plan.iter().map(|(p, c)| {
-        //    (p.velocity.x, p.velocity.y, p.position.x, p.position.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer)
+        //println!("exploded: {:?}", exploded_plan.iter().map(|(p, c, s)| {
+        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer, s)
         //}).collect::<Vec<_>>());
         //println!("===================================");
+
         plan.clear();
         plan.append(&mut exploded_plan);
     }
@@ -194,6 +173,7 @@ struct PlayerVertex {
     player: PlayerState,
     /// the controller state in previous step that lead to this player vertex
     prev_controller: BrickControllerState,
+    step_duration: f32,
     parent_index: usize,
     parent_is_secondary: bool,
 }
@@ -380,7 +360,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
     let goal_center = coarse_goal.bounding_box.center();
 
     to_see.push(SmallestCostHolder {
-        estimated_cost: heuristic_cost(&current, &goal_center),
+        estimated_cost: heuristic_cost(&current, &goal_center, &desired.heading),
         cost_so_far: 0.0,
         index: 0,
         is_secondary: false,
@@ -390,6 +370,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
         player: current.clone(),
         cost_so_far: 0.0,
         prev_controller: BrickControllerState::new(),
+        step_duration: 0.0,
         parent_index: usize::MAX,
         parent_is_secondary: false,
     };
@@ -426,6 +407,14 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
             break;
         }
 
+        let dur = if estimated_cost - cost_so_far > 2.0 {
+            // if we're really far... yeah just make it super coarse to make it tractable, and the
+            // search config has no control over this for now
+            32.0 * TICK
+        } else {
+            config.step_duration
+        };
+
         let line_start;
         let new_vertices = {
             let (_, (v1, maybe_v2)) = parents.get_index(index).expect("missing index in parents, shouldn't be possible");
@@ -453,7 +442,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
             }
 
             if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
-                println!("omg reached! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_points.len());
+                println!("omg reached! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_lines.len());
                 return PlanResult {
                     plan: Some(reverse_path(&parents, index, is_secondary)),
                     desired: desired.clone(),
@@ -471,11 +460,11 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, config.step_duration, |_| true)
+            expand_vertex(index, is_secondary, &vertex, dur, |_| true)
         };
 
         for new_vertex in new_vertices {
-            let new_vertex_rounded = round_player_state(&new_vertex.player, config.step_duration, new_vertex.player.velocity.norm());
+            let new_vertex_rounded = round_player_state(&new_vertex.player, dur, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
@@ -485,7 +474,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
             match parents.entry(new_vertex_rounded) {
                 Vacant(e) => {
                     new_index = e.index();
-                    new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
+                    new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
                     e.insert((new_vertex, None));
 
                 }
@@ -496,13 +485,13 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                     match e.get() {
                         (existing_vertex, None) => {
                             // basically just like the vacant case
-                            new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
+                            new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
                             insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                         },
                         (existing_vertex, Some(existing_secondary_vertex)) => {
                             let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
+                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
                             } else if e.index() == new_vertex.parent_index || new_vertex.parent_index == existing_secondary_vertex.parent_index {
                                 // same cell expansion. due to the consistent nature of the heuristic, a new
                                 // vertex that is closer to the goal will have a higher cost-so-far than its
@@ -535,8 +524,8 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                                 // same cost so far. we don't want a tie-breaker like Karl's
                                 // version had since we are not comparing against a parent
                                 // directly, but a sibling!
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center);
-                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + heuristic_cost(&existing_secondary_vertex.player, &goal_center);
+                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
+                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + heuristic_cost(&existing_secondary_vertex.player, &goal_center, &desired.heading);
 
                                 if new_estimated_cost < existing_secondary_estimated_cost {
                                     new_cost_is_lower = true;
@@ -599,7 +588,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
         }
     }
 
-    println!("omg failed! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_points.len());
+    println!("omg failed! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_lines.len());
     PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
 }
 
@@ -628,7 +617,7 @@ fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate:
     })
 }
 
-fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
+fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool) -> Plan {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
         let is_secondary = (*vals).1;
@@ -636,7 +625,7 @@ fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary
             let vertex = if is_secondary { maybe_v2.as_ref().unwrap() }  else { v1 };
             (*vals).0 = vertex.parent_index;
             (*vals).1 = vertex.parent_is_secondary;
-            (vertex.player, vertex.prev_controller)
+            (vertex.player, vertex.prev_controller, vertex.step_duration)
         })
     }).collect::<Vec<_>>();
 
@@ -843,6 +832,7 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
             player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
             cost_so_far: vertex.cost_so_far + step_duration,
             prev_controller: controller,
+            step_duration: step_duration,
             parent_index: index,
             parent_is_secondary: is_secondary,
         }
@@ -856,7 +846,7 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
     }).collect::<Vec<PlayerVertex>>()
 }
 
-fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>) -> f32 {
+fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>, desired_heading: &Vector3<f32>) -> f32 {
     // basic heuristic cost is a lower-bound for how long it would take, given max boost, to reach
     // the desired position and velocity. and we need to do rotation too.
     //
@@ -868,6 +858,28 @@ fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>) -> f32 {
     let distance = towards_goal.norm();
     //let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
     let movement_time_cost = distance / 1200.0; // FIXME should use predict::player::MAX_BOOST_SPEED, but it checks too many paths. we just get a slightly less optimal path, but get it a lot faster
+
+
+    // basic penalty for being on the wrong side of the ball which will require a big turn. this
+    // allows us to forgo searching right near the ball on the wrong side when it'll never work
+    // out.
+    let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let car_to_desired = Unit::new_normalize(goal_center - candidate.position).unwrap();
+    let mut penalty_time_cost = if distance < 800.0 && na::dot(desired_heading, &car_to_desired) < -0.70 {
+        0.5
+    } else if distance < 1500.0 && na::dot(desired_heading, &car_to_desired) < -0.88 {
+        0.5
+    } else if distance < 2000.0 && na::dot(desired_heading, &car_to_desired) < -0.95 {
+        0.5
+    } else {
+        0.0
+    };
+    // we have a tighter radius when slow, the numbers above are tuned for going fast
+    if candidate.velocity.norm() < 800.0 {
+        penalty_time_cost *= 0.2;
+    }
+    // if passing sideways, the penalty should be way lower since we're moving out of the deadzone
+    penalty_time_cost *= na::dot(&current_heading, &car_to_desired).abs();
 
     // NOTE this is weird since we are not taking into account that some of the time cost here may
     // overlap with the distance cost. what we really want to do is find the boost vector that
@@ -906,7 +918,7 @@ fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>) -> f32 {
     //    }
     // FIXME acceleration_time_cost causing problems, removing temporarily. bring it back when
     // round player state includes velocity again.
-    movement_time_cost //+ rotation_cost
+    movement_time_cost + penalty_time_cost //+ rotation_cost
 }
 
 #[cfg(test)]

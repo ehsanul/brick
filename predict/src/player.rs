@@ -33,6 +33,7 @@ fn next_player_state_grounded(current: &PlayerState, controller: &BrickControlle
     let (translation, velocity, angular_velocity, rotation) = ground_turn_prediction(&current, &controller, time_step);
 
     next.position = current.position + translation;
+    next.position.z = RESTING_Z; // avoid drifting upward/downward when we're just driving on the ground!
     next.velocity = velocity;
     next.angular_velocity = angular_velocity;
     next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
@@ -143,7 +144,7 @@ mod tests {
     use super::*;
     use std::f32::consts::PI;
 
-    fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, CAR_DIMENSIONS.z / 2.0) }
+    fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, RESTING_Z) }
     fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_angular_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
     fn resting_rotation() -> UnitQuaternion<f32> { UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0) }

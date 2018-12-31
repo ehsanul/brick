@@ -43,10 +43,18 @@ lazy_static! {
     pub static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Action {
+    Shoot,
+    //Shadow,
+    //GoToMid, // XXX not a real action, just a test
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
     pub turn_errors: VecDeque<f32>,
+    pub last_action: Option<Action>,
 }
 
 #[derive(Debug, Default, Clone)]
@@ -96,7 +104,7 @@ pub struct BallState {
 impl Default for BallState {
     fn default() -> BallState {
         BallState {
-            position: Vector3::new(0.0, 0.0, 0.0),
+            position: Vector3::new(0.0, 0.0, BALL_RADIUS), // on ground, center of field
             velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             //rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),
@@ -167,7 +175,7 @@ impl BrickControllerState {
     }
 }
 
-pub type Plan = Vec<(PlayerState, BrickControllerState)>;
+pub type Plan = Vec<(PlayerState, BrickControllerState, f32)>;
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializablePlan(pub Plan);
@@ -225,7 +233,7 @@ pub struct DesiredContact {
 impl Default for DesiredContact {
     fn default() -> DesiredContact {
         DesiredContact {
-            position: Vector3::new(0.0, 0.0, 0.0),
+            position: Vector3::new(0.0, 0.0, RESTING_Z),
             heading: Vector3::new(0.0, 1.0, 0.0),
         }
     }

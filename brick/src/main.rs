@@ -237,7 +237,7 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
             bot = b;
         }
 
-        let plan_result = get_plan_result(&game, &bot);
+        let plan_result = get_plan_result(&game, &mut bot);
         sender.send(plan_result).expect("Failed to send plan result");
     }
 }
@@ -368,30 +368,24 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
     }
 }
 
-fn run_test() {
+fn run_plan_test() {
     use std::f32::consts::PI;
 
     let mut game_state = GameState::default();
-    //packet.GameCars[0].Physics.Rotation.Yaw = PI/2.0; // XXX opposite of the yaw in our models
-    //packet.GameCars[0].Physics.Location.X = 25.0; //0.0;
-    //packet.GameCars[0].Physics.Location.Y = -5567.9844; //0.0;
-    //packet.GameCars[0].Physics.Location.Z = 27.106;
-    //packet.GameCars[0].Physics.Velocity.Y = 382.1;
-    //packet.GameCars[0].Physics.Velocity.Z = -6.956;
+    //game_state.player.position = Vector3::new(0.0, 6000.0, 18.65);
+    game_state.player.position = Vector3::new(719.09186, 5669.79, 18.65);
+    game_state.player.velocity = Vector3::new(29.347866, -1181.5464, -9.909872);
+    game_state.player.angular_velocity = Vector3::new(0.00061, 0.0, -0.00010999999);
+    game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0032992344, -0.014070856, 1.5951577);
 
-    //packet.GameBall.Physics.Location.X = -50.0;
-    //packet.GameBall.Physics.Location.Y = -2656.1914; //0.0;
-    //packet.GameBall.Physics.Location.Z = 92.0; //0.0;
-    //packet.GameBall.Physics.Velocity.Y = 1418.8107;
-
+    let mut bot = BotState::default();
     loop {
-        //use std::time::{SystemTime, UNIX_EPOCH};
-        //let start = SystemTime::now();
-        //packet.GameCars[0].Physics.Rotation.Yaw = PI * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 100000000.0).sin();
-        //packet.GameCars[0].Physics.Location.Y = 4000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 110000000.0).sin();
-        //packet.GameCars[0].Physics.Location.X = 3000.0 * (start.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 70000000.0).sin();
         let player_index = 0;
-        let input = get_test_bot_input(&game_state, player_index);
+        //let input = get_test_bot_input(&game_state, player_index);
+        let plan_result = get_plan_result(&game_state, &mut bot);
+        update_bot_state(&game_state, &mut bot, &plan_result);
+        update_visualization(&bot, &plan_result);
+
         //thread::sleep_ms(1000 / 120); // TODO measure time taken by bot and do diff
         thread::sleep_ms(1000); // FIXME testing
     }
@@ -416,10 +410,10 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
 
 fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
     let mut lines = Vec::with_capacity(plan.len());
-    let pos = plan.get(0).map(|(p, _)| p.position).unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0));
+    let pos = plan.get(0).map(|(p, _, _)| p.position).unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0));
     let mut last_point = Point3::new(pos.x, pos.y, pos.z);
     let mut last_position = pos;
-    for (ps, _) in plan {
+    for (ps, _, _) in plan {
         last_position = ps.position;
         let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
         lines.push((last_point.clone(), point.clone(), color));
@@ -464,7 +458,7 @@ fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
     sender.send((game, bot)).expect("Sending to bot logic failed");
 }
 
-fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickControllerState)> {
+fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let mut plan = vec![];
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
@@ -480,7 +474,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickContro
         let heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let dot = na::dot(&heading, &desired_heading);
         if dot > last_dot {
-            plan.push((new_player, controller));
+            plan.push((new_player, controller, TICK));
             player = new_player;
             last_dot = dot;
         } else {
@@ -491,7 +485,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Vec<(PlayerState, BrickContro
     plan
 }
 
-fn forward_plan(current: &PlayerState, distance: f32) -> Vec<(PlayerState, BrickControllerState)> {
+fn forward_plan(current: &PlayerState, distance: f32) -> Plan {
     let mut plan = vec![];
 
     let mut controller = BrickControllerState::new();
@@ -500,17 +494,17 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Vec<(PlayerState, Brick
     let mut player = current.clone();
     while (player.position - current.position).norm() < distance {
         player = next_player_state(&player, &controller, TICK);
-        plan.push((player, controller));
+        plan.push((player, controller, TICK));
     }
     plan
 }
 
-fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
+fn square_plan(current: &PlayerState) -> Plan {
     let mut plan = vec![];
     let mut player = current.clone();
     let max_throttle_speed = 1545.0; // FIXME put in common lib
     player.velocity = max_throttle_speed * Unit::new_normalize(player.velocity).unwrap();
-    plan.push((player, BrickControllerState::new()));
+    plan.push((player, BrickControllerState::new(), 0.0));
     for _ in 0..4 {
         let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0);
         plan.append(&mut plan_part);
@@ -520,7 +514,7 @@ fn square_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)
     plan
 }
 
-fn offset_forward_plan(current: &PlayerState) -> Vec<(PlayerState, BrickControllerState)> {
+fn offset_forward_plan(current: &PlayerState) -> Plan {
     let mut offset_player = current.clone();
     let heading = offset_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI/2.0);
@@ -537,8 +531,7 @@ fn simulate_over_time() {
     let mut bot = BotState::default();
     {
         let mut game_state = GAME_STATE.write().unwrap();
-        game_state.ball.position = Vector3::new(2000.0, 1000.0, 89.0);
-        game_state.ball.velocity = Vector3::new(0.0, 0.0, 0.0);
+        game_state.ball.position = Vector3::new(2000.0, 1000.0, BALL_RADIUS);
 
         game_state.player.position = Vector3::new(0.0, 0.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
@@ -554,16 +547,18 @@ fn simulate_over_time() {
     loop {
         {
             let mut game_state = GAME_STATE.read().unwrap();
-            let plan_result = get_plan_result(&game_state, &bot);
+            let plan_result = get_plan_result(&game_state, &mut bot);
             update_bot_state(&game_state, &mut bot, &plan_result);
             update_visualization(&bot, &plan_result);
-            if plan_result.plan.is_none() {
-                thread::sleep_ms(5000);
-                continue;
-            }
+            // this pauses the simulation forever when no plan is found
+            // if plan_result.plan.is_none() {
+            //     thread::sleep_ms(5000);
+            //     continue;
+            // }
         }
 
         if let Some(plan) = bot.plan.clone() {
+            println!("STARTING player: {:?}\nSTARTING rotation: {:?}\n", plan[0].0, plan[0].0.rotation.to_euler_angles());
             let mut game_state = GAME_STATE.write().unwrap();
             let i = closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
@@ -612,7 +607,7 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
 }
 
 
-type PlayFunc = extern fn (game: &GameState, bot: &BotState) -> PlanResult;
+type PlayFunc = extern fn (game: &GameState, bot: &mut BotState) -> PlanResult;
 type HybridAStarFunc = extern fn (current: &PlayerState, desired: &DesiredContact, config: &SearchConfig) -> PlanResult;
 type SSPSFunc = extern fn (ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact;
 type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput;
@@ -662,7 +657,7 @@ fn next_player_state(current: &PlayerState, controller: &BrickControllerState, t
     }
 }
 
-fn get_plan_result(game_state: &GameState, bot: &BotState) -> PlanResult {
+fn get_plan_result(game_state: &GameState, bot: &mut BotState) -> PlanResult {
     // FIXME is there a way to unlock without a made up scope?
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
@@ -681,7 +676,7 @@ fn get_plan_result(game_state: &GameState, bot: &BotState) -> PlanResult {
             x.lib.get(b"hybrid_a_star\0").unwrap()
         };
 
-        play(&game_state, &bot)
+        play(game_state, bot)
     } else {
         panic!("We need the brain dynamic library!");
         //PlanResult::default()
@@ -714,37 +709,23 @@ fn get_test_bot_input(game_state: &GameState, player_index: usize) -> rlbot::ffi
             x.lib.get(b"simple_desired_contact\0").unwrap()
         };
 
-
         let start = Instant::now();
-        println!("PLAN DURATION: {:?}", start.elapsed());
-
-        let manual = true;
-        let mut extra_lines = vec![];
+        let manual = false; //true;
         let result = if manual {
-            let desired_ball_position = Vector3::new(0.0, 5140.0, 320.0);
+            let desired_ball_position = Vector3::new(0.0, 5140.0, 0.0);
             let dc = simple_desired_contact(&game_state.ball, &desired_ball_position);
-            let dh = 1000.0 * dc.heading;
-            let bp = game_state.ball.position;
-            // velocity delta line
-            extra_lines.push((
-                Point3::new(bp.x       , bp.y       , bp.z       ),
-                Point3::new(bp.x + dh.x, bp.y + dh.y, bp.z + dh.z),
-                Point3::new(1.0, 1.0, 0.0)
-            ));
 
-
-            // let now = SystemTime::now();
-            // use std::time::{SystemTime, UNIX_EPOCH};
             let mut desired_contact = DesiredContact::default();
-            desired_contact.position.x = 52.550236; //101.0; //300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
-            desired_contact.position.y = -2563.3354; //1000.0 + 300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
-            desired_contact.position.z = 90.99978;
-            desired_contact.heading = dc.heading;
+            desired_contact.position = dc.position;
+            //desired_contact.position.x = 52.550236; //101.0; //300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 10000000.0).sin();
+            //desired_contact.position.y = -2563.3354; //1000.0 + 300.0 * (now.duration_since(UNIX_EPOCH).unwrap().subsec_nanos() as f32 / 7000000.0).sin();
+            //desired_contact.position.z = 90.99978;
+            //desired_contact.heading = dc.heading;
             let mut config = SearchConfig::default();
-            config.step_duration = 20.0/120.0;
+            config.step_duration = 16.0 * TICK;
             hybrid_a_star(&game_state.player, &desired_contact, &config)
         } else {
-            play(&game_state, &bot)
+            play(&game_state, &mut bot)
         };
         println!("TOOK: {:?}", start.elapsed());
 
@@ -785,8 +766,8 @@ fn main() -> Result<(), Box<Error>> {
         });
     } else if args.get_bool("--simulate") {
         thread::spawn(simulate_over_time);
-    } else if args.get_bool("--test") {
-        thread::spawn(run_test);
+    } else if args.get_bool("--plan-test") {
+        thread::spawn(run_plan_test);
     }
 
     run_visualization();
