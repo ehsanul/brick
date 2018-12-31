@@ -491,6 +491,17 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                         (existing_vertex, Some(existing_secondary_vertex)) => {
                             let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
+                                // turns out that the index invalidation is a problem in general
+                                // with the IndexMap approach when replacing occupied entries: we
+                                // end up with some nonsensical plan jumps otherwise. instead,
+                                // let's limit replacements to siblings. this does mean we may miss
+                                // out on the best path, but at least doesn't give us corrupted
+                                // paths! if this causes us to lose too many good paths, we'll need
+                                // to reconsider the use of the IndexMap
+                                if existing_secondary_vertex.parent_index != new_vertex.parent_index {
+                                    continue;
+                                }
+
                                 new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
                             } else if e.index() == new_vertex.parent_index || new_vertex.parent_index == existing_secondary_vertex.parent_index {
                                 // same cell expansion. due to the consistent nature of the heuristic, a new
@@ -515,6 +526,15 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                                 // parent was already a secondary, we want to ignore as there's no
                                 // spot to put ourselves in
                                 if e.index() == new_vertex.parent_index && new_vertex.parent_is_secondary {
+                                    continue;
+                                }
+
+                                // turns out that the index invalidation is a problem in general,
+                                // since we end up with some nonsensical plan jumps otherwise,
+                                // though rarely.  instead, let's limit this extra logic to
+                                // same-cell expansion.  however, this prunes paths that may be the
+                                // path we want
+                                if e.index() != new_vertex.parent_index {
                                     continue;
                                 }
 
