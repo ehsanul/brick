@@ -884,12 +884,14 @@ fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>, desired_h
     // NOTE for now we ignore the fact that we are not starting at the max boost velocity pointed
     // directly at the desired position. the heuristic just needs to be a lower bound, until we
     // want to get it more accurate and thus ignore irrelevant branches more efficiently.
-    //let towards_contact = desired.position - candidate.position;
     let towards_goal = goal_center - candidate.position;
     let distance = towards_goal.norm();
-    //let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
-    let movement_time_cost = distance / 1200.0; // FIXME should use predict::player::MAX_BOOST_SPEED, but it checks too many paths. we just get a slightly less optimal path, but get it a lot faster
 
+    // XXX more correct to use predict::player::MAX_BOOST_SPEED, but it checks way too many paths.
+    // with a lower value, ie higher heuristic cost, we get a potentially less optimal path, but we
+    // get it a lot faster. it's not so bad given that we aren't actually going in a straight line
+    // boosting at max speed anyways
+    let movement_time_cost = distance / 1150.0;
 
     // basic penalty for being on the wrong side of the ball which will require a big turn. this
     // allows us to forgo searching right near the ball on the wrong side when it'll never work
@@ -912,44 +914,7 @@ fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>, desired_h
     // if passing sideways, the penalty should be way lower since we're moving out of the deadzone
     penalty_time_cost *= na::dot(&current_heading, &car_to_desired).abs();
 
-    // NOTE this is weird since we are not taking into account that some of the time cost here may
-    // overlap with the distance cost. what we really want to do is find the boost vector that
-    // would minimize time to reach the target, but seems complicated and we do need this heuristic
-    // function to be really cheap.
-    //
-    // so instead we do something dumb and have basically a second heuristic. we can take the max
-    // of the two heuristics
-    //
-    // FIXME this also assumes boosting is the highest acceleration action. braking or backflipping
-    // while at max speed may be higher, making this strictly not admissable
-    //let relative_velocity = (desired.velocity - candidate.velocity).norm();
-    //let acceleration_time_cost = relative_velocity / predict::player::BOOST_ACCELERATION_FACTOR;
-
-    // let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    // let desired_contact_heading = Unit::new_normalize(desired.heading.clone()).unwrap(); // FIXME normalize before
-    // //let rotation_match_factor = 1.0 - na::dot(&current_heading, &desired_contact_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
-    // let rotation_match_factor = 1.0 - na::dot(&current_heading, &towards_contact_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
-    // let distance_factor = (1.0 - distance/1000.0).max(0.0); // linearly reduce rotation cost the further we are away. 0 at max distance, ie yaw mismatch is complete ignored if far enough (TODO tune)
-    // let rotation_cost = 1.1 * distance_factor * rotation_match_factor; // constant factor here is arbitrary (TODO tune)
-    // TODO angular velocity cost
-    // the distance between orientation R1 and R2 is:
-    //
-    //     || logm(dot(R1, transpose(R2))) ||
-    //
-    // where || . || is the Frobenius norm
-    // and logm is the matrix logarithm
-
-    //    // we can't add these times as they may be overlapping (eg imagine we just need to go straight
-    //    // from resting), and we must have an admissable heuristic. so it's just whichever one is
-    //    // bigger.
-    //    if movement_time_cost > acceleration_time_cost {
-    //        movement_time_cost
-    //    } else {
-    //        acceleration_time_cost
-    //    }
-    // FIXME acceleration_time_cost causing problems, removing temporarily. bring it back when
-    // round player state includes velocity again.
-    movement_time_cost + penalty_time_cost //+ rotation_cost
+    movement_time_cost + penalty_time_cost
 }
 
 #[cfg(test)]
