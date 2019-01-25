@@ -558,7 +558,6 @@ fn simulate_over_time() {
         }
 
         if let Some(plan) = bot.plan.clone() {
-            println!("STARTING player: {:?}\nSTARTING rotation: {:?}\n", plan[0].0, plan[0].0.rotation.to_euler_angles());
             let mut game_state = GAME_STATE.write().unwrap();
             let i = closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
