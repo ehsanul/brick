@@ -208,8 +208,11 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> SearchConfig {
         SearchConfig {
-            step_duration: 8.0 * TICK,
-            slop: 10.0,
+            // pretty loose defaults, but makes the search a lot faster. for a bit more consistency
+            // and accuracy, can do 8.0 * TICK step duration with 10.0 slop, though that will
+            // require a larger max_iterations value to plan some paths
+            step_duration: 16.0 * TICK,
+            slop: 20.0,
             max_cost: 10.0,
             max_iterations: 50_000,
         }
