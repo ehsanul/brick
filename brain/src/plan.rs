@@ -440,10 +440,19 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                 parent_player.position.z += 0.1;
             }
 
-            if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
-                println!("omg reached! step size: {} | expansions: {}", config.step_duration * 120.0, visualization_lines.len());
+            if let Some(reached_goal) = player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
+                let plan = reverse_path(&parents, index, is_secondary);
+                let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
+                let cost = plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
+                visualization_lines.append(&mut reached_goal.bounding_box.lines().iter().map(|l| {
+                    let c1 = l.0;
+                    let c2 = l.1;
+                    (Point3::new(c1.x, c1.y, c1.z), Point3::new(c2.x, c2.y, c2.z), Point3::new(1.0f32, 0.0f32, 1.0f32))
+                }).collect());
+
+                println!("omg reached! step size: {} | expansions: {} | cost: {}", config.step_duration * 120.0, expansions, cost);
                 return PlanResult {
-                    plan: Some(reverse_path(&parents, index, is_secondary)),
+                    plan: Some(plan),
                     desired: desired.clone(),
                     visualization_lines,
                     visualization_points,
@@ -611,7 +620,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
     PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
 }
 
-fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate: &PlayerState, previous: &PlayerState) -> bool {
+fn player_goal_reached<'a> (coarse_goal: &Goal, precise_goals: &'a Vec<Goal>, candidate: &PlayerState, previous: &PlayerState) -> Option<&'a Goal> {
     let coarse_box = coarse_goal.bounding_box;
     let coarse_heading = coarse_goal.heading;
 
@@ -624,12 +633,12 @@ fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate:
     // pretty broad angle check. does this actually make it faster?
     // well it does make it wrong when approaching sideways!
     //let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
-    //if !correct_coarse_direction { return false };
+    //if !correct_coarse_direction { return None };
 
     let coarse_collision = line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
-    if !coarse_collision { return false };
+    if !coarse_collision { return None };
 
-    precise_goals.iter().any(|goal| {
+    precise_goals.iter().find(|goal| {
         let correct_precise_direction = na::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
         correct_precise_direction &&
             line_collides_bounding_box(&goal.bounding_box, previous.position, candidate.position)
