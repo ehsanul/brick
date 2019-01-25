@@ -238,7 +238,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     goals.push(Goal {
         bounding_box: BoundingBox::new(&(desired_contact + contact_to_car), slop),
         heading: -Unit::new_normalize(contact_to_car.clone()),
-        min_dot: (PI/4.0).cos(), // FIXME seems this should depend on the step size!
+        min_dot: (PI/16.0).cos(), // FIXME seems this should depend on the step size!
     });
 
     // slightly off but straight hits
@@ -248,14 +248,14 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_right), slop),
             heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_right),
-            min_dot: (PI/4.0).cos(), // FIXME seems this should depend on the step size!
+            min_dot: (PI/16.0).cos(), // FIXME seems this should depend on the step size!
         });
 
         let offset_left = -offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_left), slop),
             heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_left),
-            min_dot: (PI/4.0).cos(), // FIXME seems this should depend on the step size!
+            min_dot: (PI/16.0).cos(), // FIXME seems this should depend on the step size!
         });
 
         offset += slop * 2.0;
@@ -263,9 +263,10 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     let num_straight_goals = goals.len();
 
     // corner hits from right side of the ball (left side of the car)
-    let mut angle = -PI/2.0 + PI/8.0;
+    let margin = PI/6.0;
+    let mut angle = -PI/2.0 + margin;
     let mut i = 0;
-    while angle < -PI/8.0 {
+    while angle < -margin {
         // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
         // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
         // more goals with slightly different angles
@@ -289,9 +290,9 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     }
 
     // corner hits from left side of the ball (right side of car)
-    let mut angle = PI/2.0 - PI/8.0;
+    let mut angle = PI/2.0 - margin;
     let mut i = 0;
-    while angle > PI/8.0 {
+    while angle > margin {
         // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
         // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
         // more goals with slightly different angles
@@ -319,9 +320,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     let num_angle_goals = goals.len() - num_straight_goals;
     for goal in goals.iter_mut() {
         if goal.min_dot == 0.0 {
-            // XXX for some reason, the 0.9 factor results in fine steps showing up. i don't get
-            // it. seems emergent. :/
-            (*goal).min_dot = ( 0.9 * PI / num_angle_goals as f32 ).cos(); // TODO TUNE (base it also on step size directly?? number of goals already sorta is)
+            (*goal).min_dot = (1.0 * (PI - 2.0 * margin) / num_angle_goals as f32).cos(); // TODO TUNE
         }
     }
 
