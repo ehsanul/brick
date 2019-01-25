@@ -839,10 +839,13 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
     }
 }
 
+// the margin is to allow hitting on the curve or from inside the goal. this is only needed until
+// we get prediction for driving on the curves/walls
+const BOUNDS_MARGIN: f32 = 200.0;
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
-    pos.x > SIDE_WALL_DISTANCE || pos.x < -SIDE_WALL_DISTANCE ||
-        pos.y > BACK_WALL_DISTANCE || pos.y < -BACK_WALL_DISTANCE
+    pos.x > SIDE_WALL_DISTANCE + BOUNDS_MARGIN || pos.x < -SIDE_WALL_DISTANCE - BOUNDS_MARGIN ||
+        pos.y > BACK_WALL_DISTANCE + BOUNDS_MARGIN || pos.y < -BACK_WALL_DISTANCE - BOUNDS_MARGIN
 }
 
 fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
