@@ -1,6 +1,5 @@
 use std::fs::File;
 use std::io::BufReader;
-use std::sync::Arc;
 use obj::*;
 use ncollide::shape::TriMesh;
 use na::Point3;

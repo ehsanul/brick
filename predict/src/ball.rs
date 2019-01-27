@@ -24,7 +24,7 @@ enum PredictionCategory {
     //Rolling,
 }
 
-fn find_prediction_category(current: &BallState) -> PredictionCategory {
+fn find_prediction_category(_current: &BallState) -> PredictionCategory {
     // hard-coded the only thing we can handle right now
     PredictionCategory::Soaring
 }

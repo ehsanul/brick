@@ -55,7 +55,7 @@ impl RecordState {
             let pos = player.position;
             let vel = player.velocity;
             let avel = player.angular_velocity;
-            let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+            let (roll, pitch, yaw) = player.rotation.euler_angles();
 
             #[rustfmt::skip]
             let row = [

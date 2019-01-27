@@ -20,7 +20,7 @@ pub enum PredictionCategory {
     */
 }
 
-pub fn find_prediction_category(current: &PlayerState) -> PredictionCategory {
+pub fn find_prediction_category(_current: &PlayerState) -> PredictionCategory {
     // hard-coded the only thing we can handle right now
     PredictionCategory::Ground
 }
@@ -83,7 +83,7 @@ fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerSta
     };
 
     let sample_speed_diff = speed2 - speed1;
-    let mut factor = if sample_speed_diff == 0.0 {
+    let factor = if sample_speed_diff == 0.0 {
         0.0
     } else {
         (current_speed - speed1) / sample_speed_diff
