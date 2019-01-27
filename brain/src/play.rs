@@ -2,15 +2,15 @@ use state::*;
 use plan;
 use predict;
 use rlbot;
-use na::{ self, Unit, Vector3, Rotation3, UnitQuaternion };
+use na::{ self, Unit, Vector3, Rotation3 };
 use std::f32::consts::PI;
 use std;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 use std::collections::VecDeque;
 
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
-fn what_do(game: &GameState) -> Action {
+fn what_do(_game: &GameState) -> Action {
     Action::Shoot // TODO
 }
 
@@ -42,19 +42,10 @@ pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &V
     }
 }
 
-// FIXME this rough step is probably too rough when we're really close,
-//       so probably needs to be dynamic based on distance or some such
-static ROUGH_STEP: f32 = 60.0/120.0;
-
 fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<DesiredContact> {
     let start = Instant::now();
 
-
-    let mut closest_desired_contact = DesiredContact::default();
-    let mut closest_time_diff = std::f32::MAX;
-
     let mut estimates = ball_trajectory.iter().enumerate().map(|(i, ball)| {
-        let ball_time = (i as f32) * TICK;
         let desired_contact = simple_desired_contact(ball, &desired_ball_position);
         let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
         (i, shooting_time)
@@ -74,6 +65,8 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     });
     let shootable_ball_state = estimates.iter().map(|(i, _)| *i).next(); // next == first
 
+    //let closest_desired_contact = DesiredContact::default();
+    //let mut closest_time_diff = std::f32::MAX;
     //let shootable_ball_state = .binary_search_by(|(i, ball)| {
     //    let ball_time = (*i as f32) * TICK;
     //    let start2 = Instant::now();
@@ -106,7 +99,6 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
         println!("TOTAL SHOOTABLE DURATION: {:?}", start.elapsed());
         println!("#############################");
     }
-    let start = Instant::now();
 
     match shootable_ball_state {
         Some(i) => {
@@ -114,16 +106,6 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
             Some(simple_desired_contact(&ball_trajectory[i], &desired_ball_position))
         }
         None => None,
-        //Err(i) => {
-        //    // we may not find an exact match with time. so we want to allow for some wiggle room
-        //    // here and use the closest desired state if it seems reachable
-        //    if closest_time_diff < ROUGH_STEP*1.2 {
-        //        Some(closest_desired_contact)
-        //    } else {
-        //        println!("no plan found! traj: {}, closest_time_diff: {}, ROUGH_STEP: {}", ball_trajectory.len(), closest_time_diff, ROUGH_STEP);
-        //        None
-        //    }
-        //}
     }
 }
 
@@ -154,12 +136,12 @@ fn shoot(game: &GameState, bot: &mut BotState) -> PlanResult {
 //    position, and got the corresponding desired player state all at once.
 // 7. plan motion to reach desired player state
 fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: Option<&Plan>) -> PlanResult {
-    let start = Instant::now();
+    //let start = Instant::now();
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 10.0);
     //println!("#############################");
     //println!("BALL DURATION: {:?}", start.elapsed());
     //println!("#############################");
-    let start = Instant::now();
+    //let start = Instant::now();
 
     // since we binary search the trajectory, it's useful to do that over two slices,
     // depending on whether we have to turn to reach the ball or not. this ensures we
@@ -215,7 +197,6 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: O
         println!("PLAN DURATION: {:?}", start.elapsed());
         println!("#############################");
     }
-    let start = Instant::now();
     x
 }
 
@@ -253,22 +234,11 @@ fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact
         estimated_movement_time += 1.5; // TODO TUNE
     }
     estimated_movement_time
-
-    // let PlanResult { plan, .. } = plan::hybrid_a_star(&current, &desired, ROUGH_STEP);
-    // if let Some(plan) = plan {
-    //     ROUGH_STEP * ((plan.len() - 1) as f32) // first item is current position, doesn't count
-    // } else {
-    //     std::f32::MAX
-    // }
 }
 
 // TODO
 //fn shadow(game: &GameState) -> PlayerState {
 //}
-
-fn go_to_mid(game: &GameState) -> PlanResult {
-    plan::plan(&game.player, &DesiredContact::default(), None)
-}
 
 /// main entrypoint for bot to figure out what to do given the current state
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
@@ -277,7 +247,6 @@ fn go_to_mid(game: &GameState) -> PlanResult {
 pub extern fn play(game: &GameState, bot: &mut BotState) -> PlanResult {
     let start = Instant::now();
     let mut x = match what_do(game) {
-        //Action::GoToMid => go_to_mid(&game),
         Action::Shoot => shoot(game, bot),
     };
     let duration = start.elapsed();
@@ -289,18 +258,11 @@ pub extern fn play(game: &GameState, bot: &mut BotState) -> PlanResult {
 
     // fallback when we don't know how to shoot it
     if x.plan.is_none() {
-        //println!("FALLBACK");
-        //x = go_near_ball(&game);
+        println!("FALLBACK");
+        x = go_near_ball(&game);
     }
 
     x
-
-    // TODO fallback value when we don't know what to do
-    //plan_result.plan.unwrap_or_else(|| {
-    //    let mut fallback = BrickControllerState::new();
-    //    fallback.throttle = Throttle::Forward;
-    //    fallback
-    //})
 }
 
 #[no_mangle]
@@ -309,7 +271,7 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
     let mut last_distance = std::f32::MAX;
     let mut index = 0;
     assert!(plan.len() != 0);
-    while let Some((player, controller, _step_duration)) = iter.next() {
+    while let Some((player, _controller, _step_duration)) = iter.next() {
         let delta = current_player.position - player.position;
         let distance = delta.norm();
 
@@ -338,7 +300,7 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
         if index < plan.len() - 1 {
             let current_heading = current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
             let (closest_player, _, _) = plan[index];
-            let (next_player, controller, _) = plan[index + 1];
+            let (_next_player, controller, _) = plan[index + 1];
 
             // FIXME we should account for differences in the tick and interpolate between the two
             // closest indices to get the real closet delta/distance

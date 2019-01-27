@@ -377,30 +377,30 @@ fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
     let game_state = GAME_STATE.read().unwrap();
     let PlanResult { plan, desired, visualization_lines: lines, visualization_points: points } = plan_result;
 
-    let mut visualize_lines = LINES.write().unwrap();
-    visualize_lines.clear();
+    let mut visualization_lines = LINES.write().unwrap();
+    visualization_lines.clear();
 
     // lines directly from plan result
-    visualize_lines.append(&mut lines.clone());
+    visualization_lines.append(&mut lines.clone());
 
     // red line from player center to contact point
     let pos = game_state.player.position;
     let dpos = desired.position;
-    visualize_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
+    visualization_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
 
     // white line showing best planned path
     if let Some(ref plan) = bot.plan {
-        visualize_lines.append(&mut plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)));
+        visualization_lines.append(&mut plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)));
     }
 
     // yellow line showing most recently calculated path
     if let Some(plan) = plan {
-        visualize_lines.append(&mut plan_lines(&plan, Point3::new(0.0, 1.0, 1.0)));
+        visualization_lines.append(&mut plan_lines(&plan, Point3::new(0.0, 1.0, 1.0)));
     }
 
-    let mut visualize_points = POINTS.write().unwrap();
-    visualize_points.clear();
-    visualize_points.append(&mut points.clone());
+    let mut visualization_points = POINTS.write().unwrap();
+    visualization_points.clear();
+    visualization_points.append(&mut points.clone());
 }
 
 fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {

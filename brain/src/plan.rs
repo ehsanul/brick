@@ -1,7 +1,6 @@
 use state::*;
 use predict;
-use predict::arena::*;
-use na::{ self, Unit, Vector3, Point3, Rotation3, UnitQuaternion };
+use na::{ self, Unit, Vector3, Point3, Rotation3 };
 use std::cmp::Ordering;
 use std::f32::consts::PI;
 use std;
@@ -12,7 +11,6 @@ use indexmap::map::Entry::{Occupied, Vacant};
 use indexmap::IndexMap;
 use std::usize;
 use itertools;
-use itertools::Itertools;
 
 use std::hash::BuildHasherDefault;
 use fnv::FnvHasher;
@@ -73,7 +71,7 @@ lazy_static! {
         let mut right_idle = BrickControllerState::new();
         right_idle.steer = Steer::Right;
 
-        let mut straight_idle = BrickControllerState::new();
+        let _straight_idle = BrickControllerState::new();
 
         // reverse
         let mut left_reverse = BrickControllerState::new();
@@ -230,7 +228,6 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     let contact_to_car = -(CAR_DIMENSIONS.x/2.0) * desired_hit_direction.as_ref();
     let car_corner_distance = (CAR_DIMENSIONS.x.powf(2.0) + CAR_DIMENSIONS.y.powf(2.0)).sqrt();
     let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
-    let anti_clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI/2.0);
 
     let mut goals = vec![];
 
@@ -327,7 +324,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     goals
 }
 
-fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
+fn known_unreachable(_current: &PlayerState, desired: &DesiredContact) -> bool {
     // we can't fly yet :(
     desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
 }
@@ -337,6 +334,8 @@ type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVerte
 #[no_mangle]
 pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, config: &SearchConfig) -> PlanResult {
     let mut visualization_lines = vec![];
+
+    #[allow(unused_mut)]
     let mut visualization_points = vec![];
 
     if known_unreachable(&current, &desired) {
@@ -489,7 +488,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                 Occupied(mut e) => {
                     new_index = e.index();
                     new_is_secondary = true;
-                    let mut insertable = None; // make borrowck happy
+                    let insertable;
                     match e.get() {
                         (existing_vertex, None) => {
                             // basically just like the vacant case
@@ -622,7 +621,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
 
 fn player_goal_reached<'a> (coarse_goal: &Goal, precise_goals: &'a Vec<Goal>, candidate: &PlayerState, previous: &PlayerState) -> Option<&'a Goal> {
     let coarse_box = coarse_goal.bounding_box;
-    let coarse_heading = coarse_goal.heading;
 
     // NOTE we are just using the candidate. what we really want is the heading at the closest
     // positions. well, what we really really want is the heading at every intermediate position.
@@ -630,10 +628,6 @@ fn player_goal_reached<'a> (coarse_goal: &Goal, precise_goals: &'a Vec<Goal>, ca
     // heading, with some tolerance. but idk the math for that yet so we're just using the
     // candidate heading
     let candidate_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    // pretty broad angle check. does this actually make it faster?
-    // well it does make it wrong when approaching sideways!
-    //let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
-    //if !correct_coarse_direction { return None };
 
     let coarse_collision = line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
     if !coarse_collision { return None };
@@ -807,9 +801,9 @@ fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> R
     }
     let rounded_speed = rounded_speed * rounding_factor;
 
-    let mut grid_size = step_duration * rounded_speed;
-    let velocity_margin = 250.0; // TODO tune
-    let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+    let grid_size = step_duration * rounded_speed;
+    //let velocity_margin = 250.0; // TODO tune
+    let (_roll, _pitch, yaw) = player.rotation.euler_angles();
 
     RoundedPlayerState {
         // TODO we could have individual grid sizes for x/y/z based on vx/vy/vz. not sure it's
