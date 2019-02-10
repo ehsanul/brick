@@ -33,6 +33,50 @@ fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
     Ok(serialize_into(&mut e, &serializable_plan)?)
 }
 
+// the hybrid a* is not perfect. since it has some discretization/slop, and uses larger time steps
+// for speed, and also since the heuristic used is not actully admissible (another perf thing). so
+// in order to get a more accurate path for our data set, we need to do more searches along the
+// path of the initial plan. this can result in a much better plan being found.
+fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config: &SearchConfig) -> Option<Plan> {
+    // the formula is based on our heuristic function, and the fact that we use 32-tick steps when
+    // far away
+    let iterations = if player.position.norm() / 1150.0 > 2.0 { 32 / 2 } else { (config.step_duration / (2.0 * TICK)).round() as i32 };
+    let mut last_plan: Option<Plan> = None;
+    let mut reset_at = 0;
+    for i in 0..iterations {
+        let mut plan_result = plan::hybrid_a_star(&player, &desired_contact, &config);
+        plan::explode_plan(&mut plan_result);
+
+        if let Some(plan) = plan_result.plan {
+            if last_plan.is_none() || plan.len() < last_plan.as_ref().unwrap().len() {
+                last_plan = Some(plan);
+                reset_at = i;
+            }
+        } else if last_plan.is_some() {
+            // no plan was ever found this time, but we do have last_plan
+            // we will advance using last_plan
+        } else {
+
+            // plan wasn't found in a previous iteration either.
+            // advance straight by two ticks and retry
+            player.position += 2.0 * TICK * player.velocity;
+            continue
+        }
+
+        // advance two ticks along best plan so far
+        // NOTE zeroth index is original player start
+        let index = 2 + (i - reset_at) as usize * 2;
+        if let Some((next_player, _, _)) = last_plan.as_ref().unwrap().get(index) {
+            player.position = next_player.position;
+            player.velocity = next_player.velocity;
+            player.angular_velocity = next_player.angular_velocity;
+            player.rotation = next_player.rotation;
+        }
+    }
+
+    last_plan
+}
+
 fn main() -> Result<(), Box<Error>> {
     let mut player = PlayerState::default();
     let desired_contact = DesiredContact::default();
@@ -41,7 +85,14 @@ fn main() -> Result<(), Box<Error>> {
         step_duration: 16.0 * TICK,
         slop: 10.0,
         max_cost: 10.0,
-        max_iterations: 500_000,
+        max_iterations: 10_000,
+    };
+
+    let slow_config = SearchConfig {
+        step_duration: 16.0 * TICK,
+        slop: 10.0,
+        max_cost: 10.0,
+        max_iterations: 100_000,
     };
 
     // XXX do we need avz?
@@ -57,18 +108,20 @@ fn main() -> Result<(), Box<Error>> {
                     player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI + yaw_r as f32 * (2.0 * PI / YAW_FACTOR));
                     player.velocity = player.rotation * Vector3::new(-1.0 * speed_r as f32 * SPEED_FACTOR, 0.0, 0.0);
 
-                    let plan_result = plan::hybrid_a_star(&player, &desired_contact, &config);
+                    let path = format!(
+                        "./data/generated/{}/{}/{}/{}/",
+                        speed_r * SPEED_FACTOR as i32,
+                        x_r * POS_FACTOR as i32,
+                        y_r * POS_FACTOR as i32,
+                        yaw_r,
+                    );
 
-                    if let Some(plan) = plan_result.plan {
-                        let path = format!(
-                            "./data/generated/{}/{}/{}/{}/",
-                            speed_r * SPEED_FACTOR as i32,
-                            x_r * POS_FACTOR as i32,
-                            y_r * POS_FACTOR as i32,
-                            yaw_r,
-                        );
+                    if let Some(plan) = best_plan(&mut player.clone(), &desired_contact, &config) {
                         write_data(&path, plan)?;
                         println!("Done: {:?}", player);
+                    } else if let Some(plan) = best_plan(&mut player.clone(), &desired_contact, &slow_config) {
+                        write_data(&path, plan)?;
+                        println!("SLOW Done: {:?}", player);
                     } else {
                         println!("Failed: {:?}", player);
                     }
