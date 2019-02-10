@@ -423,7 +423,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     loop {
         let new_player = next_player_state(&player, &controller, TICK);
         let heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-        let dot = na::dot(&heading, &desired_heading);
+        let dot = na::Matrix::dot(&heading, &desired_heading);
         if dot > last_dot {
             plan.push((new_player, controller, TICK));
             player = new_player;
@@ -454,7 +454,7 @@ fn square_plan(current: &PlayerState) -> Plan {
     let mut plan = vec![];
     let mut player = current.clone();
     let max_throttle_speed = 1545.0; // FIXME put in common lib
-    player.velocity = max_throttle_speed * Unit::new_normalize(player.velocity).unwrap();
+    player.velocity = max_throttle_speed * Unit::new_normalize(player.velocity).into_inner();
     plan.push((player, BrickControllerState::new(), 0.0));
     for _ in 0..4 {
         let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0);

@@ -28,13 +28,13 @@ fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
 #[no_mangle]
 pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact  {
     let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
-    let desired_velocity = 3000.0 * desired_vector.unwrap();
+    let desired_velocity = 3000.0 * desired_vector.into_inner();
     let velocity_delta = desired_velocity - ball.velocity;
 
     // this is pretty crude, doesn't even consider that the ball will undergo gravity after the
     // hit! but should be good enough for us here for now
     let impulse_direction = Unit::new_normalize(velocity_delta);
-    let ball_normal = -1.0 * impulse_direction.unwrap();
+    let ball_normal = -1.0 * impulse_direction.into_inner();
 
     DesiredContact {
         position: ball.position + BALL_RADIUS * ball_normal,
@@ -151,7 +151,7 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: O
     let mut last_dot = None;
     let transition_index = ball_trajectory.iter().position(|ball| {
         let towards_ball = Unit::new_normalize(ball.position - game.player.position);
-        let dot = na::dot(&current_heading, &towards_ball);
+        let dot = na::Matrix::dot(&current_heading, &towards_ball);
         if let Some(last_dot_value) = last_dot {
             last_dot_value * dot < 0.0 // if only one is negative, we've transitioned
         } else {
@@ -207,7 +207,7 @@ fn go_near_ball(game: &GameState) -> PlanResult {
     //let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     desired.position.x = ball_in_one_sec.position.x;
     desired.position.y = ball_in_one_sec.position.y;
-    desired.heading = Unit::new_normalize(ball_in_one_sec.position - game.player.position).unwrap();
+    desired.heading = Unit::new_normalize(ball_in_one_sec.position - game.player.position).into_inner();
     plan::plan(&game.player, &desired, None)
 }
 
@@ -222,10 +222,10 @@ fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact
     let mut estimated_movement_time = distance / 800.0; // TODO TUNE
 
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
+    let towards_contact_heading = Unit::new_normalize(towards_contact).into_inner();
 
-    let pointed_right_way_value = na::dot(&current_heading, &towards_contact_heading);
-    let needs_additional_turning_value = na::dot(&towards_contact_heading, &Unit::new_normalize(desired.heading.clone()).unwrap());
+    let pointed_right_way_value = na::Matrix::dot(&current_heading, &towards_contact_heading);
+    let needs_additional_turning_value = na::Matrix::dot(&towards_contact_heading, &Unit::new_normalize(desired.heading.clone()).into_inner());
 
     if pointed_right_way_value < 0.0 {
         estimated_movement_time += 1.5; // TODO TUNE
@@ -312,7 +312,7 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
             if closest_distance == 0.0 {
                 bot.turn_errors.push_back(0.0);
             } else {
-                let direction = na::dot(&Unit::new_normalize(closest_delta.clone()).unwrap(), &relative_right); // positive for right, negative for left
+                let direction = na::Matrix::dot(&Unit::new_normalize(closest_delta.clone()).into_inner(), &relative_right); // positive for right, negative for left
                 println!("direction: {}, distance: {}", direction, closest_distance);
                 let error = direction * closest_distance;
                 bot.turn_errors.push_back(error);

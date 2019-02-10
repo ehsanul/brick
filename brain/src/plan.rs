@@ -131,7 +131,7 @@ pub extern fn plan(player: &PlayerState, desired_contact: &DesiredContact, last_
 }
 
 /// modifies the plan to use finer-grained steps
-fn explode_plan(plan_result: &mut PlanResult) {
+pub fn explode_plan(plan_result: &mut PlanResult) {
 
     if let Some(ref mut plan) = plan_result.plan {
         if plan.get(0).is_none() { return }
@@ -241,14 +241,14 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
     // slightly off but straight hits
     let mut offset = slop * 2.0;
     while offset <= 21.0 {
-        let offset_right = offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
+        let offset_right = offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).into_inner());
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_right), slop),
             heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_right),
             min_dot: (PI/16.0).cos(), // FIXME seems this should depend on the step size!
         });
 
-        let offset_left = -offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
+        let offset_left = -offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).into_inner());
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_left), slop),
             heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_left),
@@ -278,7 +278,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
         let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
         let rotated_contact_to_car = rotation * contact_to_car;
         // corner offset from front center
-        let offset = (CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).unwrap());
+        let offset = (CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).into_inner());
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + rotated_contact_to_car + offset), slop),
             heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
@@ -304,7 +304,7 @@ fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vect
         let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
         let rotated_contact_to_car = rotation * contact_to_car;
         // corner offset from front center
-        let offset = -(CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).unwrap());
+        let offset = -(CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).into_inner());
         goals.push(Goal {
             bounding_box: BoundingBox::new(&(desired_contact + rotated_contact_to_car + offset), slop),
             heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
@@ -493,6 +493,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                         (existing_vertex, None) => {
                             // basically just like the vacant case
                             new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
+                            // TODO-perf avoid the clone here. nll? worst-case, can use mem::replace with an enum
                             insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                         },
                         (existing_vertex, Some(existing_secondary_vertex)) => {
@@ -560,6 +561,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                             }
 
                             if new_cost_is_lower {
+                                // TODO-perf avoid the clone here. can use mem::replace with an enum
                                 insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                             } else {
                                 //visualization_points.push((
@@ -581,8 +583,6 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                     }
 
                     if let Some(v) = insertable { e.insert(v); }
-
-
                 }
             }
 
@@ -633,7 +633,7 @@ fn player_goal_reached<'a> (coarse_goal: &Goal, precise_goals: &'a Vec<Goal>, ca
     if !coarse_collision { return None };
 
     precise_goals.iter().find(|goal| {
-        let correct_precise_direction = na::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
+        let correct_precise_direction = na::Matrix::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
         correct_precise_direction &&
             line_collides_bounding_box(&goal.bounding_box, previous.position, candidate.position)
     })
@@ -844,6 +844,7 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
 
 // the margin is to allow hitting on the curve or from inside the goal. this is only needed until
 // we get prediction for driving on the curves/walls
+// TODO well we should model the goal area as drivable too
 const BOUNDS_MARGIN: f32 = 200.0;
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
@@ -851,6 +852,7 @@ fn out_of_bounds(player: &PlayerState) -> bool {
         pos.y > BACK_WALL_DISTANCE + BOUNDS_MARGIN || pos.y < -BACK_WALL_DISTANCE - BOUNDS_MARGIN
 }
 
+// TODO-perf reuse vector instead of allocating a new one each time
 fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
     control_branches(&vertex.player).iter().map(|&controller| {
         PlayerVertex {
@@ -891,12 +893,12 @@ fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>, desired_h
     // allows us to forgo searching right near the ball on the wrong side when it'll never work
     // out.
     let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let car_to_desired = Unit::new_normalize(goal_center - candidate.position).unwrap();
-    let mut penalty_time_cost = if distance < 800.0 && na::dot(desired_heading, &car_to_desired) < -0.70 {
+    let car_to_desired = Unit::new_normalize(goal_center - candidate.position).into_inner();
+    let mut penalty_time_cost = if distance < 800.0 && na::Matrix::dot(desired_heading, &car_to_desired) < -0.70 {
         0.5
-    } else if distance < 1500.0 && na::dot(desired_heading, &car_to_desired) < -0.88 {
+    } else if distance < 1500.0 && na::Matrix::dot(desired_heading, &car_to_desired) < -0.88 {
         0.5
-    } else if distance < 2000.0 && na::dot(desired_heading, &car_to_desired) < -0.95 {
+    } else if distance < 2000.0 && na::Matrix::dot(desired_heading, &car_to_desired) < -0.95 {
         0.5
     } else {
         0.0
@@ -906,7 +908,7 @@ fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>, desired_h
         penalty_time_cost *= 0.2;
     }
     // if passing sideways, the penalty should be way lower since we're moving out of the deadzone
-    penalty_time_cost *= na::dot(&current_heading, &car_to_desired).abs();
+    penalty_time_cost *= na::Matrix::dot(&current_heading, &car_to_desired).abs();
 
     movement_time_cost + penalty_time_cost
 }

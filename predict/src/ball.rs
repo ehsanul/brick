@@ -55,7 +55,7 @@ fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState 
     let mut next;
 
     if let Some(normal) = arena_contact_normal(&current) {
-        if na::dot(&current.velocity, &normal) < 0.0 {
+        if na::Matrix::dot(&current.velocity, &normal) < 0.0 {
             // we're going towards the arena contact, so let's bounce
             next = calculate_bounce(&current, &normal);
         } else {
@@ -101,7 +101,7 @@ pub extern fn arena_contact_normal(current: &BallState) -> Option<Unit<Vector3<f
 fn calculate_bounce(current: &BallState, normal: &Unit<Vector3<f32>>) -> BallState {
     let mut bounced = (*current).clone();
 
-    let v_perp = na::dot(&current.velocity, &normal.unwrap()) * normal.unwrap();
+    let v_perp = na::Matrix::dot(&current.velocity, &normal.into_inner()) * normal.into_inner();
     let v_para = current.velocity - v_perp;
     let v_spin = BALL_RADIUS * normal.cross(&current.angular_velocity); // velocity of edge of ball, relative to ball center
     let s = v_para + v_spin; // this is the velocity at point of impact (edge of ball) in global coords
