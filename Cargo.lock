@@ -548,9 +548,11 @@ version = "0.1.0"
 dependencies = [
  "bincode 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "brain 0.1.0",
+ "csv 1.0.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "flate2 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)",
  "nalgebra 0.17.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "state 0.1.0",
+ "walkdir 2.2.7 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
