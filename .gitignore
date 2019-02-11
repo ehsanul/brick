@@ -1,7 +1,3 @@
 /target/
-/predict/target/
-/state/target/
-/rlbot/target/
-/brain/target/
-/temp/target/
+/*/target/
 **/*.rs.bk
