@@ -180,6 +180,7 @@ pub type Plan = Vec<(PlayerState, BrickControllerState, f32)>;
 #[derive(Serialize, Deserialize)]
 pub struct SerializablePlan(pub Plan);
 
+#[derive(Clone)]
 pub struct PlanResult {
     pub plan: Option<Plan>,
     pub desired: DesiredContact,

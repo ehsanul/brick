@@ -1,4 +1,3 @@
-// "610 6172458 mimi"
 extern crate state;
 extern crate brain;
 extern crate nalgebra as na;
@@ -42,19 +41,23 @@ fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config:
     // far away
     let iterations = if player.position.norm() / 1150.0 > 2.0 { 32 / 2 } else { (config.step_duration / (2.0 * TICK)).round() as i32 };
     let mut last_plan: Option<Plan> = None;
+    let mut last_exploded_plan: Option<Plan> = None;
     let mut reset_at = 0;
     for i in 0..iterations {
-        let mut plan_result = plan::hybrid_a_star(&player, &desired_contact, &config);
-        plan::explode_plan(&mut plan_result);
+        let plan_result = plan::hybrid_a_star(&player, &desired_contact, &config);
 
-        if let Some(plan) = plan_result.plan {
-            if last_plan.is_none() || plan.len() < last_plan.as_ref().unwrap().len() {
-                last_plan = Some(plan);
+        let mut exploded_plan_result = plan_result.clone();
+        plan::explode_plan(&mut exploded_plan_result);
+
+        if let Some(exploded_plan) = exploded_plan_result.plan {
+            if last_exploded_plan.is_none() || exploded_plan.len() < last_exploded_plan.as_ref().unwrap().len() {
+                last_exploded_plan = Some(exploded_plan);
+                last_plan = plan_result.plan;
                 reset_at = i;
             }
-        } else if last_plan.is_some() {
-            // no plan was ever found this time, but we do have last_plan
-            // we will advance using last_plan
+        } else if last_exploded_plan.is_some() {
+            // no plan was ever found this time, but we do have last_exploded_plan
+            // we will advance using last_exploded_plan
         } else {
 
             // plan wasn't found in a previous iteration either.
@@ -66,7 +69,7 @@ fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config:
         // advance two ticks along best plan so far
         // NOTE zeroth index is original player start
         let index = 2 + (i - reset_at) as usize * 2;
-        if let Some((next_player, _, _)) = last_plan.as_ref().unwrap().get(index) {
+        if let Some((next_player, _, _)) = last_exploded_plan.as_ref().unwrap().get(index) {
             player.position = next_player.position;
             player.velocity = next_player.velocity;
             player.angular_velocity = next_player.angular_velocity;
