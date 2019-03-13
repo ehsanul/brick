@@ -18,13 +18,13 @@ extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate dynamic_reload;
 extern crate state;
+extern crate brain;
 extern crate rlbot;
 extern crate passthrough;
 extern crate docopt;
 
 #[macro_use]
 extern crate lazy_static;
-
 
 use docopt::Docopt;
 use std::panic;
@@ -226,6 +226,7 @@ fn run_bot_live_test() {
 }
 
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
+    let mut model = brain::get_model();
     loop {
         let (mut game, mut bot) = receiver.recv().expect("Coudln't receive game state");
 
@@ -235,7 +236,7 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
             bot = b;
         }
 
-        let plan_result = get_plan_result(&game, &mut bot);
+        let plan_result = brain::play::play(&mut model, &game, &mut bot);
         sender.send(plan_result).expect("Failed to send plan result");
     }
 }
@@ -480,12 +481,19 @@ fn simulate_over_time() {
     thread::sleep(Duration::from_millis(5000));
     let initial_game_state: GameState;
     let mut bot = BotState::default();
+    let mut model = brain::get_model();
     {
         let mut game_state = GAME_STATE.write().unwrap();
-        game_state.ball.position = Vector3::new(2000.0, 1000.0, BALL_RADIUS);
+        // SLOW
+        // THIS Is slow too [-800.0, 600.0, 0.0] }, velocity: Matrix { data: [0.0, -1100.0
+        // game_state.ball.position = Vector3::new(0.0, 0.0, BALL_RADIUS);
+        // game_state.player.position = Vector3::new(-1000.0, -600.0, 0.0);
+        // game_state.player.velocity = Vector3::new(0.0, 1100.0, 0.0);
 
-        game_state.player.position = Vector3::new(0.0, 0.0, 0.0);
-        game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
+        game_state.ball.position = Vector3::new(0.0, 0.0, BALL_RADIUS);
+        game_state.player.position = Vector3::new(-2000.0, -1000.0, 0.0);
+        game_state.player.velocity = Vector3::new(-1100.0, 0.0, 0.0);
+
         game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
@@ -497,7 +505,7 @@ fn simulate_over_time() {
     loop {
         {
             let game_state = GAME_STATE.read().unwrap();
-            let plan_result = get_plan_result(&game_state, &mut bot);
+            let plan_result = brain::play::play(&mut model, &game_state, &mut bot);
             update_bot_state(&game_state, &mut bot, &plan_result);
             update_visualization(&bot, &plan_result);
             // this pauses the simulation forever when no plan is found
@@ -531,6 +539,7 @@ fn simulate_over_time() {
     }
 }
 
+// TODO remove
 fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
@@ -552,11 +561,12 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
     }
 }
 
-type PlayFunc = extern fn (game: &GameState, bot: &mut BotState) -> PlanResult;
+// TODO remove
 type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput;
 type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
 type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
+// TODO remove
 fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
@@ -578,6 +588,7 @@ fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
     }
 }
 
+// TODO remove
 fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
     // FIXME is there a way to unlock without a made up scope?
     {
@@ -600,28 +611,6 @@ fn next_player_state(current: &PlayerState, controller: &BrickControllerState, t
     }
 }
 
-fn get_plan_result(game_state: &GameState, bot: &mut BotState) -> PlanResult {
-    // FIXME is there a way to unlock without a made up scope?
-    {
-        // XXX there must be a reason why this happens, but BRAIN must be locked before
-        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = BRAIN.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(BrainPlugin::reload_callback, &mut p);
-    }
-
-    if let Some(ref x) = BRAIN.lock().unwrap().lib {
-        // TODO cache
-        let play: Symbol<PlayFunc> = unsafe {
-            x.lib.get(b"play\0").unwrap()
-        };
-
-        play(game_state, bot)
-    } else {
-        panic!("We need the brain dynamic library!");
-        //PlanResult::default()
-    }
-}
 
 
 fn main() -> Result<(), Box<Error>> {

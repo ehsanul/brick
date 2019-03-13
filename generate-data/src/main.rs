@@ -6,6 +6,7 @@ extern crate flate2;
 
 use state::*;
 use brain::plan;
+use brain::HeuristicModel; // TODO as _;
 use bincode::serialize_into;
 use na::{ Vector3, UnitQuaternion };
 use flate2::write::GzEncoder;
@@ -13,7 +14,7 @@ use flate2::Compression;
 
 use std::f32::consts::PI;
 use std::fs::{ File, create_dir_all };
-use std::path::Path;
+use std::path::{ Path, PathBuf};
 use std::io::BufWriter;
 use std::error::Error;
 
@@ -36,7 +37,7 @@ fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
 // for speed, and also since the heuristic used is not actully admissible (another perf thing). so
 // in order to get a more accurate path for our data set, we need to do more searches along the
 // path of the initial plan. this can result in a much better plan being found.
-fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config: &SearchConfig) -> Option<Plan> {
+fn best_plan<H: HeuristicModel>(model: &mut H, player: &mut PlayerState, desired_contact: &DesiredContact, config: &SearchConfig) -> Option<Plan> {
     // the formula is based on our heuristic function, and the fact that we use 32-tick steps when
     // far away
     let iterations = if player.position.norm() / 1150.0 > 2.0 { 32 / 2 } else { (config.step_duration / (2.0 * TICK)).round() as i32 };
@@ -44,7 +45,7 @@ fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config:
     let mut last_exploded_plan: Option<Plan> = None;
     let mut reset_at = 0;
     for i in 0..iterations {
-        let plan_result = plan::hybrid_a_star(&player, &desired_contact, &config);
+        let plan_result = plan::hybrid_a_star(model, &player, &desired_contact, &config);
 
         let mut exploded_plan_result = plan_result.clone();
         plan::explode_plan(&mut exploded_plan_result);
@@ -55,11 +56,7 @@ fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config:
                 last_plan = plan_result.plan;
                 reset_at = i;
             }
-        } else if last_exploded_plan.is_some() {
-            // no plan was ever found this time, but we do have last_exploded_plan
-            // we will advance using last_exploded_plan
-        } else {
-
+        } else if last_exploded_plan.is_none() {
             // plan wasn't found in a previous iteration either.
             // advance straight by two ticks and retry
             player.position += 2.0 * TICK * player.velocity;
@@ -81,6 +78,7 @@ fn best_plan(player: &mut PlayerState, desired_contact: &DesiredContact, config:
 }
 
 fn main() -> Result<(), Box<Error>> {
+    let mut model = brain::get_model();
     let mut player = PlayerState::default();
     let desired_contact = DesiredContact::default();
 
@@ -98,9 +96,6 @@ fn main() -> Result<(), Box<Error>> {
         max_iterations: 100_000,
     };
 
-    // XXX do we need avz?
-    //for avz in min_avz..max_avz {
-
     let max_speed_r = (MAX_BOOST_SPEED / SPEED_FACTOR).round() as i32;
     for speed_r in -max_speed_r..=max_speed_r {
         for x_r in (-MAX_X / POS_FACTOR as i32)..=(MAX_X / POS_FACTOR as i32) {
@@ -108,7 +103,8 @@ fn main() -> Result<(), Box<Error>> {
                 for yaw_r in 0..YAW_FACTOR as i32 {
                     player.position.x = x_r as f32 * POS_FACTOR;
                     player.position.y = y_r as f32 * POS_FACTOR;
-                    player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI + yaw_r as f32 * (2.0 * PI / YAW_FACTOR));
+                    let yaw = -PI + yaw_r as f32 * (2.0 * PI / YAW_FACTOR);
+                    player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, yaw);
                     player.velocity = player.rotation * Vector3::new(-1.0 * speed_r as f32 * SPEED_FACTOR, 0.0, 0.0);
 
                     let path = format!(
@@ -119,10 +115,17 @@ fn main() -> Result<(), Box<Error>> {
                         yaw_r,
                     );
 
-                    if let Some(plan) = best_plan(&mut player.clone(), &desired_contact, &config) {
+                    if PathBuf::from(&path).exists() { continue }
+
+                    if let Some(plan) = best_plan(&mut model, &mut player.clone(), &desired_contact, &config) {
                         write_data(&path, plan)?;
                         println!("Done: {:?}", player);
-                    } else if let Some(plan) = best_plan(&mut player.clone(), &desired_contact, &slow_config) {
+                    } else if let Some(plan) = best_plan(&mut model, &mut player.clone(), &desired_contact, &slow_config) {
+                        // the slow config allows more iterations before giving up. always using it
+                        // is a waste given we are looking for a best_plan by doing a search many
+                        // times and the found paths there should always be shorter than paths
+                        // found after more searching. but in the case that every single search
+                        // failed, we can fallback to a slower version which may find a solution
                         write_data(&path, plan)?;
                         println!("SLOW Done: {:?}", player);
                     } else {

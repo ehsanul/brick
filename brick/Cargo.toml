@@ -17,3 +17,6 @@ path = "../state"
 
 [dependencies.passthrough]
 path = "../passthrough"
+
+[dependencies.brain]
+path = "../brain"

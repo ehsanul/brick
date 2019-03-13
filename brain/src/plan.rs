@@ -1,5 +1,6 @@
 use state::*;
 use predict;
+use heuristic::HeuristicModel;
 use na::{ self, Unit, Vector3, Point3, Rotation3 };
 use std::cmp::Ordering;
 use std::f32::consts::PI;
@@ -15,8 +16,6 @@ use itertools;
 use std::hash::BuildHasherDefault;
 use fnv::FnvHasher;
 type MyHasher = BuildHasherDefault<FnvHasher>;
-
-
 
 lazy_static! {
     pub static ref GROUND_CONTROL_BRANCHES: Vec<BrickControllerState> = {
@@ -115,17 +114,15 @@ lazy_static! {
 
 const EXPLODED_STEP_DURATION: f32 = 2.0 * TICK;
 
-/// given the current state and a desired state, return one frame of input that will take us to the
-/// desired state, if any is possible.
+/// wrapper around hybrid_a_star for convenience and some extra smarts
 // TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
-#[no_mangle]
-pub extern fn plan(player: &PlayerState, desired_contact: &DesiredContact, last_plan: Option<&Plan>) -> PlanResult {
+pub extern fn plan<H: HeuristicModel>(model: &mut H, player: &PlayerState, desired_contact: &DesiredContact, last_plan: Option<&Plan>) -> PlanResult {
     let mut config = SearchConfig::default();
     if let Some(last_plan) = last_plan {
         config.max_cost = (10.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
     }
 
-    let mut plan_result = hybrid_a_star(player, &desired_contact, &config);
+    let mut plan_result = hybrid_a_star(model, player, &desired_contact, &config);
     explode_plan(&mut plan_result);
     plan_result
 }
@@ -152,11 +149,11 @@ pub fn explode_plan(plan_result: &mut PlanResult) {
 
         //println!("===================================");
         //println!("original: {:?}", plan.iter().map(|(p, c, s)| {
-        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer, s)
+        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.euler_angles().2, p.angular_velocity.z, c.steer, s)
         //}).collect::<Vec<_>>());
         //println!("-----------------------------------");
         //println!("exploded: {:?}", exploded_plan.iter().map(|(p, c, s)| {
-        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.to_euler_angles().2, p.angular_velocity.z, c.steer, s)
+        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.euler_angles().2, p.angular_velocity.z, c.steer, s)
         //}).collect::<Vec<_>>());
         //println!("===================================");
 
@@ -331,8 +328,7 @@ fn known_unreachable(_current: &PlayerState, desired: &DesiredContact) -> bool {
 
 type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
 
-#[no_mangle]
-pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, config: &SearchConfig) -> PlanResult {
+pub fn hybrid_a_star<H: HeuristicModel>(model: &mut H, current: &PlayerState, desired: &DesiredContact, config: &SearchConfig) -> PlanResult {
     let mut visualization_lines = vec![];
 
     #[allow(unused_mut)]
@@ -341,6 +337,10 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
     if known_unreachable(&current, &desired) {
         return PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
     }
+
+    // sets up the model for this particular prediction. it can do some calculations upfront here
+    // instead of over and over again for each prediction.
+    model.configure(&desired);
 
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: ParentsMap = IndexMap::default();
@@ -355,10 +355,17 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
         heading: desired_hit_direction,
         min_dot: (PI/2.0 - PI/8.0).cos(),
     };
-    let goal_center = coarse_goal.bounding_box.center();
+
+    // buffers to avoid re-allocating in a loop
+    let mut new_vertices = vec![];
+    let mut new_players = vec![];
+    let mut heuristic_costs: Vec<f32> = vec![];
+    let mut single_heuristic_cost: Vec<f32> = vec![0.0];
+
+    model.heuristic(&[current.clone()], &mut single_heuristic_cost[0..1]).expect("Heuristic failed initial!");
 
     to_see.push(SmallestCostHolder {
-        estimated_cost: heuristic_cost(&current, &goal_center, &desired.heading),
+        estimated_cost: single_heuristic_cost[0],
         cost_so_far: 0.0,
         index: 0,
         is_secondary: false,
@@ -414,7 +421,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
         };
 
         let line_start;
-        let new_vertices = {
+        {
             let (_, (v1, maybe_v2)) = parents.get_index(index).expect("missing index in parents, shouldn't be possible");
             let vertex = if is_secondary { maybe_v2.as_ref().unwrap() }  else { v1 };
             line_start = vertex.player.position;
@@ -467,21 +474,31 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, dur, |_| true)
+            expand_vertex(index, is_secondary, &vertex, &mut new_vertices, dur, |_| true)
         };
 
-        for new_vertex in new_vertices {
+        new_players.clear();
+        new_players.extend(new_vertices.iter().map(|v| v.player));
+        while heuristic_costs.len() < new_players.len() {
+            heuristic_costs.push(0.0)
+        }
+        model.heuristic(&new_players, &mut heuristic_costs[0..new_players.len()]).expect("Heuristic failed!");
+
+        let mut heuristic_index = 0;
+        for new_vertex in new_vertices.drain(0..) {
             let new_vertex_rounded = round_player_state(&new_vertex.player, dur, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
             let line_end = new_vertex.player.position;
             let mut new_estimated_cost = 0.0;
+            let i = heuristic_index;
+            heuristic_index += 1;
 
             match parents.entry(new_vertex_rounded) {
                 Vacant(e) => {
                     new_index = e.index();
-                    new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
+                    new_estimated_cost = new_cost_so_far + heuristic_costs[i];
                     e.insert((new_vertex, None));
 
                 }
@@ -492,7 +509,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                     match e.get() {
                         (existing_vertex, None) => {
                             // basically just like the vacant case
-                            new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
+                            new_estimated_cost = new_cost_so_far + heuristic_costs[i];
                             // TODO-perf avoid the clone here. nll? worst-case, can use mem::replace with an enum
                             insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                         },
@@ -510,7 +527,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                                     continue;
                                 }
 
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
+                                new_estimated_cost = new_cost_so_far + heuristic_costs[i];
                             } else if e.index() == new_vertex.parent_index || new_vertex.parent_index == existing_secondary_vertex.parent_index {
                                 // same cell expansion. due to the consistent nature of the heuristic, a new
                                 // vertex that is closer to the goal will have a higher cost-so-far than its
@@ -552,8 +569,9 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, con
                                 // same cost so far. we don't want a tie-breaker like Karl's
                                 // version had since we are not comparing against a parent
                                 // directly, but a sibling!
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &goal_center, &desired.heading);
-                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + heuristic_cost(&existing_secondary_vertex.player, &goal_center, &desired.heading);
+                                new_estimated_cost = new_cost_so_far + heuristic_costs[i];
+                                model.heuristic(&[existing_secondary_vertex.player], &mut single_heuristic_cost[0..1]).expect("Heuristic failed 2!");
+                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + single_heuristic_cost[0];
 
                                 if new_estimated_cost < existing_secondary_estimated_cost {
                                     new_cost_is_lower = true;
@@ -853,8 +871,8 @@ fn out_of_bounds(player: &PlayerState) -> bool {
 }
 
 // TODO-perf reuse vector instead of allocating a new one each time
-fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
-    control_branches(&vertex.player).iter().map(|&controller| {
+fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, new_vertices: &mut Vec<PlayerVertex>, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) {
+    let iterator = control_branches(&vertex.player).iter().map(|&controller| {
         PlayerVertex {
             player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
             cost_so_far: vertex.cost_so_far + step_duration,
@@ -870,47 +888,8 @@ fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_d
         // TODO ideally we'd only allow if we're getting *less* out of bounds than before
         let outside_arena = out_of_bounds(&new_vertex.player) && !out_of_bounds(&vertex.player);
         !outside_arena && custom_filter(&new_vertex)
-    }).collect::<Vec<PlayerVertex>>()
-}
-
-fn heuristic_cost(candidate: &PlayerState, goal_center: &Vector3<f32>, desired_heading: &Vector3<f32>) -> f32 {
-    // basic heuristic cost is a lower-bound for how long it would take, given max boost, to reach
-    // the desired position and velocity. and we need to do rotation too.
-    //
-    // NOTE for now we ignore the fact that we are not starting at the max boost velocity pointed
-    // directly at the desired position. the heuristic just needs to be a lower bound, until we
-    // want to get it more accurate and thus ignore irrelevant branches more efficiently.
-    let towards_goal = goal_center - candidate.position;
-    let distance = towards_goal.norm();
-
-    // XXX more correct to use predict::player::MAX_BOOST_SPEED, but it checks way too many paths.
-    // with a lower value, ie higher heuristic cost, we get a potentially less optimal path, but we
-    // get it a lot faster. it's not so bad given that we aren't actually going in a straight line
-    // boosting at max speed anyways
-    let movement_time_cost = distance / 1150.0;
-
-    // basic penalty for being on the wrong side of the ball which will require a big turn. this
-    // allows us to forgo searching right near the ball on the wrong side when it'll never work
-    // out.
-    let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let car_to_desired = Unit::new_normalize(goal_center - candidate.position).into_inner();
-    let mut penalty_time_cost = if distance < 800.0 && na::Matrix::dot(desired_heading, &car_to_desired) < -0.70 {
-        0.5
-    } else if distance < 1500.0 && na::Matrix::dot(desired_heading, &car_to_desired) < -0.88 {
-        0.5
-    } else if distance < 2000.0 && na::Matrix::dot(desired_heading, &car_to_desired) < -0.95 {
-        0.5
-    } else {
-        0.0
-    };
-    // we have a tighter radius when slow, the numbers above are tuned for going fast
-    if candidate.velocity.norm() < 800.0 {
-        penalty_time_cost *= 0.2;
-    }
-    // if passing sideways, the penalty should be way lower since we're moving out of the deadzone
-    penalty_time_cost *= na::Matrix::dot(&current_heading, &car_to_desired).abs();
-
-    movement_time_cost + penalty_time_cost
+    });
+    new_vertices.extend(iterator);
 }
 
 #[cfg(test)]

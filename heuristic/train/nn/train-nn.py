@@ -24,7 +24,6 @@ class PrintDot(keras.callbacks.Callback):
 def plot_history(history):
   hist = pd.DataFrame(history.history)
   hist['epoch'] = history.epoch
-
   plt.figure()
   plt.xlabel('Epoch')
   plt.ylabel('Mean Abs Error [cost]')
@@ -34,7 +33,6 @@ def plot_history(history):
            label = 'Val Error')
   plt.ylim([0,5])
   plt.legend()
-
   plt.figure()
   plt.xlabel('Epoch')
   plt.ylabel('Mean Square Error [$cost^2$]')
@@ -46,14 +44,22 @@ def plot_history(history):
   plt.legend()
   plt.show()
 
+# we hard-code the values instead of using stats so that integration with
+# predictor using the model is easier
+scaling = pd.DataFrame(data={
+    'min': [-10000, -10000, -10000, -2300, -2300, -2300,  -6.0,  -6.0,  -6.0,   -3.2,    -3.2,  -3.2],
+    'max': [ 10000,  10000,  10000,  2300,  2300,  2300,   6.0,   6.0,   6.0,    3.2,     3.2,   3.2],
+}, index=[     'x',    'y',    'z',  'vx',  'vy',  'vz', 'avx', 'avy', 'avz', 'roll', 'pitch', 'yaw'])
+
 # scale to range [0, 1]
+# TODO try polar coordinates. for velocity: https://math.stackexchange.com/questions/2444965/relationship-between-cartesian-velocity-and-polar-velocity
 def scale(x):
-  return (x - stats['min']) / (stats['max'] - stats['min'])
+  return (x - scaling['min']) / (scaling['max'] - scaling['min'])
 
 def build_model():
   model = keras.Sequential([
-    layers.Dense(64, activation=tf.nn.relu, input_shape=[len(train_dataset.keys())]),
-    layers.Dense(64, activation=tf.nn.relu),
+    layers.Dense(128, activation=tf.nn.relu, input_shape=[len(train_dataset.keys())]),
+    layers.Dense(128, activation=tf.nn.relu),
 
     # these extra layers seem to hurt more than they help!
     #layers.Dropout(0.01),

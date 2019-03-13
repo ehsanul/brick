@@ -1,6 +1,7 @@
 use state::*;
 use plan;
 use predict;
+use heuristic::HeuristicModel; // TODO as _;
 use rlbot;
 use na::{ self, Unit, Vector3, Rotation3 };
 use std::f32::consts::PI;
@@ -13,7 +14,6 @@ use std::collections::VecDeque;
 fn what_do(_game: &GameState) -> Action {
     Action::Shoot // TODO
 }
-
 
 fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
     // TODO calculate which part of the goal is hardest for the opponent to reach
@@ -109,14 +109,14 @@ fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallS
     }
 }
 
-fn shoot(game: &GameState, bot: &mut BotState) -> PlanResult {
+fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
     let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
     let last_plan = if bot.last_action.is_some() && bot.last_action.as_ref().unwrap() == &Action::Shoot {
         bot.plan.as_ref()
     } else {
         None
     };
-    let result = hit_ball(&game, &desired_ball_position, last_plan);
+    let result = hit_ball(model, &game, &desired_ball_position, last_plan);
     bot.last_action = Some(Action::Shoot);
     result
 }
@@ -135,7 +135,7 @@ fn shoot(game: &GameState, bot: &mut BotState) -> PlanResult {
 // 6. boom we found the earliest point at which it's possible to hit the ball into its desired
 //    position, and got the corresponding desired player state all at once.
 // 7. plan motion to reach desired player state
-fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: Option<&Plan>) -> PlanResult {
+fn hit_ball<H: HeuristicModel>(model: &mut H, game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: Option<&Plan>) -> PlanResult {
     //let start = Instant::now();
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 10.0);
     //println!("#############################");
@@ -191,7 +191,7 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: O
     //    ball: shooting_player
     //})
     let start = Instant::now();
-    let x = plan::plan(&game.player, &desired_contact, last_plan);
+    let x = plan::plan(model, &game.player, &desired_contact, last_plan);
     if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
         println!("#############################");
         println!("PLAN DURATION: {:?}", start.elapsed());
@@ -200,7 +200,7 @@ fn hit_ball(game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: O
     x
 }
 
-fn go_near_ball(game: &GameState) -> PlanResult {
+fn go_near_ball<H: HeuristicModel>(model: &mut H, game: &GameState) -> PlanResult {
     let mut desired = DesiredContact::default();
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 1.0);
     let ball_in_one_sec = ball_trajectory[ball_trajectory.len() - 1];
@@ -208,7 +208,7 @@ fn go_near_ball(game: &GameState) -> PlanResult {
     desired.position.x = ball_in_one_sec.position.x;
     desired.position.y = ball_in_one_sec.position.y;
     desired.heading = Unit::new_normalize(ball_in_one_sec.position - game.player.position).into_inner();
-    plan::plan(&game.player, &desired, None)
+    plan::plan(model, &game.player, &desired, None)
 }
 
 fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact) -> f32 {
@@ -243,11 +243,10 @@ fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact
 /// main entrypoint for bot to figure out what to do given the current state
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
-#[no_mangle]
-pub extern fn play(game: &GameState, bot: &mut BotState) -> PlanResult {
+pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
     let start = Instant::now();
     let mut x = match what_do(game) {
-        Action::Shoot => shoot(game, bot),
+        Action::Shoot => shoot(model, game, bot),
     };
     let duration = start.elapsed();
     if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
@@ -259,7 +258,7 @@ pub extern fn play(game: &GameState, bot: &mut BotState) -> PlanResult {
     // fallback when we don't know how to shoot it
     if x.plan.is_none() {
         println!("FALLBACK");
-        x = go_near_ball(&game);
+        x = go_near_ball(model, &game);
     }
 
     x

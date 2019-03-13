@@ -17,5 +17,8 @@ path = "../state"
 [dependencies.predict]
 path = "../predict"
 
+[dependencies.heuristic]
+path = "../heuristic"
+
 [lib]
 crate-type = ["rlib", "dylib"]
