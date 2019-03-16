@@ -870,7 +870,6 @@ fn out_of_bounds(player: &PlayerState) -> bool {
         pos.y > BACK_WALL_DISTANCE + BOUNDS_MARGIN || pos.y < -BACK_WALL_DISTANCE - BOUNDS_MARGIN
 }
 
-// TODO-perf reuse vector instead of allocating a new one each time
 fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, new_vertices: &mut Vec<PlayerVertex>, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) {
     let iterator = control_branches(&vertex.player).iter().map(|&controller| {
         PlayerVertex {

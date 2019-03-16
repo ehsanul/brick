@@ -1,8 +1,11 @@
 extern crate state;
 extern crate tensorflow;
+extern crate kdtree;
+extern crate csv;
 extern crate nalgebra as na;
 
 use std::error::Error;
+use std::fs::File;
 use tensorflow::Graph;
 use tensorflow::Operation;
 use tensorflow::Session;
@@ -10,8 +13,11 @@ use tensorflow::SessionOptions;
 use tensorflow::SessionRunArgs;
 use tensorflow::Tensor;
 
+use kdtree::KdTree;
+
 use state::{ PlayerState, DesiredContact, BALL_RADIUS, CAR_DIMENSIONS };
 use na::{ Unit, Vector3, Rotation3 };
+use std::f32::consts::PI;
 
 pub trait HeuristicModel {
     fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>>;
@@ -133,27 +139,8 @@ impl HeuristicModel for NeuralHeuristic {
     }
 
     fn configure(&mut self, desired: &DesiredContact) {
-        // the training data is based on the ball positioned at 0, 0, and the desired heading being
-        // directly in the positive y axis. given the current heading, we want to find
-        // a transformation matrix that would tranform it into the standard heading, which we can
-        // apply to the car in order to align with how we trained.
-        let standard_heading = Vector3::new(0.0, 1.0, 0.0);
-        let heading = desired.heading / desired.heading.norm();
-
-        let mut angle = na::Matrix::dot(&standard_heading, &heading).acos();
-
-        // if standard is to the right, we need to rotate clockwise
-        // https://math.stackexchange.com/a/555243
-        let delta = heading.x * standard_heading.y - heading.y * standard_heading.x;
-        if delta < 0.0 {
-            angle *= -1.0;
-        }
-
-        self.normalization_rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
-        self.ball_position = desired.position + BALL_RADIUS * desired.heading;
-
-        println!("ANGLE: {}", angle);
-        println!("BALL: {}", self.ball_position);
+        self.normalization_rotation = get_normalization_rotation(desired);
+        self.ball_position = get_ball_position(desired);
     }
 }
 
@@ -230,4 +217,126 @@ impl HeuristicModel for BasicHeuristic {
         self.desired_heading = Unit::new_normalize(desired.heading.clone()).into_inner();
         self.goal_center = desired.position - (CAR_DIMENSIONS.x / 2.0) * self.desired_heading;
     }
+}
+
+const KNN_DIMENSIONS: usize = 3; // x, y. yaw
+
+#[derive(Debug)]
+pub struct KnnHeuristic {
+    tree: KdTree<f32, f32, [f32; KNN_DIMENSIONS]>,
+    ball_position: Vector3<f32>,
+    normalization_rotation: Rotation3<f32>,
+}
+
+// so that yaw distance is in the same ballpark as positional distance
+const SCALE_CIRCULAR_DISTANCE: f32 = 500.0;
+
+// this is a fudge factor to make the heuristic over-estimate, which gives up accuracy/optimality
+// in exchange for speed
+const SCALE_KNN_COST: f32 = 1.1;
+
+// +PI and -PI are the same angle, so the distance needs to take that into account!
+fn circular_distance(a: f32, b: f32) -> f32 {
+    let distance = (a - b).abs().min(2.0 * PI + a - b).min(2.0 * PI + b - a);
+    SCALE_CIRCULAR_DISTANCE * distance
+}
+
+fn squared_distance(a: f32, b: f32) -> f32 {
+    (b - a).powf(2.0)
+}
+
+fn knn_distance(a: &[f32], b: &[f32]) -> f32 {
+    squared_distance(a[0], b[0]) + squared_distance(a[1], b[1]) + circular_distance(a[2], b[2]).powf(2.0)
+}
+
+impl KnnHeuristic {
+    pub fn try_new(path: &str) -> Result<Self, Box<dyn Error>>{
+        let mut tree = KdTree::new(KNN_DIMENSIONS);
+
+        let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(File::open(path)?);
+        //tree.add(&x, 99.0).unwrap();
+        for record in rdr.records() {
+          let record = record?;
+          let cost = record.get(0).expect("Invalid row?").parse()?;
+          let x = record.get(1).expect("Invalid row?").parse()?;
+          let y = record.get(2).expect("Invalid row?").parse()?;
+          let yaw = record.get(12).expect("Invalid row?").parse()?;
+            tree.add([x, y, yaw], cost)?;
+        }
+
+        Ok(KnnHeuristic {
+            tree,
+            // set the rest in configure step
+            ..Default::default()
+        })
+    }
+
+    fn single_heuristic(&self, player: &PlayerState) -> f32 {
+        let pos = self.normalization_rotation * (player.position - self.ball_position);
+        let (_roll, _pitch, yaw) = (self.normalization_rotation * player.rotation).euler_angles();
+        let point = [pos.x, pos.y, yaw];
+        let nearest = self.tree.nearest(&point, 2, &knn_distance).unwrap();
+
+        let total_distance: f32 = nearest.iter().map(|(d, _)| d).sum();
+        let weighted_average_cost: f32 = nearest.iter().map(|(distance, &cost)| {
+            let weight = 1.0 - (distance / total_distance);
+            weight * cost
+        }).sum();
+
+        weighted_average_cost * SCALE_KNN_COST
+    }
+}
+
+impl Default for KnnHeuristic {
+    fn default() -> KnnHeuristic {
+        KnnHeuristic {
+            tree: KdTree::new(KNN_DIMENSIONS),
+            ball_position: Vector3::new(0.0, 0.0, 0.0),
+            normalization_rotation: Rotation3::from_euler_angles(0.0, 0.0, 0.0),
+        }
+    }
+}
+
+impl HeuristicModel for KnnHeuristic {
+    fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
+        assert!(players.len() == costs.len());
+        for (i, cost) in costs.iter_mut().enumerate() {
+            let player = unsafe { players.get_unchecked(i) };
+            *cost = self.single_heuristic(player);
+        }
+
+        Ok(())
+    }
+
+    fn configure(&mut self, desired: &DesiredContact) {
+        self.normalization_rotation = get_normalization_rotation(desired);
+        self.ball_position = get_ball_position(desired);
+    }
+}
+
+fn get_normalization_rotation(desired: &DesiredContact) -> Rotation3<f32> {
+    // the training data is based on the ball positioned at 0, 0, and the desired heading being
+    // directly in the positive y axis. given the current heading, we want to find
+    // a transformation matrix that would tranform it into the standard heading, which we can
+    // apply to the car in order to align with how we trained.
+    let standard_heading = Vector3::new(0.0, 1.0, 0.0);
+    let heading = desired.heading / desired.heading.norm();
+
+    let mut angle = na::Matrix::dot(&standard_heading, &heading).acos();
+
+    // if standard is to the right, we need to rotate clockwise
+    // https://math.stackexchange.com/a/555243
+    let delta = heading.x * standard_heading.y - heading.y * standard_heading.x;
+    if delta < 0.0 {
+        angle *= -1.0;
+    }
+
+    println!("ANGLE: {}", angle);
+
+    Rotation3::from_euler_angles(0.0, 0.0, angle)
+}
+
+
+fn get_ball_position(desired: &DesiredContact) -> Vector3<f32> {
+    desired.position + BALL_RADIUS * desired.heading
 }

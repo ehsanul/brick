@@ -5,7 +5,9 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 tensorflow = "0.12.0"
+kdtree = "0.5.1"
 nalgebra = "*"
+csv = "*"
 
 [dependencies.state]
 path = "../state"
