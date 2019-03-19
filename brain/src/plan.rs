@@ -136,7 +136,7 @@ pub fn explode_plan(plan_result: &mut PlanResult) {
         exploded_plan.push(plan[0]);
 
         for i in 1..plan.len() {
-            assert!((plan[i].2 % EXPLODED_STEP_DURATION).abs() < 0.000001); // ensure multiple, ignoring fp inaccuracies
+            assert!(((plan[i].2 / TICK).round() % (EXPLODED_STEP_DURATION / TICK).round()).abs() < 0.000001); // ensure multiple, ignoring fp inaccuracies
             let exploded_length = (plan[i].2 / EXPLODED_STEP_DURATION).round() as i32;
             let last_player = plan[i - 1].0;
             let controller = plan[i].1;
