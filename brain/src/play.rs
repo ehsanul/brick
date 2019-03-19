@@ -255,12 +255,6 @@ pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotSta
         println!("#############################");
     }
 
-    // fallback when we don't know how to shoot it
-    if x.plan.is_none() {
-        println!("FALLBACK");
-        x = go_near_ball(model, &game);
-    }
-
     x
 }
 
