@@ -3,6 +3,7 @@ extern crate tensorflow;
 extern crate kdtree;
 extern crate csv;
 extern crate nalgebra as na;
+extern crate ord_subset;
 
 use std::error::Error;
 use std::fs::File;
@@ -18,6 +19,8 @@ use kdtree::KdTree;
 use state::{ PlayerState, DesiredContact, BALL_RADIUS, CAR_DIMENSIONS };
 use na::{ Unit, Vector3, Rotation3 };
 use std::f32::consts::PI;
+
+use ord_subset::{OrdSubsetIterExt, OrdSubsetSliceExt};
 
 pub trait HeuristicModel {
     fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>>;
@@ -233,7 +236,7 @@ const SCALE_CIRCULAR_DISTANCE: f32 = 500.0;
 
 // this is a fudge factor to make the heuristic over-estimate, which gives up accuracy/optimality
 // in exchange for speed
-const SCALE_KNN_COST: f32 = 1.1;
+const SCALE_KNN_COST: f32 = 1.2;
 
 // +PI and -PI are the same angle, so the distance needs to take that into account!
 fn circular_distance(a: f32, b: f32) -> f32 {
@@ -275,13 +278,14 @@ impl KnnHeuristic {
         let pos = self.normalization_rotation * (player.position - self.ball_position);
         let (_roll, _pitch, yaw) = (self.normalization_rotation * player.rotation).euler_angles();
         let point = [pos.x, pos.y, yaw];
-        let nearest = self.tree.nearest(&point, 2, &knn_distance).unwrap();
+        let nearest = self.tree.nearest(&point, 3, &knn_distance).unwrap();
 
-        let total_distance: f32 = nearest.iter().map(|(d, _)| d).sum();
+        let max_distance: f32 = *nearest.iter().map(|(d, _)| d).ord_subset_max().unwrap();
+        let total_weights: f32 = nearest.iter().map(|(d, _)| max_distance / d).sum();
         let weighted_average_cost: f32 = nearest.iter().map(|(distance, &cost)| {
-            let weight = 1.0 - (distance / total_distance);
+            let weight = max_distance / distance;
             weight * cost
-        }).sum();
+        }).sum::<f32>() / total_weights;
 
         weighted_average_cost * SCALE_KNN_COST
     }
@@ -330,8 +334,6 @@ fn get_normalization_rotation(desired: &DesiredContact) -> Rotation3<f32> {
     if delta < 0.0 {
         angle *= -1.0;
     }
-
-    println!("ANGLE: {}", angle);
 
     Rotation3::from_euler_angles(0.0, 0.0, angle)
 }
