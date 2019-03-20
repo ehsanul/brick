@@ -78,7 +78,7 @@ fn best_plan<H: HeuristicModel>(model: &mut H, player: &mut PlayerState, desired
 }
 
 fn main() -> Result<(), Box<Error>> {
-    let mut model = brain::get_model();
+    let mut model = brain::BasicHeuristic::default();
     let mut player = PlayerState::default();
     let desired_contact = DesiredContact::default();
 
@@ -87,6 +87,7 @@ fn main() -> Result<(), Box<Error>> {
         slop: 10.0,
         max_cost: 10.0,
         max_iterations: 10_000,
+        scale_heuristic: 1.0,
     };
 
     let slow_config = SearchConfig {

@@ -118,6 +118,10 @@ const EXPLODED_STEP_DURATION: f32 = 2.0 * TICK;
 // TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
 pub extern fn plan<H: HeuristicModel>(model: &mut H, player: &PlayerState, desired_contact: &DesiredContact, last_plan: Option<&Plan>) -> PlanResult {
     let mut config = SearchConfig::default();
+
+    // speed over optimality
+    config.scale_heuristic = 1.4;
+
     if let Some(last_plan) = last_plan {
         config.max_cost = (10.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
     }
@@ -340,7 +344,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(model: &mut H, current: &PlayerState, de
 
     // sets up the model for this particular prediction. it can do some calculations upfront here
     // instead of over and over again for each prediction.
-    model.configure(&desired);
+    model.configure(&desired, config.scale_heuristic);
 
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: ParentsMap = IndexMap::default();

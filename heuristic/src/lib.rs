@@ -25,7 +25,9 @@ use ord_subset::{OrdSubsetIterExt, OrdSubsetSliceExt};
 pub trait HeuristicModel {
     fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>>;
 
-    fn configure(&mut self, desired: &DesiredContact);
+    // NOTE scale is a fudge factor to make the heuristic over-estimate, which gives up
+    // accuracy/optimality in exchange for speed
+    fn configure(&mut self, desired: &DesiredContact, scale: f32);
 }
 
 pub struct NeuralHeuristic {
@@ -34,6 +36,7 @@ pub struct NeuralHeuristic {
     op_predict: Operation,
     ball_position: Vector3<f32>,
     normalization_rotation: Rotation3<f32>,
+    scale: f32,
 }
 
 impl NeuralHeuristic {
@@ -58,6 +61,7 @@ impl NeuralHeuristic {
             // set these in configure step
             ball_position: Vector3::new(0.0, 0.0, 0.0),
             normalization_rotation: Rotation3::from_euler_angles(0.0, 0.0, 0.0),
+            scale: 1.0,
         })
     }
 }
@@ -138,12 +142,15 @@ impl HeuristicModel for NeuralHeuristic {
         let predictions = output_step.fetch(prediction_token)?;
         costs.copy_from_slice(&predictions);
 
+        for c in costs.iter_mut() { *c *= self.scale }
+
         Ok(())
     }
 
-    fn configure(&mut self, desired: &DesiredContact) {
+    fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.normalization_rotation = get_normalization_rotation(desired);
         self.ball_position = get_ball_position(desired);
+        self.scale = scale;
     }
 }
 
@@ -151,6 +158,7 @@ impl HeuristicModel for NeuralHeuristic {
 pub struct BasicHeuristic {
     goal_center: Vector3<f32>,
     desired_heading: Vector3<f32>,
+    scale: f32,
 }
 
 
@@ -201,6 +209,7 @@ impl Default for BasicHeuristic {
         BasicHeuristic {
             goal_center: Vector3::new(0.0, 0.0, 0.0),
             desired_heading: Vector3::new(0.0, 0.0, 0.0),
+            scale: 1.0,
         }
     }
 }
@@ -210,15 +219,16 @@ impl HeuristicModel for BasicHeuristic {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
-            *cost = self.single_heuristic(player);
+            *cost = self.single_heuristic(player) * self.scale;
         }
 
         Ok(())
     }
 
-    fn configure(&mut self, desired: &DesiredContact) {
+    fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.desired_heading = Unit::new_normalize(desired.heading.clone()).into_inner();
         self.goal_center = desired.position - (CAR_DIMENSIONS.x / 2.0) * self.desired_heading;
+        self.scale = scale;
     }
 }
 
@@ -229,14 +239,11 @@ pub struct KnnHeuristic {
     tree: KdTree<f32, f32, [f32; KNN_DIMENSIONS]>,
     ball_position: Vector3<f32>,
     normalization_rotation: Rotation3<f32>,
+    scale: f32,
 }
 
 // so that yaw distance is in the same ballpark as positional distance
 const SCALE_CIRCULAR_DISTANCE: f32 = 500.0;
-
-// this is a fudge factor to make the heuristic over-estimate, which gives up accuracy/optimality
-// in exchange for speed
-const SCALE_KNN_COST: f32 = 1.2;
 
 // +PI and -PI are the same angle, so the distance needs to take that into account!
 fn circular_distance(a: f32, b: f32) -> f32 {
@@ -287,7 +294,7 @@ impl KnnHeuristic {
             weight * cost
         }).sum::<f32>() / total_weights;
 
-        weighted_average_cost * SCALE_KNN_COST
+        weighted_average_cost
     }
 }
 
@@ -297,6 +304,7 @@ impl Default for KnnHeuristic {
             tree: KdTree::new(KNN_DIMENSIONS),
             ball_position: Vector3::new(0.0, 0.0, 0.0),
             normalization_rotation: Rotation3::from_euler_angles(0.0, 0.0, 0.0),
+            scale: 1.0,
         }
     }
 }
@@ -306,15 +314,16 @@ impl HeuristicModel for KnnHeuristic {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
-            *cost = self.single_heuristic(player);
+            *cost = self.single_heuristic(player) * self.scale;
         }
 
         Ok(())
     }
 
-    fn configure(&mut self, desired: &DesiredContact) {
+    fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.normalization_rotation = get_normalization_rotation(desired);
         self.ball_position = get_ball_position(desired);
+        self.scale = scale;
     }
 }
 

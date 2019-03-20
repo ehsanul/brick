@@ -72,6 +72,7 @@ pub enum Team {
 }
 
 
+// TODO-perf remove Copy
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub struct PlayerState {
     pub position: Vector3<f32>,
@@ -204,6 +205,7 @@ pub struct SearchConfig {
     pub slop: f32,
     pub max_cost: f32,
     pub max_iterations: i32,
+    pub scale_heuristic: f32,
 }
 
 impl Default for SearchConfig {
@@ -216,6 +218,7 @@ impl Default for SearchConfig {
             slop: 20.0,
             max_cost: 10.0,
             max_iterations: 50_000,
+            scale_heuristic: 1.0,
         }
     }
 }
