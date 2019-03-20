@@ -89,6 +89,10 @@ lazy_static! {
             //right_boost,
             //straight_boost,
 
+            //left_drift_boost,
+            //right_drift_boost,
+            //straight_drift_boost,
+
             left_throttle,
             right_throttle,
             straight_throttle,
@@ -97,17 +101,21 @@ lazy_static! {
             //right_drift_throttle,
             //straight_drift_throttle,
 
-            //left_drift_boost,
-            //right_drift_boost,
-            //straight_drift_boost,
-
             //left_idle,
             //right_idle,
             //straight_idle,
 
+            //left_drift_idle,
+            //right_drift_idle,
+            //straight_drift_idle,
+
             //left_reverse,
             //right_reverse,
             //straight_reverse,
+
+            //left_drift_reverse,
+            //right_drift_reverse,
+            //straight_drift_reverse,
         ]
     };
 }
