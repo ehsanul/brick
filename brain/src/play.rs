@@ -42,12 +42,12 @@ pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &V
     }
 }
 
-fn reachable_desired_player_state(player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<DesiredContact> {
+fn reachable_desired_player_state<H: HeuristicModel>(model: &mut H, player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<DesiredContact> {
     let start = Instant::now();
 
     let mut estimates = ball_trajectory.iter().enumerate().map(|(i, ball)| {
         let desired_contact = simple_desired_contact(ball, &desired_ball_position);
-        let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
+        let shooting_time = non_admissable_estimated_time(model, &player, &desired_contact);
         (i, shooting_time)
     }).collect::<Vec<_>>();
     estimates.sort_by(|(i, shooting_time), (i2, shooting_time2)| {
@@ -172,10 +172,10 @@ fn hit_ball<H: HeuristicModel>(model: &mut H, game: &GameState, desired_ball_pos
         trajectory_segment2 = &[];
     }
 
-    let desired_contact = match reachable_desired_player_state(&game.player, &trajectory_segment1, &desired_ball_position) {
+    let desired_contact = match reachable_desired_player_state(model, &game.player, &trajectory_segment1, &desired_ball_position) {
         Some(dc) => dc,
         None => {
-            match reachable_desired_player_state(&game.player, &trajectory_segment2, &desired_ball_position) {
+            match reachable_desired_player_state(model, &game.player, &trajectory_segment2, &desired_ball_position) {
                 Some(dc) => dc,
                 None => {
                     let fake_desired = DesiredContact::default();
@@ -211,29 +211,15 @@ fn go_near_ball<H: HeuristicModel>(model: &mut H, game: &GameState) -> PlanResul
     plan::plan(model, &game.player, &desired, None)
 }
 
-fn non_admissable_estimated_time(current: &PlayerState, desired: &DesiredContact) -> f32 {
+fn non_admissable_estimated_time<H: HeuristicModel>(model: &mut H, current: &PlayerState, desired: &DesiredContact) -> f32 {
     // unreachable, we can't fly
     if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
         return std::f32::MAX;
     }
 
-    let towards_contact = desired.position - current.position;
-    let distance = towards_contact.norm();
-    let mut estimated_movement_time = distance / 800.0; // TODO TUNE
-
-    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let towards_contact_heading = Unit::new_normalize(towards_contact).into_inner();
-
-    let pointed_right_way_value = na::Matrix::dot(&current_heading, &towards_contact_heading);
-    let needs_additional_turning_value = na::Matrix::dot(&towards_contact_heading, &Unit::new_normalize(desired.heading.clone()).into_inner());
-
-    if pointed_right_way_value < 0.0 {
-        estimated_movement_time += 1.5; // TODO TUNE
-    }
-    if needs_additional_turning_value  < 0.0 {
-        estimated_movement_time += 1.5; // TODO TUNE
-    }
-    estimated_movement_time
+    let mut single_heuristic_cost = [0.0];
+    model.heuristic(&[current.clone()], &mut single_heuristic_cost[0..1]).expect("Heuristic failed initial!");
+    unsafe { *single_heuristic_cost.get_unchecked(0) }
 }
 
 // TODO
