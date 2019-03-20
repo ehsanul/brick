@@ -484,19 +484,17 @@ fn simulate_over_time() {
     let mut model = brain::get_model();
     {
         let mut game_state = GAME_STATE.write().unwrap();
-        // SLOW
-        // THIS Is slow too [-800.0, 600.0, 0.0] }, velocity: Matrix { data: [0.0, -1100.0
-        // game_state.ball.position = Vector3::new(0.0, 0.0, BALL_RADIUS);
-        // game_state.player.position = Vector3::new(-1000.0, -600.0, 0.0);
-        // game_state.player.velocity = Vector3::new(0.0, 1100.0, 0.0);
-
         game_state.ball.position = Vector3::new(0.0, 0.0, BALL_RADIUS);
-        game_state.player.position = Vector3::new(-2000.0, -1000.0, 0.0);
-        game_state.player.velocity = Vector3::new(-1100.0, 0.0, 0.0);
+        game_state.player.position = Vector3::new(0.0, 4000.0, 0.0);
+        game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
 
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
-        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+        // left
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        // up
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+        // down
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
+        // right
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
 
         initial_game_state = game_state.clone();
@@ -526,11 +524,8 @@ fn simulate_over_time() {
                 *game_state = initial_game_state.clone();
                 bot.plan = None;
             }
-            if plan.len() - i < 20 {
-                thread::sleep(Duration::from_millis(1000/4));
-            } else {
-                thread::sleep(Duration::from_millis(1000/121));
-            }
+            // TODO take into account time taken planning
+            thread::sleep(Duration::from_millis(1000/121));
         } else {
             // just panic in case no plan is found during simulation, as this should not happen
             unimplemented!("go forward 2")
