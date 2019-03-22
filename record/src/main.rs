@@ -32,14 +32,7 @@ impl RecordState {
         }
 
         let latest = (game_state.frame, game_state.player.clone());
-        if self.records.len() > 0 {
-            let last = self.records[self.records.len() - 1];
-            if last != latest {
-                self.records.push(latest);
-            }
-        } else {
-            self.records.push(latest);
-        }
+        self.records.push(latest);
     }
 
     fn is_initial_state(&self, game_state: &GameState) -> bool {
