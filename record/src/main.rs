@@ -16,6 +16,7 @@ struct RecordState {
     angular_speed: i16,
     started: bool,
     records: Vec<(i32, PlayerState)>,
+    name: &'static str,
 }
 
 impl RecordState {
@@ -41,7 +42,7 @@ impl RecordState {
     }
 
     pub fn save_and_advance(&mut self) {
-        let path = format!("data/samples/throttle_left/{}_{}.csv", self.speed, self.angular_speed);
+        let path = format!("data/samples/flat_ground/{}/{}_{}.csv", self.name, self.speed, self.angular_speed);
         let mut wtr = csv::Writer::from_path(path).expect("couldn't open file for writing csv");
 
         for (frame, player) in &self.records {
@@ -156,13 +157,6 @@ impl RecordState {
     }
 }
 
-fn bot_input() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Steer = -1.0;
-    input
-}
-
 fn wait_for_match_start(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
     // `packets.next()` sleeps until the next packet is available,
     // so this loop will not roast your CPU :)
@@ -213,14 +207,204 @@ fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn record_set(rlbot: &rlbot::RLBot, name: &'static str, input: ffi::PlayerInput) -> Result<(), Box<Error>> {
     let mut record_state = RecordState {
-        speed: 0,
+        speed: -MAX_BOOST_SPEED,
         angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
         started: false,
         records: vec![],
+        name: name,
     };
 
+    record_state.set_next_game_state(&rlbot)?;
+    let mut physicist = rlbot.physicist();
+    loop {
+        let tick = physicist.next_flat()?;
+
+        record_state.record(&tick);
+        if record_state.sample_complete() {
+            record_state.save_and_advance();
+            if record_state.all_samples_complete() {
+                break;
+            } else {
+                record_state.set_next_game_state(&rlbot)?;
+            }
+        }
+
+        rlbot.update_player_input(input, 0)?;
+    }
+
+    Ok(())
+}
+
+fn throttle_straight() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input
+}
+
+fn throttle_left() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input.Steer = -1.0;
+    input
+}
+
+fn throttle_right() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input.Steer = 1.0;
+    input
+}
+
+fn throttle_straight_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input.Handbrake = true;
+    input
+}
+
+fn throttle_left_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input.Handbrake = true;
+    input.Steer = -1.0;
+    input
+}
+
+fn throttle_right_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = 1.0;
+    input.Handbrake = true;
+    input.Steer = 1.0;
+    input
+}
+
+fn boost_straight() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Boost = true;
+    input
+}
+
+fn boost_left() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Boost = true;
+    input.Steer = -1.0;
+    input
+}
+
+fn boost_right() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Boost = true;
+    input.Steer = 1.0;
+    input
+}
+
+fn boost_straight_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Boost = true;
+    input.Handbrake = true;
+    input
+}
+
+fn boost_left_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Boost = true;
+    input.Handbrake = true;
+    input.Steer = -1.0;
+    input
+}
+
+fn boost_right_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Boost = true;
+    input.Handbrake = true;
+    input.Steer = 1.0;
+    input
+}
+
+fn brake_straight() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = -1.0;
+    input
+}
+
+fn brake_left() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = -1.0;
+    input.Steer = -1.0;
+    input
+}
+
+fn brake_right() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = -1.0;
+    input.Steer = 1.0;
+    input
+}
+
+fn brake_straight_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = -1.0;
+    input.Handbrake = true;
+    input
+}
+
+fn brake_left_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = -1.0;
+    input.Handbrake = true;
+    input.Steer = -1.0;
+    input
+}
+
+fn brake_right_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Throttle = -1.0;
+    input.Handbrake = true;
+    input.Steer = 1.0;
+    input
+}
+
+fn idle_straight() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input
+}
+
+fn idle_left() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Steer = -1.0;
+    input
+}
+
+fn idle_right() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Steer = 1.0;
+    input
+}
+
+fn idle_straight_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Handbrake = true;
+    input
+}
+
+fn idle_left_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Handbrake = true;
+    input.Steer = -1.0;
+    input
+}
+
+fn idle_right_drift() -> ffi::PlayerInput {
+    let mut input = ffi::PlayerInput::default();
+    input.Handbrake = true;
+    input.Steer = 1.0;
+    input
+}
+
+
+fn main() -> Result<(), Box<Error>> {
     let rlbot = rlbot::init()?;
     let mut settings = ffi::MatchSettings {
         NumPlayers: 1,
@@ -241,24 +425,31 @@ fn main() -> Result<(), Box<Error>> {
 
     // set initial state
     move_ball_out_of_the_way(&rlbot)?;
-    record_state.set_next_game_state(&rlbot)?;
 
-    let mut physicist = rlbot.physicist();
-    loop {
-        let tick = physicist.next_flat()?;
-
-        record_state.record(&tick);
-        if record_state.sample_complete() {
-            record_state.save_and_advance();
-            if record_state.all_samples_complete() {
-                break;
-            } else {
-                record_state.set_next_game_state(&rlbot)?;
-            }
-        }
-
-        rlbot.update_player_input(bot_input(), 0)?;
-    }
+    record_set(&rlbot, "throttle_straight", throttle_straight())?;
+    record_set(&rlbot, "throttle_left", throttle_left())?;
+    record_set(&rlbot, "throttle_right", throttle_right())?;
+    record_set(&rlbot, "throttle_straight_drift", throttle_straight_drift())?;
+    record_set(&rlbot, "throttle_left_drift", throttle_left_drift())?;
+    record_set(&rlbot, "throttle_right_drift", throttle_right_drift())?;
+    record_set(&rlbot, "boost_straight", boost_straight())?;
+    record_set(&rlbot, "boost_left", boost_left())?;
+    record_set(&rlbot, "boost_right", boost_right())?;
+    record_set(&rlbot, "boost_straight_drift", boost_straight_drift())?;
+    record_set(&rlbot, "boost_left_drift", boost_left_drift())?;
+    record_set(&rlbot, "boost_right_drift", boost_right_drift())?;
+    record_set(&rlbot, "brake_straight", brake_straight())?;
+    record_set(&rlbot, "brake_left", brake_left())?;
+    record_set(&rlbot, "brake_right", brake_right())?;
+    record_set(&rlbot, "brake_straight_drift", brake_straight_drift())?;
+    record_set(&rlbot, "brake_left_drift", brake_left_drift())?;
+    record_set(&rlbot, "brake_right_drift", brake_right_drift())?;
+    record_set(&rlbot, "idle_straight", idle_straight())?;
+    record_set(&rlbot, "idle_left", idle_left())?;
+    record_set(&rlbot, "idle_right", idle_right())?;
+    record_set(&rlbot, "idle_straight_drift", idle_straight_drift())?;
+    record_set(&rlbot, "idle_left_drift", idle_left_drift())?;
+    record_set(&rlbot, "idle_right_drift", idle_right_drift())?;
 
     Ok(())
 }
