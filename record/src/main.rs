@@ -70,7 +70,7 @@ impl RecordState {
         self.records.clear();
         self.speed += 100;
         if self.speed > MAX_BOOST_SPEED {
-            self.speed = 0;
+            self.speed = -MAX_BOOST_SPEED;
             self.angular_speed += 1;
         }
     }
