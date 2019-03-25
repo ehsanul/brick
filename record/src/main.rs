@@ -2,7 +2,7 @@ extern crate csv;
 extern crate flatbuffers;
 extern crate rlbot;
 extern crate state;
-use rlbot::{ ffi, flat };
+use rlbot::{ flat, ControllerState };
 use state::*;
 use std::error::Error;
 use std::f32::consts::PI;
@@ -74,76 +74,39 @@ impl RecordState {
     pub fn set_next_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
         self.started = false;
 
-        let mut builder = flatbuffers::FlatBufferBuilder::new_with_capacity(1024);
-        let mut car_offsets = Vec::with_capacity(1);
+        let position = rlbot::Vector3Partial::new()
+            .x(0.0)
+            .y(0.0)
+            .z(18.65); // batmobile resting z
 
-        let position = flat::Vector3Partial::create(
-            &mut builder,
-            &flat::Vector3PartialArgs {
-                x: Some(&flat::Float::new(0.0)),
-                y: Some(&flat::Float::new(0.0)),
-                z: Some(&flat::Float::new(18.65)), // batmobile resting z
-            },
-        );
+        let velocity = rlbot::Vector3Partial::new()
+            .x(0.0)
+            .y(self.speed as f32)
+            .z(0.0);
 
-        let velocity = flat::Vector3Partial::create(
-            &mut builder,
-            &flat::Vector3PartialArgs {
-                x: Some(&flat::Float::new(0.0)),
-                y: Some(&flat::Float::new(self.speed as f32)),
-                z: Some(&flat::Float::new(0.0)),
-            },
-        );
+        let angular_velocity = rlbot::Vector3Partial::new()
+            .x(0.0)
+            .y(0.0)
+            .z(self.angular_speed as f32 * ANGULAR_GRID);
 
-        let angular_velocity = flat::Vector3Partial::create(
-            &mut builder,
-            &flat::Vector3PartialArgs {
-                x: Some(&flat::Float::new(0.0)),
-                y: Some(&flat::Float::new(0.0)),
-                z: Some(&flat::Float::new(self.angular_speed as f32 * ANGULAR_GRID)),
-            },
-        );
+        let rotation = rlbot::RotatorPartial::new()
+            .pitch(0.0)
+            .yaw(PI / 2.0)
+            .roll(0.0);
 
-        let rotation = flat::RotatorPartial::create(
-            &mut builder,
-            &flat::RotatorPartialArgs {
-                pitch: Some(&flat::Float::new(0.0)),
-                yaw: Some(&flat::Float::new(PI / 2.0)),
-                roll: Some(&flat::Float::new(0.0)),
-            },
-        );
+        let physics = rlbot::DesiredPhysics::new()
+            .location(position)
+            .rotation(rotation)
+            .velocity(velocity)
+            .angular_velocity(angular_velocity);
 
-        let physics = flat::DesiredPhysics::create(
-            &mut builder,
-            &flat::DesiredPhysicsArgs {
-                location: Some(position),
-                rotation: Some(rotation),
-                velocity: Some(velocity),
-                angularVelocity: Some(angular_velocity),
-                ..Default::default()
-            },
-        );
+        let car_state = rlbot::DesiredCarState::new()
+            .physics(physics);
 
-        let car_state = flat::DesiredCarState::create(
-            &mut builder,
-            &flat::DesiredCarStateArgs {
-                physics: Some(physics),
-                ..Default::default()
-            },
-        );
-        car_offsets.push(car_state);
-        let car_states = builder.create_vector(&car_offsets);
+        let desired_game_state = rlbot::DesiredGameState::new()
+            .car_state(0, car_state);
 
-        let desired_game_state = flat::DesiredGameState::create(
-            &mut builder,
-            &flat::DesiredGameStateArgs {
-                carStates: Some(car_states),
-                ..Default::default()
-            },
-        );
-
-        builder.finish(desired_game_state, None);
-        rlbot.set_game_state(&builder.finished_data())?;
+        rlbot.set_game_state(&desired_game_state)?;
 
         Ok(())
     }
@@ -157,57 +120,27 @@ impl RecordState {
     }
 }
 
-fn wait_for_match_start(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
-    // `packets.next()` sleeps until the next packet is available,
-    // so this loop will not roast your CPU :)
-    let mut packets = rlbot.packeteer();
-    while !packets.next()?.GameInfo.RoundActive {};
-    Ok(())
-}
-
 fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
-    let mut builder = flatbuffers::FlatBufferBuilder::new_with_capacity(1024);
+    let position = rlbot::Vector3Partial::new()
+        .x(3800.0)
+        .y(4800.0)
+        .z(98.0);
 
-    let position = flat::Vector3Partial::create(
-        &mut builder,
-        &flat::Vector3PartialArgs {
-            x: Some(&flat::Float::new(3800.0)),
-            y: Some(&flat::Float::new(4800.0)),
-            z: Some(&flat::Float::new(98.0)),
-        },
-    );
+    let physics = rlbot::DesiredPhysics::new()
+        .location(position);
 
-    let physics = flat::DesiredPhysics::create(
-        &mut builder,
-        &flat::DesiredPhysicsArgs {
-            location: Some(position),
-            ..Default::default()
-        },
-    );
+    let ball_state = rlbot::DesiredBallState::new()
+        .physics(physics);
 
-    let ball_state = flat::DesiredBallState::create(
-        &mut builder,
-        &flat::DesiredBallStateArgs {
-            physics: Some(physics),
-            ..Default::default()
-        },
-    );
+    let desired_game_state = rlbot::DesiredGameState::new()
+        .ball_state(ball_state);
 
-    let desired_game_state = flat::DesiredGameState::create(
-        &mut builder,
-        &flat::DesiredGameStateArgs {
-            ballState: Some(ball_state),
-            ..Default::default()
-        },
-    );
-
-    builder.finish(desired_game_state, None);
-    rlbot.set_game_state(&builder.finished_data())?;
+    rlbot.set_game_state(&desired_game_state)?;
 
     Ok(())
 }
 
-fn record_set(rlbot: &rlbot::RLBot, name: &'static str, input: ffi::PlayerInput) -> Result<(), Box<Error>> {
+fn record_set(rlbot: &rlbot::RLBot, name: &'static str, input: ControllerState) -> Result<(), Box<Error>> {
     let mut record_state = RecordState {
         speed: -MAX_BOOST_SPEED,
         angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
@@ -231,197 +164,194 @@ fn record_set(rlbot: &rlbot::RLBot, name: &'static str, input: ffi::PlayerInput)
             }
         }
 
-        rlbot.update_player_input(input, 0)?;
+        rlbot.update_player_input(0, &input)?;
     }
 
     Ok(())
 }
 
-fn throttle_straight() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
+fn throttle_straight() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = 1.0;
     input
 }
 
-fn throttle_left() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Steer = -1.0;
+fn throttle_left() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = 1.0;
+    input.steer = -1.0;
     input
 }
 
-fn throttle_right() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Steer = 1.0;
+fn throttle_right() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = 1.0;
+    input.steer = 1.0;
     input
 }
 
-fn throttle_straight_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Handbrake = true;
+fn throttle_straight_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = 1.0;
+    input.handbrake = true;
     input
 }
 
-fn throttle_left_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Handbrake = true;
-    input.Steer = -1.0;
+fn throttle_left_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = 1.0;
+    input.handbrake = true;
+    input.steer = -1.0;
     input
 }
 
-fn throttle_right_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = 1.0;
-    input.Handbrake = true;
-    input.Steer = 1.0;
+fn throttle_right_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = 1.0;
+    input.handbrake = true;
+    input.steer = 1.0;
     input
 }
 
-fn boost_straight() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Boost = true;
+fn boost_straight() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.boost = true;
     input
 }
 
-fn boost_left() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Boost = true;
-    input.Steer = -1.0;
+fn boost_left() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.boost = true;
+    input.steer = -1.0;
     input
 }
 
-fn boost_right() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Boost = true;
-    input.Steer = 1.0;
+fn boost_right() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.boost = true;
+    input.steer = 1.0;
     input
 }
 
-fn boost_straight_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Boost = true;
-    input.Handbrake = true;
+fn boost_straight_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.boost = true;
+    input.handbrake = true;
     input
 }
 
-fn boost_left_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Boost = true;
-    input.Handbrake = true;
-    input.Steer = -1.0;
+fn boost_left_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.boost = true;
+    input.handbrake = true;
+    input.steer = -1.0;
     input
 }
 
-fn boost_right_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Boost = true;
-    input.Handbrake = true;
-    input.Steer = 1.0;
+fn boost_right_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.boost = true;
+    input.handbrake = true;
+    input.steer = 1.0;
     input
 }
 
-fn brake_straight() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = -1.0;
+fn brake_straight() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = -1.0;
     input
 }
 
-fn brake_left() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = -1.0;
-    input.Steer = -1.0;
+fn brake_left() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = -1.0;
+    input.steer = -1.0;
     input
 }
 
-fn brake_right() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = -1.0;
-    input.Steer = 1.0;
+fn brake_right() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = -1.0;
+    input.steer = 1.0;
     input
 }
 
-fn brake_straight_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = -1.0;
-    input.Handbrake = true;
+fn brake_straight_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = -1.0;
+    input.handbrake = true;
     input
 }
 
-fn brake_left_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = -1.0;
-    input.Handbrake = true;
-    input.Steer = -1.0;
+fn brake_left_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = -1.0;
+    input.handbrake = true;
+    input.steer = -1.0;
     input
 }
 
-fn brake_right_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Throttle = -1.0;
-    input.Handbrake = true;
-    input.Steer = 1.0;
+fn brake_right_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.throttle = -1.0;
+    input.handbrake = true;
+    input.steer = 1.0;
     input
 }
 
-fn idle_straight() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
+fn idle_straight() -> ControllerState {
+    ControllerState::default()
+}
+
+fn idle_left() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.steer = -1.0;
     input
 }
 
-fn idle_left() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Steer = -1.0;
+fn idle_right() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.steer = 1.0;
     input
 }
 
-fn idle_right() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Steer = 1.0;
+fn idle_straight_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.handbrake = true;
     input
 }
 
-fn idle_straight_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Handbrake = true;
+fn idle_left_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.handbrake = true;
+    input.steer = -1.0;
     input
 }
 
-fn idle_left_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Handbrake = true;
-    input.Steer = -1.0;
-    input
-}
-
-fn idle_right_drift() -> ffi::PlayerInput {
-    let mut input = ffi::PlayerInput::default();
-    input.Handbrake = true;
-    input.Steer = 1.0;
+fn idle_right_drift() -> ControllerState {
+    let mut input = ControllerState::default();
+    input.handbrake = true;
+    input.steer = 1.0;
     input
 }
 
 
 fn main() -> Result<(), Box<Error>> {
     let rlbot = rlbot::init()?;
-    let mut settings = ffi::MatchSettings {
-        NumPlayers: 1,
-        ..Default::default()
-    };
+    let mut settings = rlbot::MatchSettings::new()
+        .player_configurations(vec![
+            rlbot::PlayerConfiguration::new(
+                rlbot::PlayerClass::RLBotPlayer,
+                "Recorder",
+                0,
+            )
+        ]);
 
-    settings.PlayerConfiguration[0].Bot = true;
-    settings.PlayerConfiguration[0].RLBotControlled = true;
-    settings.PlayerConfiguration[0].set_name("Recorder");
+    settings.mutator_settings = rlbot::MutatorSettings::new()
+        .match_length(rlbot::MatchLength::Unlimited);
 
-    settings.MutatorSettings = ffi::MutatorSettings {
-        MatchLength: ffi::MatchLength::Unlimited,
-        ..Default::default()
-    };
-
-    rlbot.start_match(settings)?;
-    wait_for_match_start(&rlbot)?;
+    rlbot.start_match(&settings)?;
+    rlbot.wait_for_match_start()?;
 
     // set initial state
     move_ball_out_of_the_way(&rlbot)?;

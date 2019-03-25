@@ -5,7 +5,7 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 lazy_static = "1.0"
-rlbot = "0.1.0"
+rlbot = "0.4.0"
 serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"

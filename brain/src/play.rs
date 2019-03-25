@@ -231,7 +231,7 @@ fn non_admissable_estimated_time<H: HeuristicModel>(model: &mut H, current: &Pla
 // and logic for expiring it if it's no longer applicable.
 pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
     let start = Instant::now();
-    let mut x = match what_do(game) {
+    let plan_result = match what_do(game) {
         Action::Shoot => shoot(model, game, bot),
     };
     let duration = start.elapsed();
@@ -241,7 +241,7 @@ pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotSta
         println!("#############################");
     }
 
-    x
+    plan_result
 }
 
 #[no_mangle]
@@ -270,7 +270,7 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
 }
 
 #[no_mangle]
-pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput {
+pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
     // TODO DRY with closest_plan_index function
     if let Some(ref plan) = bot.plan {
         let index = closest_plan_index(&current_player, &plan);
@@ -314,23 +314,20 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
     }
 
     // fallback
-    let mut input = rlbot::ffi::PlayerInput::default();
-    input.Throttle = 0.5;
+    let mut input = rlbot::ControllerState::default();
+    input.throttle = 0.5;
     if current_player.position.z > 150.0 {
-        if current_player.velocity.z > 200.0 {
-            input.Throttle = -1.0;
-        } else if (current_player.position.z as i32 % 2) == 0 {
-            input.Jump = true;
+        if (current_player.position.z as i32 % 2) == 0 {
+            input.jump = true;
         }
     }
-    input.Throttle = 0.5;
     input
 }
 
 const PROPORTIONAL_DIST_GAIN: f32 = 0.004;
 const DIFFERENTIAL_GAIN: f32 = 0.35;
 const DIFFERENTIAL_STEPS: usize = 2;
-fn pd_adjust(input: &mut rlbot::ffi::PlayerInput, errors: &VecDeque<f32>) {
+fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
     // build up some errors before we do anything
     if errors.len() <= DIFFERENTIAL_STEPS { return; }
     let last_error = errors[errors.len() - 1];
@@ -340,44 +337,44 @@ fn pd_adjust(input: &mut rlbot::ffi::PlayerInput, errors: &VecDeque<f32>) {
     let differential_signal = DIFFERENTIAL_GAIN * error_slope;
     let signal = proportional_signal + differential_signal;
     println!("signal: {}, p: {}, d: {}", signal, proportional_signal, differential_signal);
-    input.Steer += signal;
+    input.steer += signal;
 
-    if input.Steer > 1.0 {
-        if input.Steer > 2.0 {
+    if input.steer > 1.0 {
+        if input.steer > 2.0 {
             println!("super right");
-            //input.Handbrake = true;
+            //input.handbrake = true;
         }
 
-        input.Steer = 1.0;
+        input.steer = 1.0;
     }
 
-    if input.Steer < -1.0 {
-        if input.Steer < -2.0 {
+    if input.steer < -1.0 {
+        if input.steer < -2.0 {
             println!("super left");
-            //input.Handbrake = true;
+            //input.handbrake = true;
         }
-        input.Steer = -1.0;
+        input.steer = -1.0;
     }
 }
 
-fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::ffi::PlayerInput {
-    rlbot::ffi::PlayerInput {
-        Throttle: match controller.throttle {
+fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::ControllerState {
+    rlbot::ControllerState {
+        throttle: match controller.throttle {
             Throttle::Idle => 0.0,
             Throttle::Forward => 1.0,
             Throttle::Reverse => -1.0,
         },
-        Steer: match controller.steer {
+        steer: match controller.steer {
             Steer::Straight => 0.0,
             Steer::Left => -1.0,
             Steer::Right => 1.0,
         },
-        Pitch: 0.0, // brick is a brick
-        Yaw: 0.0, // brick is a brick
-        Roll: 0.0, // brick is a brick
-        Jump: false, // brick is a brick
-        Boost: false, // brick is a brick
-        Handbrake: false, // brick is a brick
+        pitch: 0.0, // brick is a brick
+        yaw: 0.0, // brick is a brick
+        roll: 0.0, // brick is a brick
+        jump: false, // brick is a brick
+        boost: false, // brick is a brick
+        handbrake: false, // brick is a brick
     }
 }
 

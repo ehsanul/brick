@@ -341,7 +341,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         } else {
             human_input(&gamepad)
         };
-        rlbot.update_player_input(input, player_index as i32).expect("update_player_input failed");
+        rlbot.update_player_input(player_index as i32, &input).expect("update_player_input failed");
     }
 }
 
@@ -535,7 +535,7 @@ fn simulate_over_time() {
 }
 
 // TODO remove
-fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput {
+fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
@@ -557,7 +557,7 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
 }
 
 // TODO remove
-type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ffi::PlayerInput;
+type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState;
 type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
 type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
