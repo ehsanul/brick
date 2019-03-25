@@ -3,7 +3,7 @@ extern crate flatbuffers;
 extern crate rlbot;
 extern crate state;
 use rlbot::{ flat, ControllerState };
-use std::fs::{ File, create_dir_all };
+use std::fs::create_dir_all;
 use state::*;
 use std::error::Error;
 use std::f32::consts::PI;
@@ -44,9 +44,9 @@ impl RecordState {
 
     pub fn save_and_advance(&mut self) {
         let dir = format!("data/samples/flat_ground/{}", self.name);
-        create_dir_all(&path).unwrap();
+        create_dir_all(&dir).unwrap();
 
-        let path = format!("{}/{}_{}.csv", sdir, self.speed, self.angular_speed);
+        let path = format!("{}/{}_{}.csv", dir, self.speed, self.angular_speed);
         let mut wtr = csv::Writer::from_path(path).expect("couldn't open file for writing csv");
 
         for (frame, player) in &self.records {
