@@ -20,7 +20,7 @@ use state::{ PlayerState, DesiredContact, BALL_RADIUS, CAR_DIMENSIONS };
 use na::{ Unit, Vector3, Rotation3 };
 use std::f32::consts::PI;
 
-use ord_subset::{OrdSubsetIterExt, OrdSubsetSliceExt};
+use ord_subset::OrdSubsetIterExt;
 
 pub trait HeuristicModel {
     fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>>;

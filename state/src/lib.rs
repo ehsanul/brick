@@ -50,9 +50,40 @@ pub enum Action {
     //GoToMid, // XXX not a real action, just a test
 }
 
+// re-implementation of rlbot::ControllerState since it's missing some traits. and probably better
+// not to use its structs directly.
+#[derive(Debug, Default, Clone)]
+pub struct FullController {
+    pub throttle: f32,
+    pub steer: f32,
+    pub pitch: f32,
+    pub yaw: f32,
+    pub roll: f32,
+    pub jump: bool,
+    pub boost: bool,
+    pub handbrake: bool,
+}
+
+impl From<&rlbot::ControllerState> for FullController {
+    fn from(ctrl: &rlbot::ControllerState) -> Self {
+        FullController {
+            throttle: ctrl.throttle,
+            steer: ctrl.steer,
+            pitch: ctrl.pitch,
+            yaw: ctrl.yaw,
+            roll: ctrl.roll,
+            jump: ctrl.jump,
+            boost: ctrl.boost,
+            handbrake: ctrl.handbrake,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
+    /// queue of (frame, controller)
+    pub controller_history: VecDeque<(i32, FullController)>,
     pub turn_errors: VecDeque<f32>,
     pub last_action: Option<Action>,
 }
@@ -62,6 +93,7 @@ pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,
     pub frame: i32,
+    pub input_frame: i32,
 }
 
 // FIXME check if this order matches up with team integers we get from rlbot interface
@@ -148,7 +180,6 @@ impl Throttle {
     }
 }
 
-// XXX this was copied from the grpc generated game_data.rs file, from the ControllerState struct
 #[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct BrickControllerState {
     pub throttle: Throttle,
@@ -246,6 +277,8 @@ impl Default for DesiredContact {
     }
 }
 
+const MAX_FRAMES: f32 = 100_000.0;
+
 /// updates our game state, which is a representation of the packet, but with our own data types etc
 pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBodyTick, player_index: usize) {
     let ball = tick.ball().expect("Missing ball");
@@ -273,6 +306,9 @@ pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBo
     // XXX not sure how to flip the x axis direction, but I know flipping the x value isn't right!
     game_state.player.rotation = UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), pr.y(), pr.z()));
 
+    let pitch = game_state.player.rotation.euler_angles().1;
+    game_state.input_frame = (pitch * MAX_FRAMES).round() as i32;
+
     // FIXME we don't get team in the physics tick. maybe we need to seed this with a single
     //       GameTickPacket to start
     // game_state.player.team = match player.Team {
@@ -280,4 +316,8 @@ pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBo
     //     1 => Team::Orange,
     //     _ => unimplemented!(),
     // };
+}
+
+pub fn set_frame_metadata(game_state: &mut GameState, controller: &mut rlbot::ControllerState) {
+    controller.pitch = (game_state.frame as f32 % MAX_FRAMES) / MAX_FRAMES;
 }

@@ -321,26 +321,52 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
 
         send_to_bot_logic(&sender, &bot);
+
+        // FIXME essential to fix this now
         thread::sleep(Duration::from_millis(1000 / 121)); // TODO measure time taken and do a diff
+
         if let Ok(plan_result) = receiver.try_recv() {
-            // FIXME we only want to replace it if it's better! also, what if it can't find a path
-            // now, even though it could before and the old one is still ok?
             update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
             update_visualization(&bot, &plan_result);
         }
 
         // remove part of plan that is no longer relevant since we've already passed it
+        //
+        // TODO
+        //    we need to take into account the inputs previously sent that will be processed
+        //    prior to finding where we are. instead of passing the current player, apply N inputs
+        //    that are not yet applied, where N is the number of frames we're lagging by
+        // TODO
+        //
         if let Some(ref mut plan) = bot.plan {
             let closest_index = closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
             *plan = plan.split_off(closest_index);
         }
 
+        // the difference between these is the frame lag
+        let input_frame = GAME_STATE.read().unwrap().input_frame;
+        let frame = GAME_STATE.read().unwrap().frame;
+        println!("frame: {}, input_frame: {}", frame, input_frame);
+
         update_gamepad(&mut gilrs, &mut gamepad);
-        let input = if gamepad.select_toggled {
+        let mut input = if gamepad.select_toggled {
             next_rlbot_input(&GAME_STATE.read().unwrap().player, &mut bot)
         } else {
             human_input(&gamepad)
         };
+
+        // allows tracking the frame lag using a side-channel in the player inputs
+        {
+            let mut game = GAME_STATE.write().unwrap();
+            set_frame_metadata(&mut game, &mut input);
+        }
+
+        bot.controller_history.push_back((frame, (&input).into()));
+        if bot.controller_history.len() > 100 {
+            // keep last 10
+           bot.controller_history = bot.controller_history.split_off(90);
+        }
+
         rlbot.update_player_input(player_index as i32, &input).expect("update_player_input failed");
     }
 }
