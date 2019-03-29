@@ -10,7 +10,7 @@ Options:
   -h --help     Show this screen.
   --version     Show version.
   --bot         Run regular bot in a match.
-  --bot-test    Run regular bot using test plan.
+  --bot-test    Run bot using a hard-coded plan.
   --simulate    Simulate game over time.
 ";
 
@@ -22,6 +22,7 @@ extern crate brain;
 extern crate rlbot;
 extern crate passthrough;
 extern crate docopt;
+extern crate ratelimit;
 
 #[macro_use]
 extern crate lazy_static;
@@ -151,8 +152,13 @@ fn run_visualization(){
 
     window.set_light(Light::StickToCamera);
 
+    let mut ratelimiter = ratelimit::Builder::new()
+        .interval(Duration::from_millis(1000 / 60)) // rendering limited to 60 fps
+        .build();
+
     while window.render() {
-        thread::sleep(Duration::from_millis(100));
+        ratelimiter.wait();
+
         let game_state = &GAME_STATE.read().unwrap();
         let lines = &LINES.read().unwrap();
         let points = &POINTS.read().unwrap();
@@ -216,13 +222,13 @@ fn run_bot() {
     bot_logic_loop(plan_sender, state_receiver);
 }
 
-fn run_bot_live_test() {
+fn run_bot_test() {
     let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver);
     });
-    bot_logic_loop_live_test(plan_sender, state_receiver);
+    bot_logic_loop_test(plan_sender, state_receiver);
 }
 
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
@@ -241,16 +247,20 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
     }
 }
 
-fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
+fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
+
+    let mut ratelimiter = ratelimit::Builder::new()
+        .interval(Duration::from_millis(1000 / 120)) // bot limited to 120 fps
+        .build();
 
     loop {
         let (game, _bot) = receiver.recv().expect("Coudln't receive game state");
 
         update_gamepad(&mut gilrs, &mut gamepad);
         if !gamepad.select_toggled {
-            thread::sleep(Duration::from_millis(1000/121));
+            ratelimiter.wait();
             continue;
         }
 
@@ -291,7 +301,7 @@ fn bot_logic_loop_live_test(sender: Sender<PlanResult>, receiver: Receiver<(Game
             let square_error = (plan[0].0.position - &game.player.position).norm().powf(2.0);
             square_errors.push(square_error);
 
-            thread::sleep(Duration::from_millis(1000/121));
+            ratelimiter.wait();
         }
         println!("========================================");
         println!("Steps: {}", square_errors.len());
@@ -307,12 +317,16 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
     let rlbot = rlbot::init().expect("rlbot init failed");
     let mut physicist = rlbot.physicist();
 
+    let mut ratelimiter = ratelimit::Builder::new()
+        .interval(Duration::from_millis(1000 / 120)) // bot io limited to 120 fps
+        .build();
+
     loop {
         let player_index = *PLAYER_INDEX.lock().unwrap();
         let player_index = match player_index {
             Some(i) => i,
             None => {
-                thread::sleep(Duration::from_millis(1000));
+                ratelimiter.wait();
                 continue;
             }
         };
@@ -321,11 +335,11 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
 
         send_to_bot_logic(&sender, &bot);
+        ratelimiter.wait();
 
-        // FIXME essential to fix this now
-        thread::sleep(Duration::from_millis(1000 / 121)); // TODO measure time taken and do a diff
-
-        if let Ok(plan_result) = receiver.try_recv() {
+        // make sure we have the latest results in case there are multiple, though note we may save
+        // the plan from an earlier run if it happens to be the best one
+        while let Ok(plan_result) = receiver.try_recv() {
             update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
             update_visualization(&bot, &plan_result);
         }
@@ -508,6 +522,11 @@ fn simulate_over_time() {
     let initial_game_state: GameState;
     let mut bot = BotState::default();
     let mut model = brain::get_model();
+
+    let mut ratelimiter = ratelimit::Builder::new()
+        .interval(Duration::from_millis(1000 / 120)) // simulation limited to 120 fps
+        .build();
+
     {
         let mut game_state = GAME_STATE.write().unwrap();
         game_state.ball.position = Vector3::new(0.0, 0.0, BALL_RADIUS);
@@ -550,13 +569,11 @@ fn simulate_over_time() {
                 *game_state = initial_game_state.clone();
                 bot.plan = None;
             }
-            // TODO take into account time taken planning
-            thread::sleep(Duration::from_millis(1000/121));
+            ratelimiter.wait();
         } else {
             // just panic in case no plan is found during simulation, as this should not happen
             unimplemented!("go forward 2")
         }
-        //thread::sleep(Duration::from_millis(1000/1));
     }
 }
 
@@ -645,7 +662,7 @@ fn main() -> Result<(), Box<Error>> {
             loop {
                 let t = thread::spawn(move || {
                     if test_bot {
-                        panic::catch_unwind(run_bot_live_test).expect("Panic catch unwind failed");
+                        panic::catch_unwind(run_bot_test).expect("Panic catch unwind failed");
                     } else {
                         panic::catch_unwind(run_bot).expect("Panic catch unwind failed");
                     }

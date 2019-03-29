@@ -11,6 +11,7 @@ lazy_static = "1.0"
 dynamic_reload = "0.3.*"
 crossbeam = "0.4"
 rlbot = "0.4.0"
+ratelimit = "0.4.3"
 
 [dependencies.state]
 path = "../state"
