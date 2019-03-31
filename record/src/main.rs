@@ -119,8 +119,9 @@ impl RecordState {
         self.records.len() > 120
     }
 
+    // angular speed is the outer loop, so we're done when that's done
     pub fn all_samples_complete(&self) -> bool {
-        self.angular_speed > MAX_ANGULAR_SPEED
+        self.angular_speed > (1.0 / ANGULAR_GRID).round() as i16 * MAX_ANGULAR_SPEED
     }
 }
 
