@@ -7,6 +7,7 @@ use std::fs::create_dir_all;
 use state::*;
 use std::error::Error;
 use std::f32::consts::PI;
+use std::path::PathBuf;
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
@@ -42,12 +43,14 @@ impl RecordState {
         pos.x.abs() < 100.0 && pos.y.abs() < 100.0
     }
 
-    pub fn save_and_advance(&mut self) {
+    pub fn path(&self) -> String {
         let dir = format!("data/samples/flat_ground/{}", self.name);
         create_dir_all(&dir).unwrap();
+        format!("{}/{}_{}.csv", dir, self.speed, self.angular_speed)
+    }
 
-        let path = format!("{}/{}_{}.csv", dir, self.speed, self.angular_speed);
-        let mut wtr = csv::Writer::from_path(path).expect("couldn't open file for writing csv");
+    pub fn save_and_advance(&mut self) {
+        let mut wtr = csv::Writer::from_path(self.path()).expect("couldn't open file for writing csv");
 
         for (frame, player) in &self.records {
             let pos = player.position;
@@ -67,6 +70,10 @@ impl RecordState {
             wtr.write_record(&row).expect("csv write failed");
         }
 
+        self.advance();
+    }
+
+    pub fn advance(&mut self) {
         self.records.clear();
         self.speed += 100;
         if self.speed > MAX_BOOST_SPEED {
@@ -157,6 +164,11 @@ fn record_set(rlbot: &rlbot::RLBot, name: &'static str, input: ControllerState) 
     record_state.set_next_game_state(&rlbot)?;
     let mut physicist = rlbot.physicist();
     loop {
+        while PathBuf::from(&record_state.path()).exists() {
+            record_state.advance();
+            continue;
+        }
+
         let tick = physicist.next_flat()?;
 
         record_state.record(&tick);
