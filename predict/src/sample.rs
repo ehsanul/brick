@@ -300,35 +300,36 @@ pub(crate) fn get_relevant_turn_samples(
 ) -> &'static [PlayerState] {
     let normalized = normalized_player(&player, ceil);
 
+    #[rustfmt::skip]
     let sample_map: &SampleMap = match (
         &controller.steer,
         &controller.throttle,
         controller.boost,
         controller.handbrake,
     ) {
-        (&Steer::Right, &Throttle::Forward, false, false) => &THROTTLE_RIGHT_INDEXED,
-        (&Steer::Right, _, true, false) => &BOOST_RIGHT_INDEXED, // TODO confirm braking plus boosting is same as boosting
-        (&Steer::Right, &Throttle::Idle, false, false) => &IDLE_RIGHT_INDEXED,
-        (&Steer::Right, &Throttle::Reverse, false, false) => &REVERSE_RIGHT_INDEXED,
-        (&Steer::Right, &Throttle::Forward, false, true) => &THROTTLE_RIGHT_DRIFT_INDEXED,
-        (&Steer::Right, &Throttle::Forward, true, true) => &BOOST_RIGHT_DRIFT_INDEXED,
+        (&Steer::Right   , &Throttle::Forward, false, false) => &THROTTLE_RIGHT_INDEXED,
+        (&Steer::Right   , _                 , true , false) => &BOOST_RIGHT_INDEXED, // TODO confirm braking plus boosting is same as boosting
+        (&Steer::Right   , &Throttle::Idle   , false, false) => &IDLE_RIGHT_INDEXED,
+        (&Steer::Right   , &Throttle::Reverse, false, false) => &REVERSE_RIGHT_INDEXED,
+        (&Steer::Right   , &Throttle::Forward, false, true ) => &THROTTLE_RIGHT_DRIFT_INDEXED,
+        (&Steer::Right   , &Throttle::Forward, true , true ) => &BOOST_RIGHT_DRIFT_INDEXED,
 
-        (&Steer::Left, &Throttle::Forward, false, false) => &THROTTLE_LEFT_INDEXED,
-        (&Steer::Left, _, true, false) => &BOOST_LEFT_INDEXED,
-        (&Steer::Left, &Throttle::Idle, false, false) => &IDLE_LEFT_INDEXED,
-        (&Steer::Left, &Throttle::Reverse, false, false) => &REVERSE_LEFT_INDEXED,
-        (&Steer::Left, &Throttle::Forward, false, true) => &THROTTLE_LEFT_DRIFT_INDEXED,
-        (&Steer::Left, _, true, true) => &BOOST_LEFT_DRIFT_INDEXED,
+        (&Steer::Left    , &Throttle::Forward, false, false) => &THROTTLE_LEFT_INDEXED,
+        (&Steer::Left    , _                 , true , false) => &BOOST_LEFT_INDEXED,
+        (&Steer::Left    , &Throttle::Idle   , false, false) => &IDLE_LEFT_INDEXED,
+        (&Steer::Left    , &Throttle::Reverse, false, false) => &REVERSE_LEFT_INDEXED,
+        (&Steer::Left    , &Throttle::Forward, false, true ) => &THROTTLE_LEFT_DRIFT_INDEXED,
+        (&Steer::Left    , _                 , true , true ) => &BOOST_LEFT_DRIFT_INDEXED,
 
         (&Steer::Straight, &Throttle::Forward, false, false) => &THROTTLE_STRAIGHT_INDEXED,
-        (&Steer::Straight, _, true, false) => &BOOST_STRAIGHT_INDEXED,
-        (&Steer::Straight, &Throttle::Idle, false, false) => &IDLE_STRAIGHT_INDEXED,
+        (&Steer::Straight, _                 , true , false) => &BOOST_STRAIGHT_INDEXED,
+        (&Steer::Straight, &Throttle::Idle   , false, false) => &IDLE_STRAIGHT_INDEXED,
         (&Steer::Straight, &Throttle::Reverse, false, false) => &REVERSE_STRAIGHT_INDEXED,
-        (&Steer::Straight, &Throttle::Forward, false, true) => &THROTTLE_STRAIGHT_DRIFT_INDEXED,
-        (&Steer::Straight, _, true, true) => &BOOST_STRAIGHT_DRIFT_INDEXED,
+        (&Steer::Straight, &Throttle::Forward, false, true ) => &THROTTLE_STRAIGHT_DRIFT_INDEXED,
+        (&Steer::Straight, _                 , true , true ) => &BOOST_STRAIGHT_DRIFT_INDEXED,
 
         // ignoring the other drift variants (idle/reverse) for now
-        (_, _, _, true) => unimplemented!(),
+        (_               , _                 , _    , true ) => unimplemented!(),
     };
 
     sample_map.get(&normalized).expect(&format!(
