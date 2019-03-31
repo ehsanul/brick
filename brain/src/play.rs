@@ -200,17 +200,6 @@ fn hit_ball<H: HeuristicModel>(model: &mut H, game: &GameState, desired_ball_pos
     x
 }
 
-fn go_near_ball<H: HeuristicModel>(model: &mut H, game: &GameState) -> PlanResult {
-    let mut desired = DesiredContact::default();
-    let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 1.0);
-    let ball_in_one_sec = ball_trajectory[ball_trajectory.len() - 1];
-    //let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    desired.position.x = ball_in_one_sec.position.x;
-    desired.position.y = ball_in_one_sec.position.y;
-    desired.heading = Unit::new_normalize(ball_in_one_sec.position - game.player.position).into_inner();
-    plan::plan(model, &game.player, &desired, None)
-}
-
 fn non_admissable_estimated_time<H: HeuristicModel>(model: &mut H, current: &PlayerState, desired: &DesiredContact) -> f32 {
     // unreachable, we can't fly
     if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
