@@ -95,6 +95,7 @@ fn main() -> Result<(), Box<Error>> {
         slop: 10.0,
         max_cost: 10.0,
         max_iterations: 100_000,
+        scale_heuristic: 1.0,
     };
 
     let max_speed_r = (MAX_BOOST_SPEED / SPEED_FACTOR).round() as i32;
