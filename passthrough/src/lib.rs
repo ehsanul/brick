@@ -2,8 +2,7 @@ extern crate gilrs;
 extern crate rlbot;
 
 pub use gilrs::Gilrs;
-use gilrs::{Button, Axis, Event, EventType};
-
+use gilrs::{Axis, Button, Event, EventType};
 
 #[derive(Copy, Clone, Debug, PartialEq, Default)]
 pub struct Gamepad {
@@ -26,43 +25,35 @@ pub fn update_gamepad(gilrs: &mut Gilrs, gamepad: &mut Gamepad) {
     while let Some(Event { id, event, time }) = gilrs.next_event() {
         println!("{:?} New event from {}: {:?}", time, id, event);
         match event {
-            EventType::ButtonChanged(button, value, _code) => {
-                match button {
-                    Button::RightTrigger2 => gamepad.rt2 = value,
-                    Button::LeftTrigger2 => gamepad.lt2 = value,
-                    _ => {}
-                }
-            }
-            EventType::ButtonPressed(button, _code) => {
-                match button {
-                    Button::Select => gamepad.select_toggled = !gamepad.select_toggled,
-                    Button::RightTrigger => gamepad.rt = true,
-                    Button::LeftTrigger => gamepad.lt = true,
-                    Button::North => gamepad.north = true,
-                    Button::East => gamepad.east = true,
-                    Button::South => gamepad.south = true,
-                    Button::West => gamepad.west = true,
-                    _ => {}
-                }
-            }
-            EventType::ButtonReleased(button, _code) => {
-                match button {
-                    Button::RightTrigger => gamepad.rt = false,
-                    Button::LeftTrigger => gamepad.lt = false,
-                    Button::North => gamepad.north = false,
-                    Button::East => gamepad.east = false,
-                    Button::South => gamepad.south = false,
-                    Button::West => gamepad.west = false,
-                    _ => {}
-                }
-            }
-            EventType::AxisChanged(axis, value, _code) => {
-                match axis {
-                    Axis::LeftStickX => gamepad.lsx = value,
-                    Axis::LeftStickY => gamepad.lsy = value,
-                    _ => {}
-                }
-            }
+            EventType::ButtonChanged(button, value, _code) => match button {
+                Button::RightTrigger2 => gamepad.rt2 = value,
+                Button::LeftTrigger2 => gamepad.lt2 = value,
+                _ => {}
+            },
+            EventType::ButtonPressed(button, _code) => match button {
+                Button::Select => gamepad.select_toggled = !gamepad.select_toggled,
+                Button::RightTrigger => gamepad.rt = true,
+                Button::LeftTrigger => gamepad.lt = true,
+                Button::North => gamepad.north = true,
+                Button::East => gamepad.east = true,
+                Button::South => gamepad.south = true,
+                Button::West => gamepad.west = true,
+                _ => {}
+            },
+            EventType::ButtonReleased(button, _code) => match button {
+                Button::RightTrigger => gamepad.rt = false,
+                Button::LeftTrigger => gamepad.lt = false,
+                Button::North => gamepad.north = false,
+                Button::East => gamepad.east = false,
+                Button::South => gamepad.south = false,
+                Button::West => gamepad.west = false,
+                _ => {}
+            },
+            EventType::AxisChanged(axis, value, _code) => match axis {
+                Axis::LeftStickX => gamepad.lsx = value,
+                Axis::LeftStickY => gamepad.lsy = value,
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -89,4 +80,3 @@ pub fn human_input(gamepad: &Gamepad) -> rlbot::ControllerState {
     };
     input
 }
-

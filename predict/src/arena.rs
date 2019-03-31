@@ -1,8 +1,8 @@
+use na::Point3;
+use ncollide::shape::TriMesh;
+use obj::*;
 use std::fs::File;
 use std::io::BufReader;
-use obj::*;
-use ncollide::shape::TriMesh;
-use na::Point3;
 
 lazy_static! {
     pub static ref ARENA: TriMesh<f32> = {

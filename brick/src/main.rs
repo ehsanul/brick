@@ -14,74 +14,67 @@ Options:
   --simulate    Simulate game over time.
 ";
 
+extern crate brain;
+extern crate docopt;
+extern crate dynamic_reload;
 extern crate kiss3d;
 extern crate nalgebra as na;
-extern crate dynamic_reload;
-extern crate state;
-extern crate brain;
-extern crate rlbot;
 extern crate passthrough;
-extern crate docopt;
 extern crate ratelimit;
+extern crate rlbot;
+extern crate state;
 
 #[macro_use]
 extern crate lazy_static;
 
 use docopt::Docopt;
-use std::panic;
-use std::thread;
-use std::sync::mpsc::{self, Sender, Receiver};
-use std::sync::{Arc, RwLock, Mutex};
+use std::error::Error;
 use std::f32;
 use std::f32::consts::PI;
+use std::panic;
 use std::path::Path;
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex, RwLock};
+use std::thread;
 use std::time::Duration;
-use std::error::Error;
 
+use passthrough::{human_input, update_gamepad, Gamepad, Gilrs};
 use state::*;
-use passthrough::{Gilrs, Gamepad, human_input, update_gamepad};
 
-use na::{ Unit, Vector3, Point3, Translation3, UnitQuaternion, Rotation3};
-use kiss3d::window::Window;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
+use kiss3d::window::Window;
+use na::{Point3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
 
-use dynamic_reload::{DynamicReload, Lib, Symbol, Search, PlatformName, UpdateState};
+use dynamic_reload::{DynamicReload, Lib, PlatformName, Search, Symbol, UpdateState};
 pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
 lazy_static! {
     static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
-
-    static ref GAME_STATE: RwLock<GameState> = {
-        RwLock::new(GameState::default())
-    };
-
-    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
-        RwLock::new(vec![])
-    };
-
-    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = {
-        RwLock::new(vec![])
-    };
-
+    static ref GAME_STATE: RwLock<GameState> = { RwLock::new(GameState::default()) };
+    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> =
+        { RwLock::new(vec![]) };
+    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = { RwLock::new(vec![]) };
     static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
-        Mutex::new(
-            DynamicReload::new(Some(vec!["target/release"]),
-                               Some("target/release"),
-                               Search::Default)
-        )
+        Mutex::new(DynamicReload::new(
+            Some(vec!["target/release"]),
+            Some("target/release"),
+            Search::Default,
+        ))
     };
-
     static ref RELOAD_HANDLER2: Mutex<DynamicReload<'static>> = {
-        Mutex::new(
-            DynamicReload::new(Some(vec!["target/release"]),
-                               Some("target/release"),
-                               Search::Default)
-        )
+        Mutex::new(DynamicReload::new(
+            Some(vec!["target/release"]),
+            Some("target/release"),
+            Search::Default,
+        ))
     };
-
     static ref BRAIN: Mutex<BrainPlugin> = {
-        let lib = match RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER").add_library("brain", PlatformName::Yes) {
+        let lib = match RELOAD_HANDLER
+            .lock()
+            .expect("Failed to get lock on RELOAD_HANDLER")
+            .add_library("brain", PlatformName::Yes)
+        {
             Ok(lib) => lib,
             Err(e) => {
                 panic!("Unable to load dynamic lib, err {:?}", e);
@@ -89,9 +82,12 @@ lazy_static! {
         };
         Mutex::new(BrainPlugin { lib: Some(lib) })
     };
-
     static ref BRAIN2: Mutex<BrainPlugin> = {
-        let lib = match RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER2").add_library("brain", PlatformName::Yes) {
+        let lib = match RELOAD_HANDLER2
+            .lock()
+            .expect("Failed to get lock on RELOAD_HANDLER2")
+            .add_library("brain", PlatformName::Yes)
+        {
             Ok(lib) => lib,
             Err(e) => {
                 panic!("2Unable to load dynamic lib, err {:?}", e);
@@ -101,10 +97,8 @@ lazy_static! {
     };
 }
 
-
-
 struct BrainPlugin {
-    lib: Option<Arc<Lib>>
+    lib: Option<Arc<Lib>>,
 }
 
 impl BrainPlugin {
@@ -125,22 +119,27 @@ impl BrainPlugin {
     }
 }
 
-
-fn run_visualization(){
+fn run_visualization() {
     let mut window = Window::new("Rocket League Visualization");
 
     // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
     let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
-    let mut car = window.add_cube(CAR_DIMENSIONS.x/1000.0, CAR_DIMENSIONS.y/1000.0, CAR_DIMENSIONS.z/1000.0);
+    let mut car = window.add_cube(
+        CAR_DIMENSIONS.x / 1000.0,
+        CAR_DIMENSIONS.y / 1000.0,
+        CAR_DIMENSIONS.z / 1000.0,
+    );
 
     let arena_mesh = MeshManager::load_obj(
-                        Path::new("./assets/arena.obj"),
-                        Path::new("./assets/"),
-                        "arena"
-                    ).expect("Can't load arena obj file")
-                    .pop().expect("Missing arena mesh")
-                    .1
-                    .clone();
+        Path::new("./assets/arena.obj"),
+        Path::new("./assets/"),
+        "arena",
+    )
+    .expect("Can't load arena obj file")
+    .pop()
+    .expect("Missing arena mesh")
+    .1
+    .clone();
     let mut arena = window.add_mesh(arena_mesh, Vector3::new(0.0, 0.0, 0.0));
     arena.set_surface_rendering_activation(false);
     arena.set_points_size(0.1);
@@ -164,10 +163,13 @@ fn run_visualization(){
         let points = &POINTS.read().unwrap();
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-        sphere.set_local_translation(Translation3::from(game_state.ball.position.map(|c| c / 1000.0)));
+        sphere.set_local_translation(Translation3::from(
+            game_state.ball.position.map(|c| c / 1000.0),
+        ));
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-        let hitbox_position = game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
+        let hitbox_position =
+            game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
         car.set_local_translation(Translation3::from(hitbox_position));
         car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
 
@@ -202,11 +204,18 @@ fn run_visualization(){
         //}
 
         for l in lines.iter() {
-            window.draw_line(&Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0), &Point3::new(l.1.x / 1000.0, l.1.y / 1000.0, l.1.z / 1000.0), &l.2);
+            window.draw_line(
+                &Point3::new(l.0.x / 1000.0, l.0.y / 1000.0, l.0.z / 1000.0),
+                &Point3::new(l.1.x / 1000.0, l.1.y / 1000.0, l.1.z / 1000.0),
+                &l.2,
+            );
         }
 
         for p in points.iter() {
-            window.draw_point(&Point3::new(p.0.x / 1000.0, p.0.y / 1000.0, p.0.z / 1000.0), &p.1);
+            window.draw_point(
+                &Point3::new(p.0.x / 1000.0, p.0.y / 1000.0, p.0.z / 1000.0),
+                &p.1,
+            );
         }
     }
 }
@@ -214,7 +223,10 @@ fn run_visualization(){
 /// main bot playing loop
 /// this is the entry point for custom logic for this specific bot
 fn run_bot() {
-    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
+    let (state_sender, state_receiver): (
+        Sender<(GameState, BotState)>,
+        Receiver<(GameState, BotState)>,
+    ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver);
@@ -223,7 +235,10 @@ fn run_bot() {
 }
 
 fn run_bot_test() {
-    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
+    let (state_sender, state_receiver): (
+        Sender<(GameState, BotState)>,
+        Receiver<(GameState, BotState)>,
+    ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver);
@@ -237,13 +252,15 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
         let (mut game, mut bot) = receiver.recv().expect("Coudln't receive game state");
 
         // make sure we have the latest, drop earlier states
-        while let Ok((g,b)) = receiver.try_recv() {
+        while let Ok((g, b)) = receiver.try_recv() {
             game = g;
             bot = b;
         }
 
         let plan_result = brain::play::play(&mut model, &game, &mut bot);
-        sender.send(plan_result).expect("Failed to send plan result");
+        sender
+            .send(plan_result)
+            .expect("Failed to send plan result");
     }
 }
 
@@ -272,12 +289,14 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
             offset_forward_plan(&game.player)
         };
 
-        sender.send(PlanResult {
-            plan: Some(plan.clone()),
-            desired: DesiredContact::default(),
-            visualization_lines: vec![],
-            visualization_points: vec![],
-        }).expect("Failed to send plan result");
+        sender
+            .send(PlanResult {
+                plan: Some(plan.clone()),
+                desired: DesiredContact::default(),
+                visualization_lines: vec![],
+                visualization_points: vec![],
+            })
+            .expect("Failed to send plan result");
 
         let mut square_errors = vec![];
         loop {
@@ -286,7 +305,9 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
             let closest_index = closest_plan_index(&game.player, &plan);
             plan = plan.split_off(closest_index);
 
-            let square_error = (plan[0].0.position - &game.player.position).norm().powf(2.0);
+            let square_error = (plan[0].0.position - &game.player.position)
+                .norm()
+                .powf(2.0);
             square_errors.push(square_error);
 
             if plan.len() <= 2 {
@@ -298,14 +319,19 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
                 break;
             }
 
-            let square_error = (plan[0].0.position - &game.player.position).norm().powf(2.0);
+            let square_error = (plan[0].0.position - &game.player.position)
+                .norm()
+                .powf(2.0);
             square_errors.push(square_error);
 
             ratelimiter.wait();
         }
         println!("========================================");
         println!("Steps: {}", square_errors.len());
-        println!("RMS Error: {}", (square_errors.iter().sum::<f32>() / (square_errors.len() as f32)).sqrt());
+        println!(
+            "RMS Error: {}",
+            (square_errors.iter().sum::<f32>() / (square_errors.len() as f32)).sqrt()
+        );
         println!("========================================");
     }
 }
@@ -378,10 +404,12 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         bot.controller_history.push_back((frame, (&input).into()));
         if bot.controller_history.len() > 100 {
             // keep last 10
-           bot.controller_history = bot.controller_history.split_off(90);
+            bot.controller_history = bot.controller_history.split_off(90);
         }
 
-        rlbot.update_player_input(player_index as i32, &input).expect("update_player_input failed");
+        rlbot
+            .update_player_input(player_index as i32, &input)
+            .expect("update_player_input failed");
     }
 }
 
@@ -390,7 +418,9 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
     if let Some(ref new_plan) = plan_result.plan {
         if bot.plan.is_some() {
             let new_plan_steps = new_plan.len() - 1;
-            let existing_plan_steps = bot.plan.as_ref().unwrap().len() - 1 - closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
+            let existing_plan_steps = bot.plan.as_ref().unwrap().len()
+                - 1
+                - closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
             // bail, we got a worse plan!
             if new_plan_steps > existing_plan_steps {
                 return;
@@ -404,7 +434,10 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
 
 fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
     let mut lines = Vec::with_capacity(plan.len());
-    let pos = plan.get(0).map(|(p, _, _)| p.position).unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0));
+    let pos = plan
+        .get(0)
+        .map(|(p, _, _)| p.position)
+        .unwrap_or_else(|| Vector3::new(0.0, 0.0, 0.0));
     let mut last_point = Point3::new(pos.x, pos.y, pos.z);
     for (ps, _, _) in plan {
         let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
@@ -416,7 +449,12 @@ fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>,
 
 fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
     let game_state = GAME_STATE.read().unwrap();
-    let PlanResult { plan, desired, visualization_lines: lines, visualization_points: points } = plan_result;
+    let PlanResult {
+        plan,
+        desired,
+        visualization_lines: lines,
+        visualization_points: points,
+    } = plan_result;
 
     let mut visualization_lines = LINES.write().unwrap();
     visualization_lines.clear();
@@ -427,7 +465,11 @@ fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
     // red line from player center to contact point
     let pos = game_state.player.position;
     let dpos = desired.position;
-    visualization_lines.push((Point3::new(pos.x, pos.y, pos.z), Point3::new(dpos.x, dpos.y, dpos.z), Point3::new(1.0, 0.0, 0.0)));
+    visualization_lines.push((
+        Point3::new(pos.x, pos.y, pos.z),
+        Point3::new(dpos.x, dpos.y, dpos.z),
+        Point3::new(1.0, 0.0, 0.0),
+    ));
 
     // white line showing best planned path
     if let Some(ref plan) = bot.plan {
@@ -447,7 +489,9 @@ fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
 fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
     let game = (*GAME_STATE.read().unwrap()).clone();
     let bot = bot.clone();
-    sender.send((game, bot)).expect("Sending to bot logic failed");
+    sender
+        .send((game, bot))
+        .expect("Sending to bot logic failed");
 }
 
 fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
@@ -456,7 +500,11 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
     let mut controller = BrickControllerState::new();
     controller.throttle = Throttle::Forward;
-    controller.steer = if angle < 0.0 { Steer::Right } else { Steer::Left };
+    controller.steer = if angle < 0.0 {
+        Steer::Right
+    } else {
+        Steer::Left
+    };
 
     // iterate till dot product is minimized (ie we match the desired heading)
     let mut last_dot = std::f32::MIN;
@@ -470,7 +518,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
             player = new_player;
             last_dot = dot;
         } else {
-            break
+            break;
         }
     }
 
@@ -500,7 +548,7 @@ fn square_plan(current: &PlayerState) -> Plan {
     for _ in 0..4 {
         let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0);
         plan.append(&mut plan_part);
-        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, -PI/2.0);
+        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, -PI / 2.0);
         plan.append(&mut plan_part);
     }
     plan
@@ -509,13 +557,12 @@ fn square_plan(current: &PlayerState) -> Plan {
 fn offset_forward_plan(current: &PlayerState) -> Plan {
     let mut offset_player = current.clone();
     let heading = offset_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI/2.0);
+    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0);
     let right = clockwise_90_rotation * heading;
     offset_player.position += 200.0 * right;
 
     forward_plan(&offset_player, 4000.0)
 }
-
 
 fn simulate_over_time() {
     thread::sleep(Duration::from_millis(5000));
@@ -536,7 +583,7 @@ fn simulate_over_time() {
         // left
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         // up
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0);
         // down
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
         // right
@@ -563,7 +610,7 @@ fn simulate_over_time() {
             let i = closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
                 game_state.player = plan[i + 1].0;
-                // TODO move the ball. but ball velocity is zero for now
+            // TODO move the ball. but ball velocity is zero for now
             } else {
                 // we're at the goal, so start over
                 *game_state = initial_game_state.clone();
@@ -583,15 +630,15 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
         let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        let mut rh = RELOAD_HANDLER2
+            .lock()
+            .expect("Failed to get lock on RELOAD_HANDLER");
         rh.update(BrainPlugin::reload_callback, &mut p);
     }
 
     if let Some(ref x) = BRAIN2.lock().unwrap().lib {
         // TODO cache
-        let next_input: Symbol<NextInputFunc> = unsafe {
-            x.lib.get(b"next_input\0").unwrap()
-        };
+        let next_input: Symbol<NextInputFunc> = unsafe { x.lib.get(b"next_input\0").unwrap() };
 
         next_input(&current_player, bot)
     } else {
@@ -600,9 +647,11 @@ fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::
 }
 
 // TODO remove
-type NextInputFunc = extern fn (current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState;
-type ClosestPlanIndexFunc = extern fn (current_player: &PlayerState, plan: &Plan) -> usize;
-type NextPlayerStateFunc = fn (current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
+type NextInputFunc =
+    extern "C" fn(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState;
+type ClosestPlanIndexFunc = extern "C" fn(current_player: &PlayerState, plan: &Plan) -> usize;
+type NextPlayerStateFunc =
+    fn(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
 
 // TODO remove
 fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
@@ -610,15 +659,16 @@ fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
         let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER2.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        let mut rh = RELOAD_HANDLER2
+            .lock()
+            .expect("Failed to get lock on RELOAD_HANDLER");
         rh.update(BrainPlugin::reload_callback, &mut p);
     }
 
     if let Some(ref x) = BRAIN2.lock().unwrap().lib {
         // TODO cache
-        let closest_plan_index: Symbol<ClosestPlanIndexFunc> = unsafe {
-            x.lib.get(b"closest_plan_index\0").unwrap()
-        };
+        let closest_plan_index: Symbol<ClosestPlanIndexFunc> =
+            unsafe { x.lib.get(b"closest_plan_index\0").unwrap() };
 
         closest_plan_index(&current_player, &plan)
     } else {
@@ -627,21 +677,26 @@ fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
 }
 
 // TODO remove
-fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
+fn next_player_state(
+    current: &PlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+) -> PlayerState {
     // FIXME is there a way to unlock without a made up scope?
     {
         // XXX there must be a reason why this happens, but BRAIN must be locked before
         // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
         let mut p = BRAIN.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER.lock().expect("Failed to get lock on RELOAD_HANDLER");
+        let mut rh = RELOAD_HANDLER
+            .lock()
+            .expect("Failed to get lock on RELOAD_HANDLER");
         rh.update(BrainPlugin::reload_callback, &mut p);
     }
 
     if let Some(ref x) = BRAIN.lock().unwrap().lib {
         // TODO cache
-        let next_player_state: Symbol<NextPlayerStateFunc> = unsafe {
-            x.lib.get(b"next_player_state\0").unwrap()
-        };
+        let next_player_state: Symbol<NextPlayerStateFunc> =
+            unsafe { x.lib.get(b"next_player_state\0").unwrap() };
 
         next_player_state(&current, &controller, time_step)
     } else {
@@ -649,33 +704,30 @@ fn next_player_state(current: &PlayerState, controller: &BrickControllerState, t
     }
 }
 
-
-
 fn main() -> Result<(), Box<Error>> {
     let args = Docopt::new(USAGE)
-                      .and_then(|dopt| dopt.parse())
-                      .unwrap_or_else(|e| e.exit());
+        .and_then(|dopt| dopt.parse())
+        .unwrap_or_else(|e| e.exit());
 
     let test_bot = args.get_bool("--bot-test");
     if args.get_bool("--bot") || test_bot {
-        thread::spawn(move || {
-            loop {
-                let t = thread::spawn(move || {
-                    if test_bot {
-                        panic::catch_unwind(run_bot_test).expect("Panic catch unwind failed");
-                    } else {
-                        panic::catch_unwind(run_bot).expect("Panic catch unwind failed");
-                    }
-                });
-                t.join().expect_err("The bot thread should only end if panic, but it didn't panic.");
-                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
-                println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+        thread::spawn(move || loop {
+            let t = thread::spawn(move || {
+                if test_bot {
+                    panic::catch_unwind(run_bot_test).expect("Panic catch unwind failed");
+                } else {
+                    panic::catch_unwind(run_bot).expect("Panic catch unwind failed");
+                }
+            });
+            t.join()
+                .expect_err("The bot thread should only end if panic, but it didn't panic.");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
+            println!("XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX");
 
-                thread::sleep(Duration::from_millis(1000));
-            }
+            thread::sleep(Duration::from_millis(1000));
         });
     } else if args.get_bool("--simulate") {
         thread::spawn(simulate_over_time);

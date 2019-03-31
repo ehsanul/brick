@@ -8,9 +8,9 @@ extern crate lazy_static;
 extern crate serde_derive;
 extern crate bincode;
 
-use na::{Vector3, Quaternion, UnitQuaternion, Point3};
-use std::f32::consts::PI;
+use na::{Point3, Quaternion, UnitQuaternion, Vector3};
 use std::collections::VecDeque;
+use std::f32::consts::PI;
 
 // general constants
 pub const FPS: f32 = 120.0;
@@ -22,7 +22,6 @@ pub const BACK_WALL_DISTANCE: f32 = 5140.0;
 pub const CEILING_DISTANCE: f32 = 2044.0;
 pub const GOAL_X: f32 = 892.75;
 pub const GOAL_Z: f32 = 640.0;
-
 
 // car constants
 pub const MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph, rename to MAX_SPEED
@@ -103,7 +102,6 @@ pub enum Team {
     Orange,
 }
 
-
 // TODO-perf remove Copy
 #[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
 pub struct PlayerState {
@@ -121,7 +119,7 @@ impl Default for PlayerState {
             position: Vector3::new(0.0, 0.0, 0.0),
             velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
-            rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),
+            rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0),
             team: Team::Blue,
         }
     }
@@ -161,7 +159,6 @@ impl Steer {
         }
     }
 }
-
 
 #[derive(Serialize, Deserialize, Copy, Clone, PartialEq, Debug)]
 pub enum Throttle {
@@ -254,7 +251,6 @@ impl Default for SearchConfig {
     }
 }
 
-
 // XXX we may want to use different internal structs, since in some cases we may care about
 // position but not velocity, and vice versa
 pub struct DesiredState {
@@ -280,7 +276,11 @@ impl Default for DesiredContact {
 const MAX_FRAMES: f32 = 100_000.0;
 
 /// updates our game state, which is a representation of the packet, but with our own data types etc
-pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBodyTick, player_index: usize) {
+pub fn update_game_state(
+    game_state: &mut GameState,
+    tick: &rlbot::flat::RigidBodyTick,
+    player_index: usize,
+) {
     let ball = tick.ball().expect("Missing ball");
     let ball = ball.state().expect("Missing rigid body ball state");
     let players = tick.players().expect("Missing players");
@@ -289,7 +289,9 @@ pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBo
 
     let bl = ball.location().expect("Missing ball location");
     let bv = ball.velocity().expect("Missing ball velocity");
-    let bav = ball.angularVelocity().expect("Missing ball angular velocity");
+    let bav = ball
+        .angularVelocity()
+        .expect("Missing ball angular velocity");
     game_state.frame = ball.frame();
     game_state.ball.position = Vector3::new(-bl.x(), bl.y(), bl.z()); // x should be positive towards right, it only makes sense
     game_state.ball.velocity = Vector3::new(-bv.x(), bv.y(), bv.z()); // x should be positive towards right, it only makes sense
@@ -297,14 +299,17 @@ pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::flat::RigidBo
 
     let pl = player.location().expect("Missing player location");
     let pv = player.velocity().expect("Missing player velocity");
-    let pav = player.angularVelocity().expect("Missing player angular velocity");
+    let pav = player
+        .angularVelocity()
+        .expect("Missing player angular velocity");
     let pr = player.rotation().expect("Missing player rotation");
     game_state.player.position = Vector3::new(-pl.x(), pl.y(), pl.z()); // x should be positive towards right, it only makes sense
     game_state.player.velocity = Vector3::new(-pv.x(), pv.y(), pv.z()); // x should be positive towards right, it only makes sense
     game_state.player.angular_velocity = Vector3::new(-pav.x(), pav.y(), pav.z()); // x should be positive towards right, it only makes sense
 
     // XXX not sure how to flip the x axis direction, but I know flipping the x value isn't right!
-    game_state.player.rotation = UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), pr.y(), pr.z()));
+    game_state.player.rotation =
+        UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), pr.y(), pr.z()));
 
     let pitch = game_state.player.rotation.euler_angles().1;
     game_state.input_frame = (pitch * MAX_FRAMES).round() as i32;

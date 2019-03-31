@@ -1,13 +1,13 @@
 extern crate kdtree;
 
-use std::error::Error;
-use std::fs::File;
-use std::f32::consts::PI;
-use na::{ Vector3, Rotation3 };
-use ord_subset::OrdSubsetIterExt;
 use self::kdtree::KdTree;
-use state::{ PlayerState, DesiredContact };
-use crate::{ HeuristicModel, get_normalization_rotation, get_ball_position };
+use crate::{get_ball_position, get_normalization_rotation, HeuristicModel};
+use na::{Rotation3, Vector3};
+use ord_subset::OrdSubsetIterExt;
+use state::{DesiredContact, PlayerState};
+use std::error::Error;
+use std::f32::consts::PI;
+use std::fs::File;
 
 const KNN_DIMENSIONS: usize = 3; // x, y. yaw
 
@@ -33,21 +33,25 @@ fn squared_distance(a: f32, b: f32) -> f32 {
 }
 
 fn knn_distance(a: &[f32], b: &[f32]) -> f32 {
-    squared_distance(a[0], b[0]) + squared_distance(a[1], b[1]) + circular_distance(a[2], b[2]).powf(2.0)
+    squared_distance(a[0], b[0])
+        + squared_distance(a[1], b[1])
+        + circular_distance(a[2], b[2]).powf(2.0)
 }
 
 impl KnnHeuristic {
-    pub fn try_new(path: &str) -> Result<Self, Box<dyn Error>>{
+    pub fn try_new(path: &str) -> Result<Self, Box<dyn Error>> {
         let mut tree = KdTree::new(KNN_DIMENSIONS);
 
-        let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(File::open(path)?);
+        let mut rdr = csv::ReaderBuilder::new()
+            .has_headers(false)
+            .from_reader(File::open(path)?);
         //tree.add(&x, 99.0).unwrap();
         for record in rdr.records() {
-          let record = record?;
-          let cost = record.get(0).expect("Invalid row?").parse()?;
-          let x = record.get(1).expect("Invalid row?").parse()?;
-          let y = record.get(2).expect("Invalid row?").parse()?;
-          let yaw = record.get(12).expect("Invalid row?").parse()?;
+            let record = record?;
+            let cost = record.get(0).expect("Invalid row?").parse()?;
+            let x = record.get(1).expect("Invalid row?").parse()?;
+            let y = record.get(2).expect("Invalid row?").parse()?;
+            let yaw = record.get(12).expect("Invalid row?").parse()?;
             tree.add([x, y, yaw], cost)?;
         }
 
@@ -66,10 +70,14 @@ impl KnnHeuristic {
 
         let max_distance: f32 = *nearest.iter().map(|(d, _)| d).ord_subset_max().unwrap();
         let total_weights: f32 = nearest.iter().map(|(d, _)| max_distance / d).sum();
-        let weighted_average_cost: f32 = nearest.iter().map(|(distance, &cost)| {
-            let weight = max_distance / distance;
-            weight * cost
-        }).sum::<f32>() / total_weights;
+        let weighted_average_cost: f32 = nearest
+            .iter()
+            .map(|(distance, &cost)| {
+                let weight = max_distance / distance;
+                weight * cost
+            })
+            .sum::<f32>()
+            / total_weights;
 
         weighted_average_cost
     }
@@ -87,7 +95,11 @@ impl Default for KnnHeuristic {
 }
 
 impl HeuristicModel for KnnHeuristic {
-    fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
+    fn heuristic(
+        &mut self,
+        players: &[PlayerState],
+        costs: &mut [f32],
+    ) -> Result<(), Box<dyn Error>> {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };

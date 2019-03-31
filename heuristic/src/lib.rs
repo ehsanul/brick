@@ -1,11 +1,11 @@
-extern crate state;
 extern crate csv;
 extern crate nalgebra as na;
 extern crate ord_subset;
+extern crate state;
 
+use na::{Rotation3, Vector3};
+use state::{DesiredContact, PlayerState, BALL_RADIUS};
 use std::error::Error;
-use na::{ Vector3, Rotation3 };
-use state::{ PlayerState, DesiredContact, BALL_RADIUS };
 
 mod basic;
 pub use basic::BasicHeuristic;
@@ -19,7 +19,11 @@ mod neural;
 pub use neural::NeuralHeuristic;
 
 pub trait HeuristicModel {
-    fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>>;
+    fn heuristic(
+        &mut self,
+        players: &[PlayerState],
+        costs: &mut [f32],
+    ) -> Result<(), Box<dyn Error>>;
 
     // NOTE scale is a fudge factor to make the heuristic over-estimate, which gives up
     // accuracy/optimality in exchange for speed

@@ -1,10 +1,10 @@
 extern crate brain;
-extern crate state;
 extern crate nalgebra as na;
+extern crate state;
 
-use na::{ Unit, Vector3, UnitQuaternion, Rotation3 };
-use state::{ PlayerState, PlanResult, DesiredContact };
 use brain::plan::hybrid_a_star;
+use na::{Rotation3, Unit, UnitQuaternion, Vector3};
+use state::{DesiredContact, PlanResult, PlayerState};
 use std::f32::consts::PI;
 
 fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
@@ -37,16 +37,24 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
         desired.position.y = y + (y / 4.0) * (11.0 * i as f32).sin();
 
         let desired_yaw = if desired.position.norm() > 200.0 {
-            yaw + (13.0 * i as f32).sin() * PI/4.0
+            yaw + (13.0 * i as f32).sin() * PI / 4.0
         } else {
             // when close, some angles are not really reachable
             yaw
         };
         desired.heading = Rotation3::from_euler_angles(0.0, 0.0, desired_yaw) * desired.heading;
 
-        let PlanResult { plan, visualization_lines, visualization_points, .. } = hybrid_a_star(&player, &desired, step);
+        let PlanResult {
+            plan,
+            visualization_lines,
+            visualization_points,
+            ..
+        } = hybrid_a_star(&player, &desired, step);
         if plan.is_none() {
-            println!("FAILED | pos: {:?} | yaw: {}", desired.position, desired_yaw);
+            println!(
+                "FAILED | pos: {:?} | yaw: {}",
+                desired.position, desired_yaw
+            );
         }
         assert!(plan.is_some());
 
@@ -54,13 +62,21 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
             let plan_len = plan.len();
 
             total_plan_len += plan_len;
-            if plan_len > max_plan_len { max_plan_len = plan_len }
-            if plan_len < min_plan_len { min_plan_len = plan_len }
+            if plan_len > max_plan_len {
+                max_plan_len = plan_len
+            }
+            if plan_len < min_plan_len {
+                min_plan_len = plan_len
+            }
 
             let expansions = visualization_points.len();
             total_expansions += expansions;
-            if expansions > max_expansions { max_expansions = expansions }
-            if expansions < min_expansions { min_expansions = expansions }
+            if expansions > max_expansions {
+                max_expansions = expansions
+            }
+            if expansions < min_expansions {
+                min_expansions = expansions
+            }
 
             if expansions > 100000 {
                 println!("SLOW | pos: {:?} | yaw: {}", desired.position, desired_yaw);
@@ -94,7 +110,10 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
     }
     println!("");
     println!("----------------------------");
-    println!("avg expansions: {}", (total_expansions as f32) / (num as f32));
+    println!(
+        "avg expansions: {}",
+        (total_expansions as f32) / (num as f32)
+    );
     //println!("min expansions: {}", min_expansions);
     println!("max expansions: {}", max_expansions);
     println!("----------------------------");
@@ -102,11 +121,17 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
     //println!("min plan_len: {}", min_plan_len);
     println!("max plan_len: {}", max_plan_len);
     println!("----------------------------");
-    println!("rms position error: {}", (total_position_error_squared / (num as f32)).sqrt());
+    println!(
+        "rms position error: {}",
+        (total_position_error_squared / (num as f32)).sqrt()
+    );
     //println!("min error: {}", min_position_error);
     println!("max position error: {}", max_position_error);
     println!("----------------------------");
-    println!("rms rotation error: {}", (total_rotation_error_squared / (num as f32)).sqrt());
+    println!(
+        "rms rotation error: {}",
+        (total_rotation_error_squared / (num as f32)).sqrt()
+    );
     //println!("min error: {}", min_rotation_error);
     println!("max rotation error: {}", max_rotation_error);
     println!("----------------------------");
@@ -114,32 +139,68 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
 
 #[test]
 fn close_and_forward_4_step() {
-    run("close and forward, 10-step", 10.0, 80.0, -PI/2.0, 4.0/120.0);
+    run(
+        "close and forward, 10-step",
+        10.0,
+        80.0,
+        -PI / 2.0,
+        4.0 / 120.0,
+    );
 }
 
 #[test]
 fn close_and_forward_10_step() {
-    run("close and forward, 10-step", 100.0, 400.0, -PI/2.0, 10.0/120.0);
+    run(
+        "close and forward, 10-step",
+        100.0,
+        400.0,
+        -PI / 2.0,
+        10.0 / 120.0,
+    );
 }
 
 #[test]
 fn close_and_forward_20_step() {
-    run("close and forward, 20-step", 100.0, 400.0, -PI/2.0, 20.0/120.0);
+    run(
+        "close and forward, 20-step",
+        100.0,
+        400.0,
+        -PI / 2.0,
+        20.0 / 120.0,
+    );
 }
 
 #[test]
 fn medium_and_forward_20_step() {
-    run("medium and forward, 20-step", 500.0, 800.0, -PI/2.0, 20.0/120.0);
+    run(
+        "medium and forward, 20-step",
+        500.0,
+        800.0,
+        -PI / 2.0,
+        20.0 / 120.0,
+    );
 }
 
 #[test]
 fn medium_180_and_forward_20_step() {
-    run("medium and forward, 20-step", 500.0, 800.0, PI/2.0, 20.0/120.0);
+    run(
+        "medium and forward, 20-step",
+        500.0,
+        800.0,
+        PI / 2.0,
+        20.0 / 120.0,
+    );
 }
 
 #[test]
 fn medium_90_and_forward_20_step() {
-    run("medium and forward, 20-step", 500.0, 800.0, 0.0, 20.0/120.0);
+    run(
+        "medium and forward, 20-step",
+        500.0,
+        800.0,
+        0.0,
+        20.0 / 120.0,
+    );
 }
 
 /* LAST RESULT */

@@ -2,11 +2,11 @@ extern crate csv;
 extern crate flatbuffers;
 extern crate rlbot;
 extern crate state;
-use rlbot::{ flat, ControllerState };
-use std::fs::create_dir_all;
+use rlbot::{flat, ControllerState};
 use state::*;
 use std::error::Error;
 use std::f32::consts::PI;
+use std::fs::create_dir_all;
 use std::path::PathBuf;
 
 const MAX_BOOST_SPEED: i16 = 2300;
@@ -50,7 +50,8 @@ impl RecordState {
     }
 
     pub fn save_and_advance(&mut self) {
-        let mut wtr = csv::Writer::from_path(self.path()).expect("couldn't open file for writing csv");
+        let mut wtr =
+            csv::Writer::from_path(self.path()).expect("couldn't open file for writing csv");
 
         for (frame, player) in &self.records {
             let pos = player.position;
@@ -85,10 +86,7 @@ impl RecordState {
     pub fn set_next_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
         self.started = false;
 
-        let position = rlbot::Vector3Partial::new()
-            .x(0.0)
-            .y(0.0)
-            .z(18.65); // batmobile resting z
+        let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
 
         let velocity = rlbot::Vector3Partial::new()
             .x(0.0)
@@ -111,11 +109,9 @@ impl RecordState {
             .velocity(velocity)
             .angular_velocity(angular_velocity);
 
-        let car_state = rlbot::DesiredCarState::new()
-            .physics(physics);
+        let car_state = rlbot::DesiredCarState::new().physics(physics);
 
-        let desired_game_state = rlbot::DesiredGameState::new()
-            .car_state(0, car_state);
+        let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state);
 
         rlbot.set_game_state(&desired_game_state)?;
 
@@ -133,26 +129,24 @@ impl RecordState {
 }
 
 fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
-    let position = rlbot::Vector3Partial::new()
-        .x(3800.0)
-        .y(4800.0)
-        .z(98.0);
+    let position = rlbot::Vector3Partial::new().x(3800.0).y(4800.0).z(98.0);
 
-    let physics = rlbot::DesiredPhysics::new()
-        .location(position);
+    let physics = rlbot::DesiredPhysics::new().location(position);
 
-    let ball_state = rlbot::DesiredBallState::new()
-        .physics(physics);
+    let ball_state = rlbot::DesiredBallState::new().physics(physics);
 
-    let desired_game_state = rlbot::DesiredGameState::new()
-        .ball_state(ball_state);
+    let desired_game_state = rlbot::DesiredGameState::new().ball_state(ball_state);
 
     rlbot.set_game_state(&desired_game_state)?;
 
     Ok(())
 }
 
-fn record_set(rlbot: &rlbot::RLBot, name: &'static str, input: ControllerState) -> Result<(), Box<Error>> {
+fn record_set(
+    rlbot: &rlbot::RLBot,
+    name: &'static str,
+    input: ControllerState,
+) -> Result<(), Box<Error>> {
     let mut record_state = RecordState {
         speed: -MAX_BOOST_SPEED,
         angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
@@ -352,22 +346,20 @@ fn idle_right_drift() -> ControllerState {
     input
 }
 
-
 fn main() -> Result<(), Box<Error>> {
     let rlbot = rlbot::init()?;
 
     let batmobile = rlbot::PlayerLoadout::new().car_id(803);
-    let mut settings = rlbot::MatchSettings::new()
-        .player_configurations(vec![
-            rlbot::PlayerConfiguration::new(
-                rlbot::PlayerClass::RLBotPlayer,
-                "Recorder",
-                0,
-            ).loadout(batmobile)
-        ]);
+    let mut settings =
+        rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
+            rlbot::PlayerClass::RLBotPlayer,
+            "Recorder",
+            0,
+        )
+        .loadout(batmobile)]);
 
-    settings.mutator_settings = rlbot::MutatorSettings::new()
-        .match_length(rlbot::MatchLength::Unlimited);
+    settings.mutator_settings =
+        rlbot::MutatorSettings::new().match_length(rlbot::MatchLength::Unlimited);
 
     rlbot.start_match(&settings)?;
     rlbot.wait_for_match_start()?;

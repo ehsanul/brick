@@ -1,13 +1,13 @@
-use state::*;
+use heuristic::HeuristicModel; // TODO as _;
+use na::{self, Rotation3, Unit, Vector3};
 use plan;
 use predict;
-use heuristic::HeuristicModel; // TODO as _;
 use rlbot;
-use na::{ self, Unit, Vector3, Rotation3 };
-use std::f32::consts::PI;
+use state::*;
 use std;
-use std::time::Instant;
 use std::collections::VecDeque;
+use std::f32::consts::PI;
+use std::time::Instant;
 
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
@@ -26,7 +26,10 @@ fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
 
 /// guess best point on ball to hit, get the heading at that point
 #[no_mangle]
-pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact  {
+pub extern "C" fn simple_desired_contact(
+    ball: &BallState,
+    desired_ball_position: &Vector3<f32>,
+) -> DesiredContact {
     let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
     let desired_velocity = 3000.0 * desired_vector.into_inner();
     let velocity_delta = desired_velocity - ball.velocity;
@@ -42,14 +45,23 @@ pub extern fn simple_desired_contact(ball: &BallState, desired_ball_position: &V
     }
 }
 
-fn reachable_desired_player_state<H: HeuristicModel>(model: &mut H, player: &PlayerState, ball_trajectory: &[BallState], desired_ball_position: &Vector3<f32>) -> Option<DesiredContact> {
+fn reachable_desired_player_state<H: HeuristicModel>(
+    model: &mut H,
+    player: &PlayerState,
+    ball_trajectory: &[BallState],
+    desired_ball_position: &Vector3<f32>,
+) -> Option<DesiredContact> {
     let start = Instant::now();
 
-    let mut estimates = ball_trajectory.iter().enumerate().map(|(i, ball)| {
-        let desired_contact = simple_desired_contact(ball, &desired_ball_position);
-        let shooting_time = non_admissable_estimated_time(model, &player, &desired_contact);
-        (i, shooting_time)
-    }).collect::<Vec<_>>();
+    let mut estimates = ball_trajectory
+        .iter()
+        .enumerate()
+        .map(|(i, ball)| {
+            let desired_contact = simple_desired_contact(ball, &desired_ball_position);
+            let shooting_time = non_admissable_estimated_time(model, &player, &desired_contact);
+            (i, shooting_time)
+        })
+        .collect::<Vec<_>>();
     estimates.sort_by(|(i, shooting_time), (i2, shooting_time2)| {
         let ball_time = (*i as f32) * TICK;
         let ball_time2 = (*i2 as f32) * TICK;
@@ -103,7 +115,10 @@ fn reachable_desired_player_state<H: HeuristicModel>(model: &mut H, player: &Pla
     match shootable_ball_state {
         Some(i) => {
             // TODO don't re-calculate this, store temporarily in a variable instead
-            Some(simple_desired_contact(&ball_trajectory[i], &desired_ball_position))
+            Some(simple_desired_contact(
+                &ball_trajectory[i],
+                &desired_ball_position,
+            ))
         }
         None => None,
     }
@@ -111,11 +126,12 @@ fn reachable_desired_player_state<H: HeuristicModel>(model: &mut H, player: &Pla
 
 fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
     let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
-    let last_plan = if bot.last_action.is_some() && bot.last_action.as_ref().unwrap() == &Action::Shoot {
-        bot.plan.as_ref()
-    } else {
-        None
-    };
+    let last_plan =
+        if bot.last_action.is_some() && bot.last_action.as_ref().unwrap() == &Action::Shoot {
+            bot.plan.as_ref()
+        } else {
+            None
+        };
     let result = hit_ball(model, &game, &desired_ball_position, last_plan);
     bot.last_action = Some(Action::Shoot);
     result
@@ -135,7 +151,12 @@ fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState)
 // 6. boom we found the earliest point at which it's possible to hit the ball into its desired
 //    position, and got the corresponding desired player state all at once.
 // 7. plan motion to reach desired player state
-fn hit_ball<H: HeuristicModel>(model: &mut H, game: &GameState, desired_ball_position: &Vector3<f32>, last_plan: Option<&Plan>) -> PlanResult {
+fn hit_ball<H: HeuristicModel>(
+    model: &mut H,
+    game: &GameState,
+    desired_ball_position: &Vector3<f32>,
+    last_plan: Option<&Plan>,
+) -> PlanResult {
     //let start = Instant::now();
     let ball_trajectory = predict::ball::ball_trajectory(&game.ball, 10.0);
     //println!("#############################");
@@ -172,14 +193,29 @@ fn hit_ball<H: HeuristicModel>(model: &mut H, game: &GameState, desired_ball_pos
         trajectory_segment2 = &[];
     }
 
-    let desired_contact = match reachable_desired_player_state(model, &game.player, &trajectory_segment1, &desired_ball_position) {
+    let desired_contact = match reachable_desired_player_state(
+        model,
+        &game.player,
+        &trajectory_segment1,
+        &desired_ball_position,
+    ) {
         Some(dc) => dc,
         None => {
-            match reachable_desired_player_state(model, &game.player, &trajectory_segment2, &desired_ball_position) {
+            match reachable_desired_player_state(
+                model,
+                &game.player,
+                &trajectory_segment2,
+                &desired_ball_position,
+            ) {
                 Some(dc) => dc,
                 None => {
                     let fake_desired = DesiredContact::default();
-                    return PlanResult { plan: None, desired: fake_desired, visualization_lines: vec![], visualization_points: vec![] };
+                    return PlanResult {
+                        plan: None,
+                        desired: fake_desired,
+                        visualization_lines: vec![],
+                        visualization_points: vec![],
+                    };
                 }
             }
         }
@@ -200,14 +236,20 @@ fn hit_ball<H: HeuristicModel>(model: &mut H, game: &GameState, desired_ball_pos
     x
 }
 
-fn non_admissable_estimated_time<H: HeuristicModel>(model: &mut H, current: &PlayerState, desired: &DesiredContact) -> f32 {
+fn non_admissable_estimated_time<H: HeuristicModel>(
+    model: &mut H,
+    current: &PlayerState,
+    desired: &DesiredContact,
+) -> f32 {
     // unreachable, we can't fly
     if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
         return std::f32::MAX;
     }
 
     let mut single_heuristic_cost = [0.0];
-    model.heuristic(&[current.clone()], &mut single_heuristic_cost[0..1]).expect("Heuristic failed initial!");
+    model
+        .heuristic(&[current.clone()], &mut single_heuristic_cost[0..1])
+        .expect("Heuristic failed initial!");
     unsafe { *single_heuristic_cost.get_unchecked(0) }
 }
 
@@ -234,7 +276,7 @@ pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotSta
 }
 
 #[no_mangle]
-pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
+pub extern "C" fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
     let mut iter = plan.iter();
     let mut last_distance = std::f32::MAX;
     let mut index = 0;
@@ -259,14 +301,18 @@ pub extern fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> u
 }
 
 #[no_mangle]
-pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
+pub extern "C" fn next_input(
+    current_player: &PlayerState,
+    bot: &mut BotState,
+) -> rlbot::ControllerState {
     // TODO DRY with closest_plan_index function
     if let Some(ref plan) = bot.plan {
         let index = closest_plan_index(&current_player, &plan);
 
         // we need to look one past closest index to see the controller to reach next position
         if index < plan.len() - 1 {
-            let current_heading = current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            let current_heading =
+                current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
             let (closest_player, _, _) = plan[index];
             let (_next_player, controller, _) = plan[index + 1];
 
@@ -274,13 +320,16 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
             // closest indices to get the real closet delta/distance
             let closest_delta = current_player.position - closest_player.position;
             let closest_distance = closest_delta.norm();
-            let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
+            let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI / 2.0);
             let relative_right = clockwise_90_rotation * current_heading;
 
             if closest_distance == 0.0 {
                 bot.turn_errors.push_back(0.0);
             } else {
-                let direction = na::Matrix::dot(&Unit::new_normalize(closest_delta.clone()).into_inner(), &relative_right); // positive for right, negative for left
+                let direction = na::Matrix::dot(
+                    &Unit::new_normalize(closest_delta.clone()).into_inner(),
+                    &relative_right,
+                ); // positive for right, negative for left
                 println!("direction: {}, distance: {}", direction, closest_distance);
                 let error = direction * closest_distance;
                 bot.turn_errors.push_back(error);
@@ -296,7 +345,6 @@ pub extern fn next_input(current_player: &PlayerState, bot: &mut BotState) -> rl
             //println!("input before: {:?}", input);
             pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
-
 
             return input;
         }
@@ -318,14 +366,23 @@ const DIFFERENTIAL_GAIN: f32 = 0.35;
 const DIFFERENTIAL_STEPS: usize = 2;
 fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
     // build up some errors before we do anything
-    if errors.len() <= DIFFERENTIAL_STEPS { return; }
+    if errors.len() <= DIFFERENTIAL_STEPS {
+        return;
+    }
     let last_error = errors[errors.len() - 1];
-    let error_slope = (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
-    println!("last_error: {:?}, error_slope: {:?}", last_error, error_slope); // TODO normalize slope to speed!
+    let error_slope =
+        (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
+    println!(
+        "last_error: {:?}, error_slope: {:?}",
+        last_error, error_slope
+    ); // TODO normalize slope to speed!
     let proportional_signal = PROPORTIONAL_DIST_GAIN * last_error;
     let differential_signal = DIFFERENTIAL_GAIN * error_slope;
     let signal = proportional_signal + differential_signal;
-    println!("signal: {}, p: {}, d: {}", signal, proportional_signal, differential_signal);
+    println!(
+        "signal: {}, p: {}, d: {}",
+        signal, proportional_signal, differential_signal
+    );
     input.steer += signal;
 
     if input.steer > 1.0 {
@@ -358,12 +415,11 @@ fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot
             Steer::Left => -1.0,
             Steer::Right => 1.0,
         },
-        pitch: 0.0, // brick is a brick
-        yaw: 0.0, // brick is a brick
-        roll: 0.0, // brick is a brick
-        jump: false, // brick is a brick
-        boost: false, // brick is a brick
+        pitch: 0.0,       // brick is a brick
+        yaw: 0.0,         // brick is a brick
+        roll: 0.0,        // brick is a brick
+        jump: false,      // brick is a brick
+        boost: false,     // brick is a brick
         handbrake: false, // brick is a brick
     }
 }
-

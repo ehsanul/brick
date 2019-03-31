@@ -1,11 +1,11 @@
-extern crate nalgebra as na;
-extern crate state;
-extern crate predict;
-extern crate heuristic;
-extern crate rlbot;
-extern crate indexmap;
 extern crate fnv;
+extern crate heuristic;
+extern crate indexmap;
 extern crate itertools;
+extern crate nalgebra as na;
+extern crate predict;
+extern crate rlbot;
+extern crate state;
 
 #[macro_use]
 extern crate lazy_static;
@@ -26,4 +26,3 @@ pub fn get_model() -> impl HeuristicModel {
 
     //BasicHeuristic::default()
 }
-

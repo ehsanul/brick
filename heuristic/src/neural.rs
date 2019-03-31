@@ -1,16 +1,16 @@
 extern crate tensorflow;
 
-use std::error::Error;
-use std::fs::File;
-use na::{ Unit, Vector3, Rotation3 };
 use self::tensorflow::Graph;
 use self::tensorflow::Operation;
 use self::tensorflow::Session;
 use self::tensorflow::SessionOptions;
 use self::tensorflow::SessionRunArgs;
 use self::tensorflow::Tensor;
-use state::{ PlayerState, DesiredContact, BALL_RADIUS, CAR_DIMENSIONS };
-use crate::{ HeuristicModel, get_normalization_rotation, get_ball_position };
+use crate::{get_ball_position, get_normalization_rotation, HeuristicModel};
+use na::{Rotation3, Unit, Vector3};
+use state::{DesiredContact, PlayerState, BALL_RADIUS, CAR_DIMENSIONS};
+use std::error::Error;
+use std::fs::File;
 
 pub struct NeuralHeuristic {
     session: Session,
@@ -23,12 +23,10 @@ pub struct NeuralHeuristic {
 
 impl NeuralHeuristic {
     // export_dir is a directory like "./nn/simple_throttle_cost_saved_model/1551586435";
-    pub fn try_new(export_dir: &str) -> Result<Self, Box<dyn Error>>{
+    pub fn try_new(export_dir: &str) -> Result<Self, Box<dyn Error>> {
         let mut graph = Graph::new();
-        let session = Session::from_saved_model(&SessionOptions::new(),
-                                                &["serve"],
-                                                &mut graph,
-                                                export_dir)?;
+        let session =
+            Session::from_saved_model(&SessionOptions::new(), &["serve"], &mut graph, export_dir)?;
 
         let op_input = graph.operation_by_name_required("dense_input").unwrap();
 
@@ -68,8 +66,12 @@ fn scale_rot(val: f32) -> f32 {
 }
 
 impl HeuristicModel for NeuralHeuristic {
-    fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
-        let mut players_tensor = Tensor::new(&[players.len() as u64,  12u64]);
+    fn heuristic(
+        &mut self,
+        players: &[PlayerState],
+        costs: &mut [f32],
+    ) -> Result<(), Box<dyn Error>> {
+        let mut players_tensor = Tensor::new(&[players.len() as u64, 12u64]);
         for (i, player) in players.iter().enumerate() {
             let offset = i * 12;
             // FIXME use normalization rotation
@@ -91,7 +93,7 @@ impl HeuristicModel for NeuralHeuristic {
 
             // FIXME use normalization rotation
             let (roll, pitch, yaw) = player.rotation.euler_angles(); //(self.normalization_rotation * player.rotation).euler_angles();
-            players_tensor[offset + 9 ] = scale_rot(roll);
+            players_tensor[offset + 9] = scale_rot(roll);
             players_tensor[offset + 10] = scale_rot(pitch);
             players_tensor[offset + 11] = scale_rot(yaw);
 
@@ -124,7 +126,9 @@ impl HeuristicModel for NeuralHeuristic {
         let predictions = output_step.fetch(prediction_token)?;
         costs.copy_from_slice(&predictions);
 
-        for c in costs.iter_mut() { *c *= self.scale }
+        for c in costs.iter_mut() {
+            *c *= self.scale
+        }
 
         Ok(())
     }
@@ -135,4 +139,3 @@ impl HeuristicModel for NeuralHeuristic {
         self.scale = scale;
     }
 }
-

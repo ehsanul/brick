@@ -1,11 +1,10 @@
 use std::f32;
 
-use na::{self, Isometry3, Vector3, Unit};
+use na::{self, Isometry3, Unit, Vector3};
 use ncollide;
 
-use state::*;
 use arena::ARENA;
-
+use state::*;
 
 // static BALL_RADIUS: f32 = 93.143 is imported from state, was: R = 91.25
 static RESTITUION: f32 = 0.6; // was: C_R = 0.6
@@ -29,9 +28,8 @@ fn find_prediction_category(_current: &BallState) -> PredictionCategory {
     PredictionCategory::Soaring
 }
 
-
 #[no_mangle]
-pub extern fn ball_trajectory(current: &BallState, duration: f32) -> Vec<BallState> {
+pub extern "C" fn ball_trajectory(current: &BallState, duration: f32) -> Vec<BallState> {
     let mut t = 0.0;
     let mut trajectory = Vec::with_capacity((duration / TICK).ceil() as usize);
     let mut ball_now = current.clone();
@@ -42,7 +40,6 @@ pub extern fn ball_trajectory(current: &BallState, duration: f32) -> Vec<BallSta
     }
     trajectory
 }
-
 
 fn next_ball_state_dt(current: &BallState, time_step: f32) -> BallState {
     match find_prediction_category(&current) {
@@ -75,7 +72,8 @@ fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState 
 
     if next.angular_velocity.norm() > BALL_MAX_ROTATION_SPEED {
         // TODO is there a better to_unit_vector method or something?
-        next.angular_velocity = (next.angular_velocity / next.angular_velocity.norm()) * BALL_MAX_ROTATION_SPEED;
+        next.angular_velocity =
+            (next.angular_velocity / next.angular_velocity.norm()) * BALL_MAX_ROTATION_SPEED;
     }
 
     next.position += time_step * next.velocity;
@@ -84,10 +82,9 @@ fn next_ball_state_soaring_dt(current: &BallState, time_step: f32) -> BallState 
     next
 }
 
-
 /// returns normal at contact point if ball is currently colliding with the arena
 #[no_mangle]
-pub extern fn arena_contact_normal(current: &BallState) -> Option<Unit<Vector3<f32>>> {
+pub extern "C" fn arena_contact_normal(current: &BallState) -> Option<Unit<Vector3<f32>>> {
     let ball = ncollide::shape::Ball::new(BALL_RADIUS);
     let ball_pos = Isometry3::new(current.position.clone(), na::zero()); // TODO if we want to handle cube ball, track and pass on the rotation
     let arena_pos = Isometry3::new(na::zero(), na::zero());
@@ -108,8 +105,8 @@ fn calculate_bounce(current: &BallState, normal: &Unit<Vector3<f32>>) -> BallSta
 
     let ratio = v_perp.norm() / s.norm();
 
-    let delta_v_perp = - (1.0 + RESTITUION) * v_perp;
-    let delta_v_para = - f32::min(1.0, Y * ratio) * MU * s;
+    let delta_v_perp = -(1.0 + RESTITUION) * v_perp;
+    let delta_v_para = -f32::min(1.0, Y * ratio) * MU * s;
 
     bounced.velocity += delta_v_perp + delta_v_para;
     bounced.angular_velocity += A * BALL_RADIUS * delta_v_para.cross(&normal);

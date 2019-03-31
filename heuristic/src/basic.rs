@@ -1,6 +1,6 @@
+use na::{Unit, Vector3};
+use state::{DesiredContact, PlayerState, CAR_DIMENSIONS};
 use std::error::Error;
-use state::{ PlayerState, DesiredContact, CAR_DIMENSIONS };
-use na::{ Unit, Vector3 };
 
 use crate::HeuristicModel;
 
@@ -33,11 +33,17 @@ impl BasicHeuristic {
         // out.
         let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let car_to_desired = Unit::new_normalize(self.goal_center - player.position).into_inner();
-        let mut penalty_time_cost = if distance < 800.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.70 {
+        let mut penalty_time_cost = if distance < 800.0
+            && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.70
+        {
             0.5
-        } else if distance < 1500.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.88 {
+        } else if distance < 1500.0
+            && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.88
+        {
             0.5
-        } else if distance < 2000.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.95 {
+        } else if distance < 2000.0
+            && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.95
+        {
             0.5
         } else {
             0.0
@@ -64,7 +70,11 @@ impl Default for BasicHeuristic {
 }
 
 impl HeuristicModel for BasicHeuristic {
-    fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
+    fn heuristic(
+        &mut self,
+        players: &[PlayerState],
+        costs: &mut [f32],
+    ) -> Result<(), Box<dyn Error>> {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
