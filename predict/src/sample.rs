@@ -233,13 +233,23 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
                     let should_replace = {
                         let existing_sample = e.get();
 
-                        let existing_delta = (existing_sample[0].velocity.norm()
-                            - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32)
+                        let existing_local_velocity = get_local_velocity(&existing_sample[0]);
+                        let existing_delta_vx = (existing_local_velocity.x
+                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32)
                             .abs();
+                        let existing_delta_vy = (existing_local_velocity.y
+                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32)
+                            .abs();
+                        let existing_delta = existing_delta_vx + existing_delta_vy;
 
-                        let new_delta = (sample[j].velocity.norm()
-                            - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32)
+                        let new_local_velocity = get_local_velocity(&sample[j]);
+                        let new_delta_vx = (new_local_velocity.x
+                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32)
                             .abs();
+                        let new_delta_vy = (new_local_velocity.y
+                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32)
+                            .abs();
+                        let new_delta = new_delta_vx + new_delta_vy;
 
                         // try to get full samples if possible and don't replace those, but allow
                         // replacing with non-full samples if the full one is not as close as the
@@ -260,20 +270,22 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         }
     }
 
-    assert_index_complete(&indexed);
+    // FIXME assert_index_complete(&indexed);
 
     indexed
 }
 
-const GROUND_SPEED_GRID_FACTOR: f32 = 100.0;
+const GROUND_SPEED_GRID_FACTOR: f32 = 200.0;
 const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
 
 fn assert_index_complete<'a>(index: &SampleMap<'a>) {
     let min_avz = -(MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
     let max_avz = (MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
-    for speed in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
+
+    // FIXME validate we have all required local_vx values too
+    for local_vy in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
         for avz in min_avz..max_avz {
-            let normalized = NormalizedPlayerState { speed, avz };
+            let normalized = NormalizedPlayerState { local_vy, local_vx: 0i16, avz };
             if index.get(&normalized).is_none() {
                 panic!(format!("Missing: {:?}", normalized));
             }
@@ -284,7 +296,8 @@ fn assert_index_complete<'a>(index: &SampleMap<'a>) {
 // XXX is the use of i16 here actually helping?
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct NormalizedPlayerState {
-    pub speed: i16,
+    pub local_vx: i16,
+    pub local_vy: i16,
     //avx: i16,
     //avy: i16,
     pub avz: i16,
@@ -293,22 +306,45 @@ pub struct NormalizedPlayerState {
     //yaw: i16,
 }
 
+fn get_local_velocity(player: &PlayerState) -> Vector3<f32> {
+    let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let vx;
+    let vy;
+    if player.velocity.norm() == 0.0 {
+        vx = 0.0;
+        vy = 0.0;
+    } else {
+        vy = player.velocity.norm() * na::Matrix::dot(&(player.velocity / player.velocity.norm()), &current_heading);
+        vx = (player.velocity.norm().powf(2.0) - vy.powf(2.0)).sqrt();
+    }
+    let vz = 0.0; // FIXME only 2D right now.. if the heading and velocity are not in the x-y plane, this will be very wrong!
+
+    Vector3::new(vx, vy, vz)
+}
+
 pub fn normalized_player_rounded(player: &PlayerState) -> NormalizedPlayerState {
+    let local_velocity = get_local_velocity(player);
+    //println!("player velocity: {:?}", player.velocity);
+    println!("local_velocity: {:?}", local_velocity);
     NormalizedPlayerState {
-        speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).round() as i16,
+        local_vx: (local_velocity.x / GROUND_SPEED_GRID_FACTOR).round() as i16,
+        local_vy: (local_velocity.y / GROUND_SPEED_GRID_FACTOR).round() as i16,
         avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
     }
 }
 
 pub fn normalized_player(player: &PlayerState, ceil: bool) -> NormalizedPlayerState {
+    let local_velocity = get_local_velocity(player);
     if ceil {
         NormalizedPlayerState {
-            speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
+            local_vx: (local_velocity.x / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
+            local_vy: (local_velocity.y / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
             avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
         }
     } else {
         NormalizedPlayerState {
-            speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).floor() as i16,
+            local_vx: (local_velocity.x / GROUND_SPEED_GRID_FACTOR).floor() as i16,
+            local_vy: (local_velocity.y / GROUND_SPEED_GRID_FACTOR).floor() as i16,
             avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
         }
     }
@@ -333,7 +369,7 @@ pub(crate) fn get_relevant_turn_samples(
         (&Steer::Right   , &Throttle::Idle   , false, false) => &IDLE_RIGHT_INDEXED,
         (&Steer::Right   , &Throttle::Reverse, false, false) => &REVERSE_RIGHT_INDEXED,
         (&Steer::Right   , &Throttle::Forward, false, true ) => &THROTTLE_RIGHT_DRIFT_INDEXED,
-        (&Steer::Right   , &Throttle::Forward, true , true ) => &BOOST_RIGHT_DRIFT_INDEXED,
+        (&Steer::Right   , _                 , true , true ) => &BOOST_RIGHT_DRIFT_INDEXED,
 
         (&Steer::Left    , &Throttle::Forward, false, false) => &THROTTLE_LEFT_INDEXED,
         (&Steer::Left    , _                 , true , false) => &BOOST_LEFT_INDEXED,

@@ -14,7 +14,8 @@ const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
 const ANGULAR_GRID: f32 = 0.2;
 
 struct RecordState {
-    speed: i16,
+    local_vx: i16,
+    local_vy: i16,
     angular_speed: i16,
     started: bool,
     records: Vec<(i32, PlayerState)>,
@@ -38,6 +39,16 @@ impl RecordState {
         self.records.push(latest);
     }
 
+    fn speed() -> i16 {
+        (self.local_vy.pow(2) * self.local_vx.pow(2)).sqrt().round(100)
+    }
+
+    // we are iterating to x/y velocities resulting a greater than max total vel. this function
+    // handles the max velocity
+    fn real_local_vy() -> i16 {
+        if self.speed() > 2300
+    }
+
     fn is_initial_state(&self, game_state: &GameState) -> bool {
         let pos = game_state.player.position;
         pos.x.abs() < 100.0 && pos.y.abs() < 100.0
@@ -46,7 +57,8 @@ impl RecordState {
     pub fn path(&self) -> String {
         let dir = format!("data/samples/flat_ground/{}", self.name);
         create_dir_all(&dir).unwrap();
-        format!("{}/{}_{}.csv", dir, self.speed, self.angular_speed)
+
+        format!("{}/{}_{}_{}.csv", dir, self.real_local_vy(), self.real_local_vx(), self.angular_speed)
     }
 
     pub fn save_and_advance(&mut self) {
@@ -148,7 +160,8 @@ fn record_set(
     input: ControllerState,
 ) -> Result<(), Box<Error>> {
     let mut record_state = RecordState {
-        speed: -MAX_BOOST_SPEED,
+        local_vx: -MAX_BOOST_SPEED,
+        local_vy: -MAX_BOOST_SPEED,
         angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
         started: false,
         records: vec![],
@@ -180,6 +193,55 @@ fn record_set(
 
     Ok(())
 }
+
+//    fn record_missing(
+//        rlbot: &rlbot::RLBot,
+//        name: &'static str,
+//        input: ControllerState,
+//    ) -> Result<(), Box<Error>> {
+//        let min_avz = -(MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
+//        let max_avz = (MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
+//    
+//        // FIXME validate we have all required local_vx values too
+//        for local_vy in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
+//            for avz in min_avz..max_avz {
+//                let normalized = NormalizedPlayerState { local_vy, local_vx: 0i16, avz };
+//    
+//                let mut record_state = RecordState {
+//                    speed: -MAX_BOOST_SPEED,
+//                    angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
+//                    started: false,
+//                    records: vec![],
+//                    name: name,
+//                };
+//            }
+//        }
+//    
+//        record_state.set_next_game_state(&rlbot)?;
+//        let mut physicist = rlbot.physicist();
+//        loop {
+//            while PathBuf::from(&record_state.path()).exists() {
+//                record_state.advance();
+//                continue;
+//            }
+//    
+//            let tick = physicist.next_flat()?;
+//    
+//            record_state.record(&tick);
+//            if record_state.sample_complete() {
+//                record_state.save_and_advance();
+//                if record_state.all_samples_complete() {
+//                    break;
+//                } else {
+//                    record_state.set_next_game_state(&rlbot)?;
+//                }
+//            }
+//    
+//            rlbot.update_player_input(0, &input)?;
+//        }
+//    
+//        Ok(())
+//    }
 
 fn throttle_straight() -> ControllerState {
     let mut input = ControllerState::default();

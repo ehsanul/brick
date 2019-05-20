@@ -26,7 +26,7 @@ impl BasicHeuristic {
         // with a lower value, ie higher heuristic cost, we get a potentially less optimal path, but we
         // get it a lot faster. it's not so bad given that we aren't actually going in a straight line
         // boosting at max speed anyways
-        let movement_time_cost = distance / 1150.0;
+        let movement_time_cost = distance / 1850.0;
 
         // basic penalty for being on the wrong side of the ball which will require a big turn. this
         // allows us to forgo searching right near the ball on the wrong side when it'll never work
