@@ -3,7 +3,7 @@ extern crate heuristic;
 extern crate indexmap;
 extern crate itertools;
 extern crate nalgebra as na;
-extern crate predict;
+pub extern crate predict;
 extern crate rlbot;
 extern crate state;
 

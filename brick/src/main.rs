@@ -16,7 +16,6 @@ Options:
 
 extern crate brain;
 extern crate docopt;
-extern crate dynamic_reload;
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate passthrough;
@@ -34,7 +33,7 @@ use std::f32::consts::PI;
 use std::panic;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
@@ -46,80 +45,25 @@ use kiss3d::resource::MeshManager;
 use kiss3d::window::Window;
 use na::{Point3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
 
-use dynamic_reload::{DynamicReload, Lib, PlatformName, Search, Symbol, UpdateState};
 pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
 lazy_static! {
     static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
-    static ref GAME_STATE: RwLock<GameState> = { RwLock::new(GameState::default()) };
-    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> =
-        { RwLock::new(vec![]) };
-    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = { RwLock::new(vec![]) };
-    static ref RELOAD_HANDLER: Mutex<DynamicReload<'static>> = {
-        Mutex::new(DynamicReload::new(
-            Some(vec!["target/release"]),
-            Some("target/release"),
-            Search::Default,
-        ))
+
+    static ref GAME_STATE: RwLock<GameState> = {
+        RwLock::new(GameState::default())
     };
-    static ref RELOAD_HANDLER2: Mutex<DynamicReload<'static>> = {
-        Mutex::new(DynamicReload::new(
-            Some(vec!["target/release"]),
-            Some("target/release"),
-            Search::Default,
-        ))
+
+    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
+        RwLock::new(vec![])
     };
-    static ref BRAIN: Mutex<BrainPlugin> = {
-        let lib = match RELOAD_HANDLER
-            .lock()
-            .expect("Failed to get lock on RELOAD_HANDLER")
-            .add_library("brain", PlatformName::Yes)
-        {
-            Ok(lib) => lib,
-            Err(e) => {
-                panic!("Unable to load dynamic lib, err {:?}", e);
-            }
-        };
-        Mutex::new(BrainPlugin { lib: Some(lib) })
-    };
-    static ref BRAIN2: Mutex<BrainPlugin> = {
-        let lib = match RELOAD_HANDLER2
-            .lock()
-            .expect("Failed to get lock on RELOAD_HANDLER2")
-            .add_library("brain", PlatformName::Yes)
-        {
-            Ok(lib) => lib,
-            Err(e) => {
-                panic!("2Unable to load dynamic lib, err {:?}", e);
-            }
-        };
-        Mutex::new(BrainPlugin { lib: Some(lib) })
+
+    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = {
+        RwLock::new(vec![])
     };
 }
 
-struct BrainPlugin {
-    lib: Option<Arc<Lib>>,
-}
-
-impl BrainPlugin {
-    fn unload_plugin(&mut self, _lib: &Arc<Lib>) {
-        self.lib = None;
-    }
-
-    fn reload_plugin(&mut self, lib: &Arc<Lib>) {
-        self.lib = Some(lib.clone());
-    }
-
-    fn reload_callback(&mut self, state: UpdateState, lib: Option<&Arc<Lib>>) {
-        match state {
-            UpdateState::Before => Self::unload_plugin(self, lib.unwrap()),
-            UpdateState::After => Self::reload_plugin(self, lib.unwrap()),
-            UpdateState::ReloadFailed(_) => println!("Failed to reload"),
-        }
-    }
-}
-
-fn run_visualization() {
+fn run_visualization(){
     let mut window = Window::new("Rocket League Visualization");
 
     // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
@@ -302,7 +246,7 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
         loop {
             let (game, _bot) = receiver.recv().expect("Coudln't receive game state");
 
-            let closest_index = closest_plan_index(&game.player, &plan);
+            let closest_index = brain::play::closest_plan_index(&game.player, &plan);
             plan = plan.split_off(closest_index);
 
             let square_error = (plan[0].0.position - &game.player.position)
@@ -379,7 +323,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         // TODO
         //
         if let Some(ref mut plan) = bot.plan {
-            let closest_index = closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
+            let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
             *plan = plan.split_off(closest_index);
         }
 
@@ -390,7 +334,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
         update_gamepad(&mut gilrs, &mut gamepad);
         let mut input = if gamepad.select_toggled {
-            next_rlbot_input(&GAME_STATE.read().unwrap().player, &mut bot)
+            brain::play::next_input(&GAME_STATE.read().unwrap().player, &mut bot)
         } else {
             human_input(&gamepad)
         };
@@ -420,7 +364,7 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
             let new_plan_steps = new_plan.len() - 1;
             let existing_plan_steps = bot.plan.as_ref().unwrap().len()
                 - 1
-                - closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
+                - brain::play::closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
             // bail, we got a worse plan!
             if new_plan_steps > existing_plan_steps {
                 return;
@@ -510,7 +454,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let mut last_dot = std::f32::MIN;
     let mut player = current.clone();
     loop {
-        let new_player = next_player_state(&player, &controller, TICK);
+        let new_player = brain::predict::player::next_player_state(&player, &controller, TICK);
         let heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let dot = na::Matrix::dot(&heading, &desired_heading);
         if dot > last_dot {
@@ -533,7 +477,7 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Plan {
 
     let mut player = current.clone();
     while (player.position - current.position).norm() < distance {
-        player = next_player_state(&player, &controller, TICK);
+        player = brain::predict::player::next_player_state(&player, &controller, TICK);
         plan.push((player, controller, TICK));
     }
     plan
@@ -607,7 +551,7 @@ fn simulate_over_time() {
 
         if let Some(plan) = bot.plan.clone() {
             let mut game_state = GAME_STATE.write().unwrap();
-            let i = closest_plan_index(&game_state.player, &plan);
+            let i = brain::play::closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
                 game_state.player = plan[i + 1].0;
             // TODO move the ball. but ball velocity is zero for now
@@ -621,86 +565,6 @@ fn simulate_over_time() {
             // just panic in case no plan is found during simulation, as this should not happen
             unimplemented!("go forward 2")
         }
-    }
-}
-
-// TODO remove
-fn next_rlbot_input(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
-    {
-        // XXX there must be a reason why this happens, but BRAIN must be locked before
-        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER2
-            .lock()
-            .expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(BrainPlugin::reload_callback, &mut p);
-    }
-
-    if let Some(ref x) = BRAIN2.lock().unwrap().lib {
-        // TODO cache
-        let next_input: Symbol<NextInputFunc> = unsafe { x.lib.get(b"next_input\0").unwrap() };
-
-        next_input(&current_player, bot)
-    } else {
-        panic!("We need the brain dynamic library!");
-    }
-}
-
-// TODO remove
-type NextInputFunc =
-    extern "C" fn(current_player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState;
-type ClosestPlanIndexFunc = extern "C" fn(current_player: &PlayerState, plan: &Plan) -> usize;
-type NextPlayerStateFunc =
-    fn(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState;
-
-// TODO remove
-fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
-    {
-        // XXX there must be a reason why this happens, but BRAIN must be locked before
-        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = BRAIN2.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER2
-            .lock()
-            .expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(BrainPlugin::reload_callback, &mut p);
-    }
-
-    if let Some(ref x) = BRAIN2.lock().unwrap().lib {
-        // TODO cache
-        let closest_plan_index: Symbol<ClosestPlanIndexFunc> =
-            unsafe { x.lib.get(b"closest_plan_index\0").unwrap() };
-
-        closest_plan_index(&current_player, &plan)
-    } else {
-        panic!("We need the brain dynamic library!");
-    }
-}
-
-// TODO remove
-fn next_player_state(
-    current: &PlayerState,
-    controller: &BrickControllerState,
-    time_step: f32,
-) -> PlayerState {
-    // FIXME is there a way to unlock without a made up scope?
-    {
-        // XXX there must be a reason why this happens, but BRAIN must be locked before
-        // RELOAD_HANDLER, otherwise we apparently end up in a deadlock
-        let mut p = BRAIN.lock().expect("Failed to get lock on BRAIN");
-        let mut rh = RELOAD_HANDLER
-            .lock()
-            .expect("Failed to get lock on RELOAD_HANDLER");
-        rh.update(BrainPlugin::reload_callback, &mut p);
-    }
-
-    if let Some(ref x) = BRAIN.lock().unwrap().lib {
-        // TODO cache
-        let next_player_state: Symbol<NextPlayerStateFunc> =
-            unsafe { x.lib.get(b"next_player_state\0").unwrap() };
-
-        next_player_state(&current, &controller, time_step)
-    } else {
-        panic!("We need the brain dynamic library!");
     }
 }
 
