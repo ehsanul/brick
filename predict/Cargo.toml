@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
-ncollide3d = "0.18"
+ncollide3d = "*"
 nalgebra = "*"
 fnv = "1.0"
 obj-rs = "0.4"
