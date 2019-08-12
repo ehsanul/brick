@@ -8,7 +8,7 @@ extern crate lazy_static;
 extern crate serde_derive;
 extern crate bincode;
 
-use na::{Point3, Quaternion, UnitQuaternion, Vector3};
+use na::{Point3, Quaternion, Rotation3, UnitQuaternion, Vector3};
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 
@@ -122,6 +122,21 @@ impl Default for PlayerState {
             rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0),
             team: Team::Blue,
         }
+    }
+}
+
+impl PlayerState {
+    //pub fn heading(&self) -> Vector3<f32> {
+    //}
+
+    // global_velocity = rotation * local_velocity
+    pub fn local_velocity(&self) -> Vector3<f32> {
+        // the actual car with no rotation is sideways, pointed towards negative x. so we do an
+        // additional rotation to convert to local coords with car pointing towards positive
+        // y instead of negative x, since that's a lot more intuitive
+        Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0)
+            * na::inverse(&self.rotation.to_rotation_matrix())
+            * self.velocity
     }
 }
 

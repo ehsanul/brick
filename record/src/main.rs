@@ -1,9 +1,11 @@
 extern crate csv;
 extern crate flatbuffers;
+extern crate predict;
 extern crate rlbot;
 extern crate state;
 use rlbot::{flat, ControllerState};
 use state::*;
+use std::collections::HashMap;
 use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::create_dir_all;
@@ -12,9 +14,37 @@ use std::path::PathBuf;
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
 const ANGULAR_GRID: f32 = 0.2;
+const SPEED_GRID: i16 = 100;
+const VELOCITY_MARGIN: f32 = 15.0;
+const ANGULAR_SPEED_MARGIN: f32 = 0.5;
+
+#[derive(Debug, Clone)]
+struct MaxAttempts {
+    local_vx: i16,
+    local_vy: i16,
+    angular_speed: i16,
+}
+
+impl std::fmt::Display for MaxAttempts {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "Failed to set game state accurately for: {}, {}, {}",
+            self.local_vx, self.local_vy, self.angular_speed
+        )
+    }
+}
+
+impl Error for MaxAttempts {
+    fn cause(&self) -> Option<&Error> {
+        // Generic error, underlying cause isn't tracked.
+        None
+    }
+}
 
 struct RecordState {
-    speed: i16,
+    local_vx: i16,
+    local_vy: i16,
     angular_speed: i16,
     started: bool,
     records: Vec<(i32, PlayerState)>,
@@ -46,10 +76,13 @@ impl RecordState {
     pub fn path(&self) -> String {
         let dir = format!("data/samples/flat_ground/{}", self.name);
         create_dir_all(&dir).unwrap();
-        format!("{}/{}_{}.csv", dir, self.speed, self.angular_speed)
+        format!(
+            "{}/{}_{}_{}.csv",
+            dir, self.local_vx, self.local_vy, self.angular_speed
+        )
     }
 
-    pub fn save_and_advance(&mut self) {
+    pub fn save(&mut self) {
         let mut wtr =
             csv::Writer::from_path(self.path()).expect("couldn't open file for writing csv");
 
@@ -70,16 +103,18 @@ impl RecordState {
 
             wtr.write_record(&row).expect("csv write failed");
         }
-
-        self.advance();
     }
 
     pub fn advance(&mut self) {
         self.records.clear();
-        self.speed += 100;
-        if self.speed > MAX_BOOST_SPEED {
-            self.speed = -MAX_BOOST_SPEED;
-            self.angular_speed += 1;
+        self.local_vx += 100;
+        if self.local_vx > MAX_BOOST_SPEED {
+            self.local_vx = -MAX_BOOST_SPEED;
+            self.local_vy += 100;
+            if self.local_vy > MAX_BOOST_SPEED {
+                self.local_vy = -MAX_BOOST_SPEED;
+                self.angular_speed += 1;
+            }
         }
     }
 
@@ -89,8 +124,8 @@ impl RecordState {
         let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
 
         let velocity = rlbot::Vector3Partial::new()
-            .x(0.0)
-            .y(self.speed as f32)
+            .x(self.local_vx as f32)
+            .y(self.local_vy as f32)
             .z(0.0);
 
         let angular_velocity = rlbot::Vector3Partial::new()
@@ -118,6 +153,108 @@ impl RecordState {
         Ok(())
     }
 
+    pub fn set_game_state_accurately(
+        &mut self,
+        rlbot: &rlbot::RLBot,
+        physicist: &mut rlbot::Physicist,
+        index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,
+        adjustment: &mut Adjustment,
+    ) -> Result<(), Box<Error>> {
+        let original_local_vx = self.local_vx;
+        let original_local_vy = self.local_vy;
+        let original_angular_speed = self.angular_speed;
+
+        let mut attempts = 0;
+
+        loop {
+            // adjust values to account for differences between the value we set and the first
+            // value we actually receive back
+            self.local_vx = original_local_vx
+                + adjustment
+                    .local_vx
+                    .get(&original_local_vx)
+                    .map(|e| e.round() as i16)
+                    .unwrap_or(0i16);
+            self.local_vy = original_local_vy
+                + adjustment
+                    .local_vy
+                    .get(&original_local_vy)
+                    .map(|e| e.round() as i16)
+                    .unwrap_or(0i16);
+            self.angular_speed = original_angular_speed
+                + adjustment
+                    .angular_speed
+                    .get(&original_angular_speed)
+                    .map(|e| e.round() as i16)
+                    .unwrap_or(0i16);
+
+            self.set_next_game_state(rlbot)?;
+
+            // check if we match the expected state now
+            loop {
+                if attempts > 10 {
+                    // we tried, but now bail
+                    return Err(MaxAttempts {
+                        local_vx: original_local_vx,
+                        local_vy: original_local_vy,
+                        angular_speed: original_angular_speed,
+                    }
+                    .into());
+                }
+
+                let tick = physicist.next_flat()?;
+                let mut game_state = GameState::default();
+                state::update_game_state(&mut game_state, &tick, 0);
+
+                if !self.is_initial_state(&game_state) {
+                    // there's a delay between setting state and it become available in the tick
+                    // data. let's try again
+                    continue;
+                }
+
+                let vx_diff = original_local_vx as f32 - game_state.player.local_velocity().x;
+                let vy_diff = original_local_vy as f32 - game_state.player.local_velocity().y;
+                let avz_diff = original_angular_speed as f32
+                    - (game_state.player.angular_velocity.z / ANGULAR_GRID);
+
+                if vx_diff.abs() <= VELOCITY_MARGIN
+                    && vy_diff.abs() <= VELOCITY_MARGIN
+                    && avz_diff.abs() < ANGULAR_SPEED_MARGIN
+                {
+                    // close enough, we're good!
+                    // XXX must record now since borrowck doesn't understand that ticket is an
+                    // independent value that shouldn't extend the lifetime of the record_state
+                    // borrow. same issue with index.insert.
+                    self.record(&tick);
+                    index.insert(
+                        predict::sample::normalized_player_rounded(&game_state.player),
+                        game_state.player.clone(),
+                    );
+
+                    return Ok(());
+                } else {
+                    adjustment
+                        .local_vx
+                        .entry(original_local_vx)
+                        .and_modify(|e| *e += vx_diff)
+                        .or_insert(-vx_diff);
+                    adjustment
+                        .local_vy
+                        .entry(original_local_vy)
+                        .and_modify(|e| *e += vy_diff)
+                        .or_insert(-vy_diff);
+                    adjustment
+                        .angular_speed
+                        .entry(original_angular_speed)
+                        .and_modify(|e| *e += avz_diff)
+                        .or_insert(-avz_diff);
+                    attempts += 1;
+                    continue;
+                }
+            }
+        }
+    }
+
     pub fn sample_complete(&self) -> bool {
         self.records.len() > 120
     }
@@ -126,6 +263,13 @@ impl RecordState {
     pub fn all_samples_complete(&self) -> bool {
         self.angular_speed > (1.0 / ANGULAR_GRID).round() as i16 * MAX_ANGULAR_SPEED
     }
+}
+
+#[derive(Default)]
+struct Adjustment {
+    local_vx: HashMap<i16, f32>,
+    local_vy: HashMap<i16, f32>,
+    angular_speed: HashMap<i16, f32>,
 }
 
 fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
@@ -142,13 +286,14 @@ fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn record_set(
+fn _record_set(
     rlbot: &rlbot::RLBot,
     name: &'static str,
     input: ControllerState,
 ) -> Result<(), Box<Error>> {
     let mut record_state = RecordState {
-        speed: -MAX_BOOST_SPEED,
+        local_vx: -MAX_BOOST_SPEED,
+        local_vy: -MAX_BOOST_SPEED,
         angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
         started: false,
         records: vec![],
@@ -158,6 +303,12 @@ fn record_set(
     record_state.set_next_game_state(&rlbot)?;
     let mut physicist = rlbot.physicist();
     loop {
+        // skip unreachable velocities
+        if record_state.local_vx.pow(2) + record_state.local_vy.pow(2) > MAX_BOOST_SPEED.pow(2) {
+            record_state.advance();
+            continue;
+        }
+
         while PathBuf::from(&record_state.path()).exists() {
             record_state.advance();
             continue;
@@ -167,7 +318,8 @@ fn record_set(
 
         record_state.record(&tick);
         if record_state.sample_complete() {
-            record_state.save_and_advance();
+            record_state.save();
+            record_state.advance();
             if record_state.all_samples_complete() {
                 break;
             } else {
@@ -177,6 +329,111 @@ fn record_set(
 
         rlbot.update_player_input(0, &input)?;
     }
+
+    Ok(())
+}
+
+fn record_all_missing(
+    rlbot: &rlbot::RLBot,
+    name: &'static str,
+    input: ControllerState,
+    sample_index: &predict::sample::SampleMap<'static>,
+) -> Result<(), Box<Error>> {
+    let mut record_state = RecordState {
+        local_vx: 0,
+        local_vy: 0,
+        angular_speed: 0,
+        started: false,
+        records: vec![],
+        name: name,
+    };
+
+    let mut adjustment = Adjustment::default();
+
+    // so we can insert newly created values in and skip when we've pre-emptively recorded
+    // we're cloning to avoid some complicated lifetime issues, since our SampleMap currently
+    // relies on static vecs, whereas we are dealing with mutable vecs right now and that means the
+    // pointer to the vec could be invalidated, which means we can't really a slice of the vec as
+    // the value, like we do with SampleMap
+    let mut index = HashMap::default();
+    for (key, val) in sample_index.iter() {
+        index.insert(key.clone(), val[0].clone());
+    }
+
+    let min_avz = -(MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;
+    let max_avz = (MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;
+    let local_vx = 0; // TODO loop over these too
+    for local_vy in 0..(MAX_BOOST_SPEED / SPEED_GRID) {
+        // TODO negative vy
+        for avz in min_avz..max_avz {
+            let normalized = predict::sample::NormalizedPlayerState {
+                local_vy: local_vy * 100,
+                local_vx: 0,
+                avz,
+            };
+            if let Some(player) = index.get(&normalized) {
+                // sample was found.
+                // check if the sample is within our acceptable margin of closeness to the
+                // actual valus we want, and if so, skip
+                let vx_diff = 100.0 * local_vx as f32 - player.local_velocity().x;
+                let vy_diff = 100.0 * local_vy as f32 - player.local_velocity().y;
+                let avz_diff = avz as f32 - (player.angular_velocity.z / ANGULAR_GRID);
+
+                if vx_diff.abs() <= VELOCITY_MARGIN
+                    && vy_diff.abs() <= VELOCITY_MARGIN
+                    && avz_diff.abs() < ANGULAR_SPEED_MARGIN
+                {
+                    continue;
+                }
+            }
+
+            // no sample found, or no sample within our margin, so let's get it!
+            record_state.local_vx = local_vx * 100;
+            record_state.local_vy = local_vy * 100;
+            record_state.angular_speed = avz;
+            if let Err(e) = record_missing_record_state(
+                &rlbot,
+                &input,
+                &mut index,
+                &mut record_state,
+                &mut adjustment,
+            ) {
+                println!("Error recorring single: {}", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn record_missing_record_state<'a>(
+    rlbot: &rlbot::RLBot,
+    input: &ControllerState,
+    index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,
+    record_state: &mut RecordState,
+    adjustment: &mut Adjustment,
+) -> Result<(), Box<Error>> {
+    let mut physicist = rlbot.physicist();
+    rlbot.update_player_input(0, &input)?;
+
+    // waits and checks the tick to ensure it meets our conditions. and it records the first tick
+    record_state.set_game_state_accurately(&rlbot, &mut physicist, index, adjustment)?;
+
+    loop {
+        rlbot.update_player_input(0, &input)?;
+        let tick = physicist.next_flat()?;
+        record_state.record(&tick);
+
+        // just to record samples
+        let mut game_state = GameState::default();
+        state::update_game_state(&mut game_state, &tick, 0);
+
+        if record_state.sample_complete() {
+            break;
+        }
+    }
+
+    record_state.save();
 
     Ok(())
 }
@@ -267,34 +524,34 @@ fn boost_right_drift() -> ControllerState {
     input
 }
 
-fn brake_straight() -> ControllerState {
+fn reverse_straight() -> ControllerState {
     let mut input = ControllerState::default();
     input.throttle = -1.0;
     input
 }
 
-fn brake_left() -> ControllerState {
+fn reverse_left() -> ControllerState {
     let mut input = ControllerState::default();
     input.throttle = -1.0;
     input.steer = -1.0;
     input
 }
 
-fn brake_right() -> ControllerState {
+fn reverse_right() -> ControllerState {
     let mut input = ControllerState::default();
     input.throttle = -1.0;
     input.steer = 1.0;
     input
 }
 
-fn brake_straight_drift() -> ControllerState {
+fn reverse_straight_drift() -> ControllerState {
     let mut input = ControllerState::default();
     input.throttle = -1.0;
     input.handbrake = true;
     input
 }
 
-fn brake_left_drift() -> ControllerState {
+fn reverse_left_drift() -> ControllerState {
     let mut input = ControllerState::default();
     input.throttle = -1.0;
     input.handbrake = true;
@@ -302,7 +559,7 @@ fn brake_left_drift() -> ControllerState {
     input
 }
 
-fn brake_right_drift() -> ControllerState {
+fn reverse_right_drift() -> ControllerState {
     let mut input = ControllerState::default();
     input.throttle = -1.0;
     input.handbrake = true;
@@ -367,30 +624,150 @@ fn main() -> Result<(), Box<Error>> {
     // set initial state
     move_ball_out_of_the_way(&rlbot)?;
 
-    record_set(&rlbot, "throttle_straight", throttle_straight())?;
-    record_set(&rlbot, "throttle_left", throttle_left())?;
-    record_set(&rlbot, "throttle_right", throttle_right())?;
-    record_set(&rlbot, "throttle_straight_drift", throttle_straight_drift())?;
-    record_set(&rlbot, "throttle_left_drift", throttle_left_drift())?;
-    record_set(&rlbot, "throttle_right_drift", throttle_right_drift())?;
-    record_set(&rlbot, "boost_straight", boost_straight())?;
-    record_set(&rlbot, "boost_left", boost_left())?;
-    record_set(&rlbot, "boost_right", boost_right())?;
-    record_set(&rlbot, "boost_straight_drift", boost_straight_drift())?;
-    record_set(&rlbot, "boost_left_drift", boost_left_drift())?;
-    record_set(&rlbot, "boost_right_drift", boost_right_drift())?;
-    record_set(&rlbot, "brake_straight", brake_straight())?;
-    record_set(&rlbot, "brake_left", brake_left())?;
-    record_set(&rlbot, "brake_right", brake_right())?;
-    record_set(&rlbot, "brake_straight_drift", brake_straight_drift())?;
-    record_set(&rlbot, "brake_left_drift", brake_left_drift())?;
-    record_set(&rlbot, "brake_right_drift", brake_right_drift())?;
-    record_set(&rlbot, "idle_straight", idle_straight())?;
-    record_set(&rlbot, "idle_left", idle_left())?;
-    record_set(&rlbot, "idle_right", idle_right())?;
-    record_set(&rlbot, "idle_straight_drift", idle_straight_drift())?;
-    record_set(&rlbot, "idle_left_drift", idle_left_drift())?;
-    record_set(&rlbot, "idle_right_drift", idle_right_drift())?;
+    record_all_missing(
+        &rlbot,
+        "throttle_straight",
+        throttle_straight(),
+        &predict::sample::THROTTLE_STRAIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "throttle_left",
+        throttle_left(),
+        &predict::sample::THROTTLE_LEFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "throttle_right",
+        throttle_right(),
+        &predict::sample::THROTTLE_RIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "throttle_straight_drift",
+        throttle_straight_drift(),
+        &predict::sample::THROTTLE_STRAIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "throttle_left_drift",
+        throttle_left_drift(),
+        &predict::sample::THROTTLE_LEFT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "throttle_right_drift",
+        throttle_right_drift(),
+        &predict::sample::THROTTLE_RIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "boost_straight",
+        boost_straight(),
+        &predict::sample::BOOST_STRAIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "boost_left",
+        boost_left(),
+        &predict::sample::BOOST_LEFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "boost_right",
+        boost_right(),
+        &predict::sample::BOOST_RIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "boost_straight_drift",
+        boost_straight_drift(),
+        &predict::sample::BOOST_STRAIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "boost_left_drift",
+        boost_left_drift(),
+        &predict::sample::BOOST_LEFT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "boost_right_drift",
+        boost_right_drift(),
+        &predict::sample::BOOST_RIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "reverse_straight",
+        reverse_straight(),
+        &predict::sample::REVERSE_STRAIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "reverse_left",
+        reverse_left(),
+        &predict::sample::REVERSE_LEFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "reverse_right",
+        reverse_right(),
+        &predict::sample::REVERSE_RIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "reverse_straight_drift",
+        reverse_straight_drift(),
+        &predict::sample::REVERSE_STRAIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "reverse_left_drift",
+        reverse_left_drift(),
+        &predict::sample::REVERSE_LEFT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "reverse_right_drift",
+        reverse_right_drift(),
+        &predict::sample::REVERSE_RIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "idle_straight",
+        idle_straight(),
+        &predict::sample::IDLE_STRAIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "idle_left",
+        idle_left(),
+        &predict::sample::IDLE_LEFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "idle_right",
+        idle_right(),
+        &predict::sample::IDLE_RIGHT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "idle_straight_drift",
+        idle_straight_drift(),
+        &predict::sample::IDLE_STRAIGHT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "idle_left_drift",
+        idle_left_drift(),
+        &predict::sample::IDLE_LEFT_DRIFT_INDEXED,
+    )?;
+    record_all_missing(
+        &rlbot,
+        "idle_right_drift",
+        idle_right_drift(),
+        &predict::sample::IDLE_RIGHT_DRIFT_INDEXED,
+    )?;
 
     Ok(())
 }

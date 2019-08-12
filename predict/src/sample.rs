@@ -54,16 +54,6 @@ lazy_static! {
     pub static ref REVERSE_LEFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/reverse_left/");
     pub static ref REVERSE_LEFT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_LEFT_ALL);
-    pub static ref BRAKE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/brake_straight/");
-    pub static ref BRAKE_STRAIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&BRAKE_STRAIGHT_ALL);
-    pub static ref BRAKE_RIGHT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/brake_right/");
-    pub static ref BRAKE_RIGHT_INDEXED: SampleMap<'static> = index_all_samples(&BRAKE_RIGHT_ALL);
-    pub static ref BRAKE_LEFT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/brake_left/");
-    pub static ref BRAKE_LEFT_INDEXED: SampleMap<'static> = index_all_samples(&BRAKE_LEFT_ALL);
 }
 
 lazy_static! {
@@ -91,6 +81,30 @@ lazy_static! {
         load_all_samples("./data/samples/flat_ground/boost_left_drift/");
     pub static ref BOOST_LEFT_DRIFT_INDEXED: SampleMap<'static> =
         index_all_samples(&BOOST_LEFT_DRIFT_ALL);
+    pub static ref IDLE_STRAIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
+        load_all_samples("./data/samples/flat_ground/idle_straight_drift/");
+    pub static ref IDLE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> =
+        index_all_samples(&IDLE_STRAIGHT_DRIFT_ALL);
+    pub static ref IDLE_RIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
+        load_all_samples("./data/samples/flat_ground/idle_right_drift/");
+    pub static ref IDLE_RIGHT_DRIFT_INDEXED: SampleMap<'static> =
+        index_all_samples(&IDLE_RIGHT_DRIFT_ALL);
+    pub static ref IDLE_LEFT_DRIFT_ALL: Vec<Vec<PlayerState>> =
+        load_all_samples("./data/samples/flat_ground/idle_left_drift/");
+    pub static ref IDLE_LEFT_DRIFT_INDEXED: SampleMap<'static> =
+        index_all_samples(&IDLE_LEFT_DRIFT_ALL);
+    pub static ref REVERSE_STRAIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
+        load_all_samples("./data/samples/flat_ground/reverse_straight_drift/");
+    pub static ref REVERSE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> =
+        index_all_samples(&REVERSE_STRAIGHT_DRIFT_ALL);
+    pub static ref REVERSE_RIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
+        load_all_samples("./data/samples/flat_ground/reverse_right_drift/");
+    pub static ref REVERSE_RIGHT_DRIFT_INDEXED: SampleMap<'static> =
+        index_all_samples(&REVERSE_RIGHT_DRIFT_ALL);
+    pub static ref REVERSE_LEFT_DRIFT_ALL: Vec<Vec<PlayerState>> =
+        load_all_samples("./data/samples/flat_ground/reverse_left_drift/");
+    pub static ref REVERSE_LEFT_DRIFT_INDEXED: SampleMap<'static> =
+        index_all_samples(&REVERSE_LEFT_DRIFT_ALL);
 }
 
 fn load_sample_file(path: &str) -> Vec<PlayerState> {
@@ -233,13 +247,22 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
                     let should_replace = {
                         let existing_sample = e.get();
 
-                        let existing_delta = (existing_sample[0].velocity.norm()
-                            - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32)
+                        let existing_lv = existing_sample[0].local_velocity();
+                        let existing_delta_x = (existing_lv.x
+                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32)
                             .abs();
+                        let existing_delta_y = (existing_lv.y
+                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32)
+                            .abs();
+                        let existing_delta =
+                            (existing_delta_x.powf(2.0) + existing_delta_y.powf(2.0)).sqrt();
 
-                        let new_delta = (sample[j].velocity.norm()
-                            - GROUND_SPEED_GRID_FACTOR * e.key().speed as f32)
-                            .abs();
+                        let new_lv = sample[j].local_velocity();
+                        let new_delta_x =
+                            (new_lv.x - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32).abs();
+                        let new_delta_y =
+                            (new_lv.y - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
+                        let new_delta = (new_delta_x.powf(2.0) + new_delta_y.powf(2.0)).sqrt();
 
                         // try to get full samples if possible and don't replace those, but allow
                         // replacing with non-full samples if the full one is not as close as the
@@ -271,9 +294,13 @@ const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
 fn assert_index_complete<'a>(index: &SampleMap<'a>) {
     let min_avz = -(MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
     let max_avz = (MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
-    for speed in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
+    for local_vy in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
         for avz in min_avz..max_avz {
-            let normalized = NormalizedPlayerState { speed, avz };
+            let normalized = NormalizedPlayerState {
+                local_vy,
+                local_vx: 0,
+                avz,
+            };
             if index.get(&normalized).is_none() {
                 panic!(format!("Missing: {:?}", normalized));
             }
@@ -284,7 +311,9 @@ fn assert_index_complete<'a>(index: &SampleMap<'a>) {
 // XXX is the use of i16 here actually helping?
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct NormalizedPlayerState {
-    pub speed: i16,
+    pub local_vx: i16,
+    pub local_vy: i16,
+    //pub local_vz: i16,
     //avx: i16,
     //avy: i16,
     pub avz: i16,
@@ -294,21 +323,26 @@ pub struct NormalizedPlayerState {
 }
 
 pub fn normalized_player_rounded(player: &PlayerState) -> NormalizedPlayerState {
+    let lv = player.local_velocity();
     NormalizedPlayerState {
-        speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).round() as i16,
+        local_vx: (lv.x / GROUND_SPEED_GRID_FACTOR).round() as i16,
+        local_vy: (lv.y / GROUND_SPEED_GRID_FACTOR).round() as i16,
         avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
     }
 }
 
 pub fn normalized_player(player: &PlayerState, ceil: bool) -> NormalizedPlayerState {
+    let lv = player.local_velocity();
     if ceil {
         NormalizedPlayerState {
-            speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
+            local_vx: (lv.x / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
+            local_vy: (lv.y / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
             avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
         }
     } else {
         NormalizedPlayerState {
-            speed: (player.velocity.norm() / GROUND_SPEED_GRID_FACTOR).floor() as i16,
+            local_vx: (lv.x / GROUND_SPEED_GRID_FACTOR).floor() as i16,
+            local_vy: (lv.y / GROUND_SPEED_GRID_FACTOR).floor() as i16,
             avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
         }
     }
