@@ -263,7 +263,6 @@ impl RecordState {
                 let avz_diff = original_angular_speed as f32
                     - (game_state.player.angular_velocity.z / ANGULAR_GRID);
                 println!("game local vx: {}, game local vy: {}, game avz: {}", game_state.player.local_velocity().x, game_state.player.local_velocity().y, (game_state.player.angular_velocity.z / ANGULAR_GRID));
-                println!("vx_diff: {}, vy_diff: {}, avz_diff: {}", vx_diff, vy_diff, avz_diff);
 
                 if vx_diff.abs() <= VELOCITY_MARGIN
                     && vy_diff.abs() <= VELOCITY_MARGIN
@@ -428,10 +427,11 @@ fn record_all_missing(
         // TODO negative vy
         for avz in min_avz..max_avz {
             let normalized = predict::sample::NormalizedPlayerState {
-                local_vy: local_vy * 100,
+                local_vy: local_vy,
                 local_vx: 0,
                 avz,
             };
+
             if let Some(player) = index.get(&normalized) {
                 // sample was found.
                 // check if the sample is within our acceptable margin of closeness to the
@@ -459,7 +459,7 @@ fn record_all_missing(
                 &mut record_state,
                 &mut adjustment,
             ) {
-                println!("Error recorring single: {}", e);
+                println!("Error recording missing record state: {}", e);
             }
         }
     }

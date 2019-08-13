@@ -185,7 +185,7 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
                         .expect("Invalid row?")
                         .parse()
                         .expect("Can't convert avy to f32"),
-                    -record // FIXME negative is a temp hack since data is recorded incorrectly
+                    record
                         .get(12)
                         .expect("Invalid row?")
                         .parse::<f32>()
@@ -226,13 +226,6 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         let sample = &all_samples[i];
         let mut j = 0;
 
-        // XXX we can't handle going backwards yet, since we are using a plain absolute speed value
-        // for the normalized player state. we need to change that to local_vy + local_vy, then we
-        // can handle going backwards and drifting too
-        if sample[0].velocity.y < 0.0 {
-            continue;
-        }
-
         // subtract 0.5s worth of frames to ensure at least 0.5 seconds of simulation ahead in the slice
         while j < sample.len() - (RECORD_FPS / 2) {
             let key = normalized_player_rounded(&sample[j]);
@@ -264,16 +257,9 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
                             (new_lv.y - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
                         let new_delta = (new_delta_x.powf(2.0) + new_delta_y.powf(2.0)).sqrt();
 
-                        // try to get full samples if possible and don't replace those, but allow
-                        // replacing with non-full samples if the full one is not as close as the
-                        // non-full, within some margin. margin was determined by manually looking
-                        // at first line of collected samples compared to the file name
-                        (new_delta < existing_delta && (existing_delta > 15.0 || sample.len() - j >= existing_sample.len()))
-                            // this condition is in case a previous run overrode the one we
-                            // recorded if it happens to have a slightly closer velocity, but is
-                            // a short sample. we favor the full sample in this case
-                            || (new_delta - 5.0 < existing_delta && sample.len() - j >= 120)
+                        new_delta < existing_delta
                     };
+
                     if should_replace {
                         e.insert(&all_samples[i][j..]);
                     }
