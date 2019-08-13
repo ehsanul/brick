@@ -283,7 +283,7 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         }
     }
 
-    assert_index_complete(&indexed);
+    //assert_index_complete(&indexed);
 
     indexed
 }
