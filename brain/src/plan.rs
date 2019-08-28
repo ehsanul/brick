@@ -85,9 +85,9 @@ lazy_static! {
         straight_reverse.throttle = Throttle::Reverse;
 
         vec![
-            //left_boost,
-            //right_boost,
-            //straight_boost,
+            left_boost,
+            right_boost,
+            straight_boost,
 
             //left_drift_boost,
             //right_drift_boost,

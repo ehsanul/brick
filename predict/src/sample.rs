@@ -157,21 +157,20 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
 
                 angular_velocity: Vector3::new(
                     record
-                        .get(0) // FIXME just using this to find the file using frame number
-                        //.get(7)
+                        .get(7)
                         .expect("Invalid row?")
                         .parse()
-                        .expect("Can't convert roll to f32"),
+                        .expect("Can't convert avx to f32"),
                     record
                         .get(8)
                         .expect("Invalid row?")
                         .parse()
-                        .expect("Can't convert pitch to f32"),
+                        .expect("Can't convert avy to f32"),
                     record
                         .get(9)
                         .expect("Invalid row?")
                         .parse()
-                        .expect("Can't convert yaw to f32"),
+                        .expect("Can't convert avz to f32"),
                 ),
 
                 rotation: UnitQuaternion::from_euler_angles(
@@ -179,17 +178,17 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
                         .get(10)
                         .expect("Invalid row?")
                         .parse()
-                        .expect("Can't convert avx to f32"),
+                        .expect("Can't convert roll to f32"),
                     record
                         .get(11)
                         .expect("Invalid row?")
                         .parse()
-                        .expect("Can't convert avy to f32"),
+                        .expect("Can't convert pitch to f32"),
                     -record // FIXME negative is a temp hack since data is recorded incorrectly
                         .get(12)
                         .expect("Invalid row?")
                         .parse::<f32>()
-                        .expect("Can't convert avz to f32"),
+                        .expect("Can't convert yaw to f32"),
                 ),
 
                 team: Team::Blue, // doesn't matter
@@ -224,17 +223,16 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
 
     for i in 0..all_samples.len() {
         let sample = &all_samples[i];
-        let mut j = 0;
 
-        // XXX we can't handle going backwards yet, since we are using a plain absolute speed value
-        // for the normalized player state. we need to change that to local_vy + local_vy, then we
-        // can handle going backwards and drifting too
-        if sample[0].velocity.y < 0.0 {
-            continue;
+        // bad data?
+        if sample.len() < 32 {
+            continue
         }
 
-        // subtract 0.5s worth of frames to ensure at least 0.5 seconds of simulation ahead in the slice
-        while j < sample.len() - (RECORD_FPS / 2) {
+        let mut j = 0;
+
+        // subtract 32 frames to ensure 32 frames of simulation ahead in the slice
+        while j < sample.len() - 32 {
             let key = normalized_player_rounded(&sample[j]);
 
             match indexed.entry(key) {
@@ -283,7 +281,7 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         }
     }
 
-    assert_index_complete(&indexed);
+    // FIXME // assert_index_complete(&indexed);
 
     indexed
 }
@@ -331,29 +329,30 @@ pub fn normalized_player_rounded(player: &PlayerState) -> NormalizedPlayerState 
     }
 }
 
-pub fn normalized_player(player: &PlayerState, ceil: bool) -> NormalizedPlayerState {
+pub fn normalized_player(player: &PlayerState, ceil_vx: bool, ceil_vy: bool) -> NormalizedPlayerState {
+    let avz = (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16;
+
     let lv = player.local_velocity();
-    if ceil {
-        NormalizedPlayerState {
-            local_vx: (lv.x / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
-            local_vy: (lv.y / GROUND_SPEED_GRID_FACTOR).ceil() as i16,
-            avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
-        }
+
+    let local_vx = if ceil_vx {
+        (lv.x / GROUND_SPEED_GRID_FACTOR).ceil() as i16
     } else {
-        NormalizedPlayerState {
-            local_vx: (lv.x / GROUND_SPEED_GRID_FACTOR).floor() as i16,
-            local_vy: (lv.y / GROUND_SPEED_GRID_FACTOR).floor() as i16,
-            avz: (player.angular_velocity.z / GROUND_AVZ_GRID_FACTOR).round() as i16,
-        }
-    }
+        (lv.x / GROUND_SPEED_GRID_FACTOR).floor() as i16
+    };
+
+    let local_vy = if ceil_vy {
+        (lv.y / GROUND_SPEED_GRID_FACTOR).ceil() as i16
+    } else {
+        (lv.y / GROUND_SPEED_GRID_FACTOR).floor() as i16
+    };
+
+    NormalizedPlayerState { local_vx, local_vy, avz }
 }
 
 pub(crate) fn get_relevant_turn_samples(
-    player: &PlayerState,
+    normalized: &NormalizedPlayerState,
     controller: &BrickControllerState,
-    ceil: bool,
-) -> &'static [PlayerState] {
-    let normalized = normalized_player(&player, ceil);
+) -> Option<&'static [PlayerState]> {
 
     #[rustfmt::skip]
     let sample_map: &SampleMap = match (
@@ -387,8 +386,5 @@ pub(crate) fn get_relevant_turn_samples(
         (_               , _                 , _    , true ) => unimplemented!(),
     };
 
-    sample_map.get(&normalized).expect(&format!(
-        "Missing turn sample for player: {:?} & controller: {:?}",
-        normalized, controller
-    ))
+    sample_map.get(&normalized).map(|x| *x)
 }
