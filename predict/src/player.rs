@@ -75,21 +75,19 @@ fn ground_turn_matching_samples(
     let xstep = if xrange < 0 { -1 } else { 1 };
     let mut dy = 0;
     'outer: loop {
-        if skipy != Some(dy) {
-            let mut dx = 0;
-            loop {
-                if skipx != Some(dx) {
-                    local_normalized.local_vy = normalized.local_vy + dy;
-                    local_normalized.local_vx = normalized.local_vx + dx;
-                    //println!("local_normalized: {:?}", local_normalized);
+        let mut dx = 0;
+        loop {
+            if skipy != Some(dy) || skipx != Some(dx) {
+                local_normalized.local_vy = normalized.local_vy + dy;
+                local_normalized.local_vx = normalized.local_vx + dx;
+                //println!("local_normalized: {:?}", local_normalized);
 
-                    samples = sample::get_relevant_turn_samples(&local_normalized, &controller);
-                    if samples.is_some() { break 'outer }
-                }
-
-                dx += xstep;
-                if dx.abs() > xrange.abs() { break }
+                samples = sample::get_relevant_turn_samples(&local_normalized, &controller);
+                if samples.is_some() { break 'outer }
             }
+
+            dx += xstep;
+            if dx.abs() > xrange.abs() { break }
         }
 
         dy += ystep;
@@ -130,9 +128,11 @@ fn ground_turn_surrounding_quad(
 ) -> [Option<(&'static PlayerState, &'static PlayerState)>; 4] {
     // TODO handle missing values properly: go lower/higher to find another point to use as an
     // interpolation anchor
+    //println!("x1y1");
     let normalized = sample::normalized_player(&current, false, false);
     let mut x1y1 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, -3, None, None);
 
+    //println!("x2y1");
     let normalized = sample::normalized_player(&current, true, false);
     let mut x2y1 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, -3, None, None);
 
@@ -140,20 +140,22 @@ fn ground_turn_surrounding_quad(
     if x1y1.is_some() && x2y1.is_none() {
         //println!("-- x2y1 fallback --");
         let x1y1_player = x1y1.as_ref().unwrap().0;
-        let normalized = sample::normalized_player_rounded(x1y1_player);
-        x2y1 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, -3, Some(normalized.local_vy), Some(normalized.local_vx));
+        let skip = sample::normalized_player_rounded(x1y1_player);
+        x2y1 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, -3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y1.is_some() && x1y1.is_none() {
         //println!("-- x1y1 fallback --");
         let x2y1_player = x2y1.as_ref().unwrap().0;
-        let normalized = sample::normalized_player_rounded(x2y1_player);
-        x1y1 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, -3, Some(normalized.local_vy), Some(normalized.local_vx));
+        let skip = sample::normalized_player_rounded(x2y1_player);
+        x1y1 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, -3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y1.is_none() && x1y1.is_none() {
         //println!("-- BOTH FAILED --");
     }
 
+    //println!("x1y2");
     let normalized = sample::normalized_player(&current, false, true);
     let mut x1y2 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, 3, None, None);
 
+    //println!("x2y2");
     let normalized = sample::normalized_player(&current, true, true);
     let mut x2y2 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, 3, None, None);
 
@@ -161,15 +163,15 @@ fn ground_turn_surrounding_quad(
     if x1y2.is_some() && x2y2.is_none() {
         //println!("-- x2y2 fallback --");
         let x1y2_player = x1y2.as_ref().unwrap().0;
-        let normalized = sample::normalized_player_rounded(x1y2_player);
-        x2y2 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, 3, Some(normalized.local_vy), Some(normalized.local_vx));
+        let skip = sample::normalized_player_rounded(x1y2_player);
+        x2y2 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, 3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y2.is_some() && x1y2.is_none() {
         //println!("-- x1y2 fallback --");
         let x2y2_player = x2y2.as_ref().unwrap().0;
-        let normalized = sample::normalized_player_rounded(x2y2_player);
-        x1y2 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, 3, Some(normalized.local_vy), Some(normalized.local_vx));
+        let skip = sample::normalized_player_rounded(x2y2_player);
+        x1y2 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, 3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y2.is_none() && x1y2.is_none() {
-        //println!("-- BOTH FAILED --");
+        //println!("-- BOTH FAILED 2 --");
     }
 
     [x1y1, x2y1, x1y2, x2y2]
@@ -200,20 +202,20 @@ fn ground_turn_prediction(
     let quad = ground_turn_surrounding_quad(current, controller, time_step);
 
     // TODO error
-    let (x1y1_start, x1y1_end)= quad[0].expect(&format!(
+    let (x1y1_start, x1y1_end) = quad[0].expect(&format!(
         "Missing turn x1y1 for player: {:?} & controller: {:?}",
         current, controller
     ));
-    let (x2y1_start, x2y1_end)= quad[0].expect(&format!(
-        "Missing turn x1y1 for player: {:?} & controller: {:?}",
+    let (x2y1_start, x2y1_end) = quad[1].expect(&format!(
+        "Missing turn x2y1 for player: {:?} & controller: {:?}",
         current, controller
     ));
-    let (x1y2_start, x1y2_end)= quad[0].expect(&format!(
-        "Missing turn x1y1 for player: {:?} & controller: {:?}",
+    let (x1y2_start, x1y2_end) = quad[2].expect(&format!(
+        "Missing turn x1y2 for player: {:?} & controller: {:?}",
         current, controller
     ));
-    let (x2y2_start, x2y2_end)= quad[0].expect(&format!(
-        "Missing turn x1y1 for player: {:?} & controller: {:?}",
+    let (x2y2_start, x2y2_end) = quad[3].expect(&format!(
+        "Missing turn x2y2 for player: {:?} & controller: {:?}",
         current, controller
     ));
 
@@ -277,6 +279,38 @@ fn ground_turn_prediction(
     let translation_y2 = interpolate(translation_x1y2, translation_x2y2, y2_vx_factor);
     let translation = interpolate(translation_y1, translation_y2, vy_factor);
 
+    // dbg!(current.rotation.to_euler_angles().2);
+    // dbg!(x1y1_start.rotation.to_euler_angles().2);
+    // dbg!(x2y1_start.rotation.to_euler_angles().2);
+    // dbg!(x1y2_start.rotation.to_euler_angles().2);
+    // dbg!(x2y2_start.rotation.to_euler_angles().2);
+
+    // dbg!(normalization_rotation_x1y1.to_euler_angles().2);
+    // dbg!(normalization_rotation_x2y1.to_euler_angles().2);
+    // dbg!(normalization_rotation_x1y2.to_euler_angles().2);
+    // dbg!(normalization_rotation_x2y2.to_euler_angles().2);
+    // dbg!(x1y1_start.angular_velocity.x);
+    // dbg!(x1y1_start.position.x);
+    // dbg!(x1y1_start.position.y);
+
+    // dbg!(x1y1_start.velocity.y);
+    // dbg!(x2y1_start.velocity.y);
+    // dbg!(x1y2_start.velocity.y);
+    // dbg!(x2y2_start.velocity.y);
+    // dbg!(x1y1_start.local_velocity().y);
+    // dbg!(x2y1_start.local_velocity().y);
+    // dbg!(x1y2_start.local_velocity().y);
+    // dbg!(x2y2_start.local_velocity().y);
+
+    // dbg!(x1y1_end.velocity.y);
+    // dbg!(x2y1_end.velocity.y);
+    // dbg!(x1y2_end.velocity.y);
+    // dbg!(x2y2_end.velocity.y);
+    // dbg!(x1y1_end.local_velocity().y);
+    // dbg!(x2y1_end.local_velocity().y);
+    // dbg!(x1y2_end.local_velocity().y);
+    // dbg!(x2y2_end.local_velocity().y);
+
     let end_velocity_x1y1 = normalization_rotation_x1y1 * x1y1_end.velocity;
     let end_velocity_x2y1 = normalization_rotation_x2y1 * x2y1_end.velocity;
     let end_velocity_x1y2 = normalization_rotation_x1y2 * x1y2_end.velocity;
@@ -320,354 +354,4 @@ pub extern "C" fn next_player_state(
     }
 
     next_player
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::f32::consts::PI;
-
-    fn resting_position() -> Vector3<f32> {
-        Vector3::new(0.0, 0.0, RESTING_Z)
-    }
-    fn resting_velocity() -> Vector3<f32> {
-        Vector3::new(0.0, 0.0, 0.0)
-    }
-    fn resting_angular_velocity() -> Vector3<f32> {
-        Vector3::new(0.0, 0.0, 0.0)
-    }
-    fn resting_rotation() -> UnitQuaternion<f32> {
-        UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0)
-    }
-
-    fn resting_player_state() -> PlayerState {
-        PlayerState {
-            position: resting_position(),
-            velocity: resting_velocity(),
-            angular_velocity: resting_angular_velocity(),
-            rotation: resting_rotation(),
-            team: Team::Blue,
-        }
-    }
-
-    fn max_throttle_velocity() -> Vector3<f32> {
-        Vector3::new(0.0, 1545.0, 0.0)
-    } // FIXME reference constant/static
-
-    fn max_throttle_player_state() -> PlayerState {
-        PlayerState {
-            position: resting_position(),
-            velocity: max_throttle_velocity(),
-            angular_velocity: resting_velocity(),
-            rotation: resting_rotation(),
-            team: Team::Blue,
-        }
-    }
-
-    fn round(v: Vector3<f32>) -> Vector3<f32> {
-        Vector3::new(v.x.round(), v.y.round(), v.z.round())
-    }
-
-    fn round_rotation(r: UnitQuaternion<f32>) -> (f32, f32, f32) {
-        let (roll, pitch, yaw) = r.to_euler_angles();
-        const factor: f32 = 50.0;
-        (
-            (roll * factor).round() / factor,
-            (pitch * factor).round() / factor,
-            (yaw * factor).round() / factor,
-        )
-    }
-
-    #[test]
-    fn no_input_from_resting() {
-        let current = resting_player_state();
-        let controller = BrickControllerState::new();
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(next.position, current.position);
-        assert_eq!(round(next.velocity), current.velocity);
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-    }
-
-    #[test]
-    fn throttle_from_resting_forward() {
-        let mut current = resting_player_state();
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(0.0, 590.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, 1006.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn reverse_from_resting() {
-        let mut current = resting_player_state();
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Reverse;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(0.0, -590.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, -1006.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_backwards() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI / 2.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(0.0, -590.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, -1006.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn reverse_from_resting_backwards() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI / 2.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Reverse;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(0.0, 590.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, 1006.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q1_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI * 3.0 / 4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(417.0, 417.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(712.0, 712.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q2_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI * 3.0 / 4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(417.0, -417.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(712.0, -712.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q3_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI * 1.0 / 4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(-417.0, -417.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(-712.0, -712.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q4_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI * 1.0 / 4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(-417.0, 417.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(-712.0, 712.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_at_max_throttle() {
-        let mut current = max_throttle_player_state();
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 1545.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, 1545.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn no_input_at_max_throttle() {
-        let mut current = max_throttle_player_state();
-        let controller = BrickControllerState::new();
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 1495.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, 1445.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn no_input_roll_to_a_stop() {
-        let mut current = resting_player_state();
-        current.velocity.y = 50.0;
-        let controller = BrickControllerState::new();
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 12.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(current.rotation)
-        );
-        assert_eq!(
-            round(next.velocity),
-            Vector3::new(0.0, 0.0, RESTING_Z_VELOCITY)
-        ); // FIXME confirm if this value is actually correct in graph
-    }
-
-    // TODO need to graph/model this first
-    // #[test]
-    // fn reverse_at_max_throttle() {
-    //     let mut current = max_throttle_player_state();
-    //     let mut controller = BrickControllerState::new();
-    //     controller.throttle = Throttle::Reverse;
-    //     let next = next_player_state(&current, &controller, 1.0);
-
-    //     assert_eq!(next.position, Vector3::new(0.0, 590.0, 15.0)); // FIXME confirm if this value is actually correct in graph
-    //     assert_eq!(round_rotation(next.rotation), round_rotation(current.rotation));
-    //     assert_eq!(round(next.velocity), Vector3::new(0.0, 1006.0, RESTING_Z_VELOCITY)); // FIXME confirm if this value is actually correct in graph
-    // }
-
-    #[test]
-    fn throttle_and_turn_from_resting() {
-        let mut current = resting_player_state();
-
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        controller.steer = Steer::Right;
-
-        // from data file, first line
-        current.position = Vector3::new(-2501.8398, -3171.19, 18.65);
-        current.velocity = Vector3::new(0.0, 0.0, 8.32);
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, -1.5382951);
-
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // from data file, 240th line
-        let expected_position = Vector3::new(-2063.0, -2951.0, 18.65);
-        let expected_velocity = Vector3::new(866.1724, -262.35745, 8.33);
-        let expected_rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, 2.832112);
-
-        assert_eq!(round(next.position), round(expected_position));
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(expected_rotation)
-        );
-        assert_eq!(round(next.velocity), round(expected_velocity));
-    }
-
-    fn throttle_and_turn_from_max_throttle_turning() {
-        let mut current = resting_player_state();
-
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        controller.steer = Steer::Left;
-
-        // from data file, 1000th line
-        // -482.672,-2684.1472,18.65,-263.5451,-1204.4678,8.33,-0.00009587344,-0.005944175,1.3977439
-        current.position = Vector3::new(-482.672, -2684.1472, 18.65);
-        current.velocity = Vector3::new(-263.5451, -1204.4678, 8.33);
-        current.rotation =
-            UnitQuaternion::from_euler_angles(-0.00009587344, -0.005944175, 1.3977439);
-
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // from data file, 1240th line
-        // 287.21667,-3266.7107,18.65,1081.4581,602.2005,8.33,0.00000000011641738,-0.0059441756,-2.5908935
-        let expected_position = Vector3::new(287.21667, -3266.7107, 18.65);
-        let expected_velocity = Vector3::new(1081.4581, 602.2005, 8.33);
-        let expected_rotation =
-            UnitQuaternion::from_euler_angles(0.00000000011641738, -0.0059441756, -2.5908935);
-
-        assert_eq!(round(next.position), round(expected_position));
-        assert_eq!(
-            round_rotation(next.rotation),
-            round_rotation(expected_rotation)
-        );
-        assert_eq!(round(next.velocity), round(expected_velocity));
-    }
-
 }

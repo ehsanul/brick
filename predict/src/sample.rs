@@ -111,7 +111,7 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
         .from_reader(fs::File::open(path).expect(&format!("File doesn't exist: {}", path)));
-    rdr.records()
+    let data: Vec<PlayerState> = rdr.records()
         .map(|record| {
             let record = record.expect("CSV parse failed?");
             let _frame: f32 = record
@@ -157,7 +157,7 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
 
                 angular_velocity: Vector3::new(
                     record
-                        .get(7)
+                        .get(0) // FIXME just to easily grep for the frame later and find the file
                         .expect("Invalid row?")
                         .parse()
                         .expect("Can't convert avx to f32"),
@@ -194,15 +194,19 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
                 team: Team::Blue, // doesn't matter
             }
         })
-        .collect()
+        .collect();
+    if data.len() < 32 {
+        println!("BAD FILE: {}", path);
+    }
+    data
 }
 
 fn load_all_samples(dir: &str) -> Vec<Vec<PlayerState>> {
-    let files: Vec<String> = files(dir);
+    let files: Vec<String> = csv_files(dir);
     files.iter().map(|f| load_sample_file(f)).collect()
 }
 
-fn files(dir: &str) -> Vec<String> {
+fn csv_files(dir: &str) -> Vec<String> {
     let entries = fs::read_dir(dir).expect(&format!("Directory doesn't exist?: {}", dir));
     entries
         .map(|entry| {
@@ -213,10 +217,22 @@ fn files(dir: &str) -> Vec<String> {
                 .expect(&format!("Failed to_str for path: {:?}", path))
                 .to_owned()
         })
+        .filter(|path| path.ends_with(".csv"))
         .collect::<Vec<_>>()
 }
 
 pub type SampleMap<'a> = HashMap<NormalizedPlayerState, &'a [PlayerState], MyHasher>;
+
+//fn continuous_sample(sample: &[PlayerState]) {
+//    let mut last = sample[0];
+//    for player in sample[1..] {
+//        let predicted = player.position + TICK * last.velocity;
+//        if last.velocity.x()
+//
+//        last = player;
+//    }
+//    return true
+//}
 
 pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMap<'a> {
     let mut indexed = SampleMap::default();
@@ -224,9 +240,8 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
     for i in 0..all_samples.len() {
         let sample = &all_samples[i];
 
-        // bad data?
         if sample.len() < 32 {
-            continue
+            println!("bad sample: {:?}", sample[0]);
         }
 
         let mut j = 0;
