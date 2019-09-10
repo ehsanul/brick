@@ -262,16 +262,9 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
                             (new_lv.y - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
                         let new_delta = (new_delta_x.powf(2.0) + new_delta_y.powf(2.0)).sqrt();
 
-                        // try to get full samples if possible and don't replace those, but allow
-                        // replacing with non-full samples if the full one is not as close as the
-                        // non-full, within some margin. margin was determined by manually looking
-                        // at first line of collected samples compared to the file name
-                        (new_delta < existing_delta && (existing_delta > 15.0 || sample.len() - j >= existing_sample.len()))
-                            // this condition is in case a previous run overrode the one we
-                            // recorded if it happens to have a slightly closer velocity, but is
-                            // a short sample. we favor the full sample in this case
-                            || (new_delta - 5.0 < existing_delta && sample.len() - j >= 120)
+                        new_delta < existing_delta
                     };
+
                     if should_replace {
                         e.insert(&all_samples[i][j..]);
                     }
@@ -281,30 +274,11 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
         }
     }
 
-    // FIXME // assert_index_complete(&indexed);
-
     indexed
 }
 
 const GROUND_SPEED_GRID_FACTOR: f32 = 100.0;
 const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
-
-fn assert_index_complete<'a>(index: &SampleMap<'a>) {
-    let min_avz = -(MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
-    let max_avz = (MAX_GROUND_ANGULAR_SPEED / GROUND_AVZ_GRID_FACTOR).round() as i16;
-    for local_vy in 0..(MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16 {
-        for avz in min_avz..max_avz {
-            let normalized = NormalizedPlayerState {
-                local_vy,
-                local_vx: 0,
-                avz,
-            };
-            if index.get(&normalized).is_none() {
-                panic!(format!("Missing: {:?}", normalized));
-            }
-        }
-    }
-}
 
 // XXX is the use of i16 here actually helping?
 #[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]

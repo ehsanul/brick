@@ -74,7 +74,7 @@ impl RecordState {
     }
 
     pub fn path(&self) -> String {
-        let dir = format!("data/samples/flat_ground/{}", self.name);
+        let dir = format!("./data/samples/flat_ground/{}", self.name);
         create_dir_all(&dir).unwrap();
         format!(
             "{}/{}_{}_{}.csv",
@@ -124,7 +124,7 @@ impl RecordState {
         let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
 
         let velocity = rlbot::Vector3Partial::new()
-            .x(self.local_vx as f32)
+            .x(-self.local_vx as f32)
             .y(self.local_vy as f32)
             .z(0.0);
 
@@ -132,6 +132,39 @@ impl RecordState {
             .x(0.0)
             .y(0.0)
             .z(self.angular_speed as f32 * ANGULAR_GRID);
+
+        let rotation = rlbot::RotatorPartial::new()
+            .pitch(0.0)
+            .yaw(PI / 2.0)
+            .roll(0.0);
+
+        let physics = rlbot::DesiredPhysics::new()
+            .location(position)
+            .rotation(rotation)
+            .velocity(velocity)
+            .angular_velocity(angular_velocity);
+
+        let car_state = rlbot::DesiredCarState::new().physics(physics);
+
+        let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state);
+
+        rlbot.set_game_state(&desired_game_state)?;
+
+        Ok(())
+    }
+
+    pub fn reset_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+        let position = rlbot::Vector3Partial::new().x(-2000.0).y(2000.0).z(18.65); // batmobile resting z
+
+        let velocity = rlbot::Vector3Partial::new()
+            .x(0.0)
+            .y(0.0)
+            .z(0.0);
+
+        let angular_velocity = rlbot::Vector3Partial::new()
+            .x(0.0)
+            .y(0.0)
+            .z(0.0);
 
         let rotation = rlbot::RotatorPartial::new()
             .pitch(0.0)
@@ -187,13 +220,26 @@ impl RecordState {
                     .get(&original_angular_speed)
                     .map(|e| e.round() as i16)
                     .unwrap_or(0i16);
+            println!("local_vx: {}, local_vy: {}, angular_speed: {}", self.local_vx, self.local_vy, self.angular_speed);
 
             self.set_next_game_state(rlbot)?;
 
             // check if we match the expected state now
-            loop {
-                if attempts > 10 {
+            'inner: loop {
+                if attempts > 5 {
                     // we tried, but now bail
+                    adjustment
+                        .local_vx
+                        .entry(original_local_vx)
+                        .and_modify(|e| *e = 0f32);
+                    adjustment
+                        .local_vy
+                        .entry(original_local_vy)
+                        .and_modify(|e| *e = 0f32);
+                    adjustment
+                        .angular_speed
+                        .entry(original_angular_speed)
+                        .and_modify(|e| *e = 0f32);
                     return Err(MaxAttempts {
                         local_vx: original_local_vx,
                         local_vy: original_local_vy,
@@ -209,13 +255,14 @@ impl RecordState {
                 if !self.is_initial_state(&game_state) {
                     // there's a delay between setting state and it become available in the tick
                     // data. let's try again
-                    continue;
+                    continue 'inner;
                 }
 
                 let vx_diff = original_local_vx as f32 - game_state.player.local_velocity().x;
                 let vy_diff = original_local_vy as f32 - game_state.player.local_velocity().y;
                 let avz_diff = original_angular_speed as f32
                     - (game_state.player.angular_velocity.z / ANGULAR_GRID);
+                println!("game local vx: {}, game local vy: {}, game avz: {}", game_state.player.local_velocity().x, game_state.player.local_velocity().y, (game_state.player.angular_velocity.z / ANGULAR_GRID));
 
                 if vx_diff.abs() <= VELOCITY_MARGIN
                     && vy_diff.abs() <= VELOCITY_MARGIN
@@ -237,19 +284,32 @@ impl RecordState {
                         .local_vx
                         .entry(original_local_vx)
                         .and_modify(|e| *e += vx_diff)
-                        .or_insert(-vx_diff);
+                        .or_insert(vx_diff);
                     adjustment
                         .local_vy
                         .entry(original_local_vy)
                         .and_modify(|e| *e += vy_diff)
-                        .or_insert(-vy_diff);
+                        .or_insert(vy_diff);
                     adjustment
                         .angular_speed
                         .entry(original_angular_speed)
                         .and_modify(|e| *e += avz_diff)
-                        .or_insert(-avz_diff);
+                        .or_insert(avz_diff);
                     attempts += 1;
-                    continue;
+
+                    self.reset_game_state(&rlbot)?;
+                    // wait till we're far, so is_initial_state works after this
+                    'inner2: loop {
+                        let tick = physicist.next_flat()?;
+                        let mut game_state = GameState::default();
+                        state::update_game_state(&mut game_state, &tick, 0);
+
+                        if (game_state.player.position.x - 2000.0).abs() < 200.0 {
+                            break 'inner2;
+                        }
+                    }
+
+                    break 'inner;
                 }
             }
         }
@@ -367,10 +427,11 @@ fn record_all_missing(
         // TODO negative vy
         for avz in min_avz..max_avz {
             let normalized = predict::sample::NormalizedPlayerState {
-                local_vy: local_vy * 100,
+                local_vy: local_vy,
                 local_vx: 0,
                 avz,
             };
+
             if let Some(player) = index.get(&normalized) {
                 // sample was found.
                 // check if the sample is within our acceptable margin of closeness to the
@@ -398,7 +459,7 @@ fn record_all_missing(
                 &mut record_state,
                 &mut adjustment,
             ) {
-                println!("Error recorring single: {}", e);
+                println!("Error recording missing record state: {}", e);
             }
         }
     }
@@ -413,6 +474,7 @@ fn record_missing_record_state<'a>(
     record_state: &mut RecordState,
     adjustment: &mut Adjustment,
 ) -> Result<(), Box<Error>> {
+    record_state.records.clear();
     let mut physicist = rlbot.physicist();
     rlbot.update_player_input(0, &input)?;
 
@@ -616,7 +678,9 @@ fn main() -> Result<(), Box<Error>> {
         .loadout(batmobile)]);
 
     settings.mutator_settings =
-        rlbot::MutatorSettings::new().match_length(rlbot::MatchLength::Unlimited);
+        rlbot::MutatorSettings::new().
+        match_length(rlbot::MatchLength::Unlimited).
+        boost_option(rlbot::BoostOption::Unlimited_Boost);
 
     rlbot.start_match(&settings)?;
     rlbot.wait_for_match_start()?;

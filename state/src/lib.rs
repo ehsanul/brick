@@ -134,7 +134,7 @@ impl PlayerState {
         // the actual car with no rotation is sideways, pointed towards negative x. so we do an
         // additional rotation to convert to local coords with car pointing towards positive
         // y instead of negative x, since that's a lot more intuitive
-        Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0)
+        Rotation3::from_euler_angles(0.0, 0.0, PI / 2.0)
             * na::inverse(&self.rotation.to_rotation_matrix())
             * self.velocity
     }
