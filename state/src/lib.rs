@@ -24,7 +24,7 @@ pub const GOAL_X: f32 = 892.75;
 pub const GOAL_Z: f32 = 640.0;
 
 // car constants
-pub const MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph, rename to MAX_SPEED
+pub const MAX_BOOST_SPEED: f32 = 2300.0; // TODO rename to MAX_SPEED
 pub const MAX_ANGULAR_SPEED: f32 = 5.5;
 pub const MAX_GROUND_ANGULAR_SPEED: f32 = 4.4; // NOTE this is based on the turning sample collection, though we might be able to redo a few samples to move this up
 
