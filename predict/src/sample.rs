@@ -5,8 +5,12 @@ use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
 use std::fs;
 use std::hash::BuildHasherDefault;
-type MyHasher = BuildHasherDefault<FnvHasher>;
 use csv;
+use walkdir::{DirEntry, WalkDir};
+use std::path::PathBuf;
+use std::ffi::OsStr;
+
+type MyHasher = BuildHasherDefault<FnvHasher>;
 
 pub const RECORD_FPS: usize = 120;
 
@@ -107,10 +111,10 @@ lazy_static! {
         index_all_samples(&REVERSE_LEFT_DRIFT_ALL);
 }
 
-fn load_sample_file(path: &str) -> Vec<PlayerState> {
+pub fn load_sample_file(path: &PathBuf) -> Vec<PlayerState> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
-        .from_reader(fs::File::open(path).expect(&format!("File doesn't exist: {}", path)));
+        .from_reader(fs::File::open(path).expect(&format!("File doesn't exist: {}", path.to_string_lossy())));
     let data: Vec<PlayerState> = rdr.records()
         .map(|record| {
             let record = record.expect("CSV parse failed?");
@@ -184,7 +188,7 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
                         .expect("Invalid row?")
                         .parse()
                         .expect("Can't convert pitch to f32"),
-                    -record // FIXME negative is a temp hack since data is recorded incorrectly
+                    record
                         .get(12)
                         .expect("Invalid row?")
                         .parse::<f32>()
@@ -196,29 +200,39 @@ fn load_sample_file(path: &str) -> Vec<PlayerState> {
         })
         .collect();
     if data.len() < 32 {
-        println!("BAD FILE: {}", path);
+        println!("BAD FILE: {}", path.to_string_lossy());
     }
     data
 }
 
-fn load_all_samples(dir: &str) -> Vec<Vec<PlayerState>> {
-    let files: Vec<String> = csv_files(dir);
-    files.iter().map(|f| load_sample_file(f)).collect()
+pub fn load_all_samples(dir: &str) -> Vec<Vec<PlayerState>> {
+    csv_files(dir).map(|f| load_sample_file(&f)).collect()
 }
 
-fn csv_files(dir: &str) -> Vec<String> {
-    let entries = fs::read_dir(dir).expect(&format!("Directory doesn't exist?: {}", dir));
-    entries
-        .map(|entry| {
-            let path = entry
-                .expect(&format!("IO Error for dir {} entry", dir))
-                .path();
-            path.to_str()
-                .expect(&format!("Failed to_str for path: {:?}", path))
-                .to_owned()
+pub fn csv_files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
+    files(dir).filter(|path| path.extension() == Some(OsStr::new("csv")))
+}
+
+fn files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
+    WalkDir::new(dir)
+        .into_iter()
+        .filter_entry(|e| !is_hidden(e))
+        .filter_map(|entry| {
+            let entry = entry.unwrap();
+            if entry.file_type().is_file() {
+                Some(entry.path().to_owned())
+            } else {
+                None
+            }
         })
-        .filter(|path| path.ends_with(".csv"))
-        .collect::<Vec<_>>()
+}
+
+fn is_hidden(entry: &DirEntry) -> bool {
+    entry
+        .file_name()
+        .to_str()
+        .map(|s| s.starts_with("."))
+        .unwrap_or(false)
 }
 
 pub type SampleMap<'a> = HashMap<NormalizedPlayerState, &'a [PlayerState], MyHasher>;

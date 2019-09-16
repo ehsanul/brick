@@ -10,6 +10,7 @@ fnv = "1.0"
 obj-rs = "0.4"
 lazy_static = "1.0"
 csv = "1"
+walkdir = "2.0"
 
 [dependencies.state]
 path = "../state"

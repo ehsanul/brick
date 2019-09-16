@@ -5,41 +5,18 @@ extern crate flate2;
 extern crate nalgebra as na;
 extern crate rand;
 extern crate state;
-extern crate walkdir;
 
 use bincode::deserialize_from;
 use flate2::read::GzDecoder;
 use rand::prelude::*;
 use state::*;
-use walkdir::{DirEntry, WalkDir};
+use brain::predict::sample;
 
 use std::env;
 use std::error::Error;
 use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
-
-fn is_hidden(entry: &DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .map(|s| s.starts_with("."))
-        .unwrap_or(false)
-}
-
-fn files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
-    WalkDir::new(dir)
-        .into_iter()
-        .filter_entry(|e| !is_hidden(e))
-        .filter_map(|entry| {
-            let entry = entry.unwrap();
-            if entry.file_type().is_file() {
-                Some(entry.path().to_owned())
-            } else {
-                None
-            }
-        })
-}
 
 fn load_plan(path: &PathBuf) -> Result<Plan, Box<Error>> {
     let f = BufReader::new(File::open(path)?);
@@ -73,7 +50,7 @@ fn main() -> Result<(), Box<Error>> {
     let mut rng = rand::thread_rng();
     let mut row = vec![];
 
-    for path in files(dir) {
+    for path in sample::csv_files(dir) {
         let plan = load_plan(&path)?;
 
         row.clear();

@@ -134,7 +134,7 @@ impl PlayerState {
         // the actual car with no rotation is sideways, pointed towards negative x. so we do an
         // additional rotation to convert to local coords with car pointing towards positive
         // y instead of negative x, since that's a lot more intuitive
-        Rotation3::from_euler_angles(0.0, 0.0, PI / 2.0)
+        Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0)
             * na::inverse(&self.rotation.to_rotation_matrix())
             * self.velocity
     }
@@ -322,9 +322,10 @@ pub fn update_game_state(
     game_state.player.velocity = Vector3::new(-pv.x(), pv.y(), pv.z()); // x should be positive towards right, it only makes sense
     game_state.player.angular_velocity = Vector3::new(-pav.x(), pav.y(), pav.z()); // x should be positive towards right, it only makes sense
 
-    // XXX not sure how to flip the x axis direction, but I know flipping the x value isn't right!
+    // converting from right handed to left handed coordinate system (goes with the x axis flip above)
+    // https://stackoverflow.com/a/34366144/127219
     game_state.player.rotation =
-        UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), pr.y(), pr.z()));
+        UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), -pr.y(), -pr.z()));
 
     let pitch = game_state.player.rotation.euler_angles().1;
     game_state.input_frame = (pitch * MAX_FRAMES).round() as i32;
@@ -340,4 +341,53 @@ pub fn update_game_state(
 
 pub fn set_frame_metadata(game_state: &mut GameState, controller: &mut rlbot::ControllerState) {
     controller.pitch = (game_state.frame as f32 % MAX_FRAMES) / MAX_FRAMES;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::f32::consts::PI;
+
+    #[test]
+    fn test_local_velocity() {
+        let mut player = PlayerState::default();
+        player.velocity.y = 1000.0;
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0);
+        assert!((player.local_velocity().y - 1000.0).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI / 2.0);
+        assert!((player.local_velocity().y - (-1000.0)).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
+        assert!((player.local_velocity().x - 1000.0).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
+        assert!((player.local_velocity().x - (-1000.0)).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI);
+        assert!((player.local_velocity().x - (-1000.0)).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_local_velocity_quadrants() {
+        let mut player = PlayerState::default();
+        player.velocity.y = 1000.0;
+
+        player.rotation =  UnitQuaternion::from_euler_angles(0.0, 0.0, 3.0 * -PI / 4.0);
+        assert!((player.local_velocity().y - 707.1).abs() < 0.1);
+        assert!((player.local_velocity().x - -707.1).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 3.0 * PI / 4.0);
+        assert!((player.local_velocity().y - -707.1).abs() < 0.1);
+        assert!((player.local_velocity().x - -707.1).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 1.0 * -PI / 4.0);
+        assert!((player.local_velocity().y - 707.1).abs() < 0.1);
+        assert!((player.local_velocity().x - 707.1).abs() < 0.1);
+
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 1.0 * PI / 4.0);
+        assert!((player.local_velocity().y - -707.1).abs() < 0.1);
+        assert!((player.local_velocity().x - 707.1).abs() < 0.1);
+    }
 }

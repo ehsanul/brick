@@ -548,7 +548,6 @@ dependencies = [
  "nalgebra 0.18.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand 0.6.5 (registry+https://github.com/rust-lang/crates.io-index)",
  "state 0.1.0",
- "walkdir 2.2.9 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -1232,6 +1231,7 @@ dependencies = [
  "ncollide3d 0.20.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "obj-rs 0.4.21 (registry+https://github.com/rust-lang/crates.io-index)",
  "state 0.1.0",
+ "walkdir 2.2.9 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
