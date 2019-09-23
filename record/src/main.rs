@@ -205,13 +205,13 @@ impl RecordState {
             self.local_vx = original_local_vx
                 + adjustment
                     .local_vx
-                    .get(&original_local_vx)
+                    .get(&original_angular_speed)
                     .map(|e| e.round() as i16)
                     .unwrap_or(0i16);
             self.local_vy = original_local_vy
                 + adjustment
                     .local_vy
-                    .get(&original_local_vy)
+                    .get(&original_angular_speed)
                     .map(|e| e.round() as i16)
                     .unwrap_or(0i16);
             self.angular_speed = original_angular_speed
@@ -230,11 +230,11 @@ impl RecordState {
                     // we tried, but now bail
                     adjustment
                         .local_vx
-                        .entry(original_local_vx)
+                        .entry(original_angular_speed)
                         .and_modify(|e| *e = 0f32);
                     adjustment
                         .local_vy
-                        .entry(original_local_vy)
+                        .entry(original_angular_speed)
                         .and_modify(|e| *e = 0f32);
                     adjustment
                         .angular_speed
@@ -282,12 +282,12 @@ impl RecordState {
                 } else {
                     adjustment
                         .local_vx
-                        .entry(original_local_vx)
+                        .entry(original_angular_speed)
                         .and_modify(|e| *e += vx_diff)
                         .or_insert(vx_diff);
                     adjustment
                         .local_vy
-                        .entry(original_local_vy)
+                        .entry(original_angular_speed)
                         .and_modify(|e| *e += vy_diff)
                         .or_insert(vy_diff);
                     adjustment
@@ -316,7 +316,7 @@ impl RecordState {
     }
 
     pub fn sample_complete(&self) -> bool {
-        self.records.len() > 120
+        self.records.len() > 32
     }
 
     // angular speed is the outer loop, so we're done when that's done
