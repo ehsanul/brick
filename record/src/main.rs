@@ -316,7 +316,24 @@ impl RecordState {
     }
 
     pub fn sample_complete(&self) -> bool {
-        self.records.len() > 32
+        self.records.len() > 16
+    }
+
+    pub fn sample_valid(&self) -> bool {
+        let mut last_player = &self.records[0].1;
+
+        // there must be two physics ticks between each measurement for the sample to be valid as
+        // a whole, given a 60fps record rate. it's 60fps by default apparently unless something is
+        // done. in practice, i found that sometimes records would be 1 tick or 3 ticks apart, once
+        // in a while, which messes up the sample and this this is now validated
+        assert!(predict::sample::RECORD_FPS == 60);
+        self.records[1..].iter().all(|(_frame, player)| {
+            let v = 0.5 * (player.velocity + last_player.velocity);
+            let d = (player.position - last_player.position).norm();
+            let physics_ticks = (FPS * d / v.norm()).round() as i32;
+            last_player = player;
+            physics_ticks == 2
+        })
     }
 
     // angular speed is the outer loop, so we're done when that's done
@@ -478,24 +495,28 @@ fn record_missing_record_state<'a>(
     let mut physicist = rlbot.physicist();
     rlbot.update_player_input(0, &input)?;
 
-    // waits and checks the tick to ensure it meets our conditions. and it records the first tick
-    record_state.set_game_state_accurately(&rlbot, &mut physicist, index, adjustment)?;
-
     loop {
-        rlbot.update_player_input(0, &input)?;
-        let tick = physicist.next_flat()?;
-        record_state.record(&tick);
+        // waits and checks the tick to ensure it meets our conditions. and it records the first tick
+        record_state.set_game_state_accurately(&rlbot, &mut physicist, index, adjustment)?;
 
-        // just to record samples
-        let mut game_state = GameState::default();
-        state::update_game_state(&mut game_state, &tick, 0);
+        loop {
+            //rlbot.update_player_input(0, &input)?;
+            let tick = physicist.next_flat()?;
+            record_state.record(&tick);
 
-        if record_state.sample_complete() {
+            if record_state.sample_complete() {
+                break;
+            }
+        }
+
+        if record_state.sample_valid() {
+            record_state.save();
             break;
+        } else {
+            println!("invalid sample, retrying");
+            record_state.records.clear();
         }
     }
-
-    record_state.save();
 
     Ok(())
 }
