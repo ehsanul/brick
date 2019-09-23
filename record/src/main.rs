@@ -240,6 +240,12 @@ impl RecordState {
                         .angular_speed
                         .entry(original_angular_speed)
                         .and_modify(|e| *e = 0f32);
+
+                    // restore original values
+                    self.local_vx = original_local_vx;
+                    self.local_vy = original_local_vy;
+                    self.angular_speed = original_angular_speed;
+
                     return Err(MaxAttempts {
                         local_vx: original_local_vx,
                         local_vy: original_local_vy,
@@ -277,6 +283,11 @@ impl RecordState {
                         predict::sample::normalized_player_rounded(&game_state.player),
                         game_state.player.clone(),
                     );
+
+                    // restore original values
+                    self.local_vx = original_local_vx;
+                    self.local_vy = original_local_vy;
+                    self.angular_speed = original_angular_speed;
 
                     return Ok(());
                 } else {
