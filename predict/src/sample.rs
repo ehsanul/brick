@@ -14,6 +14,7 @@ type MyHasher = BuildHasherDefault<FnvHasher>;
 
 /// the FPS at which samples were recorded
 pub const RECORD_FPS: usize = 60;
+pub const MIN_SAMPLE_LENGTH: usize = 1 + 16; // corresponds to 32 physics frames, the biggest step we simulate. we want 16 *steps* after the first measurement
 
 lazy_static! {
     pub static ref THROTTLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
@@ -200,7 +201,7 @@ pub fn load_sample_file(path: &PathBuf) -> Vec<PlayerState> {
             }
         })
         .collect();
-    if data.len() < 32 {
+    if data.len() < MIN_SAMPLE_LENGTH {
         println!("BAD FILE: {}", path.to_string_lossy());
     }
     data
@@ -255,14 +256,13 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
     for i in 0..all_samples.len() {
         let sample = &all_samples[i];
 
-        if sample.len() < 32 {
+        if sample.len() < MIN_SAMPLE_LENGTH {
             println!("bad sample: {:?}", sample[0]);
         }
 
         let mut j = 0;
 
-        // subtract 32 frames to ensure 32 frames of simulation ahead in the slice
-        while j < sample.len() - 32 {
+        while all_samples[i][j..].len() >= MIN_SAMPLE_LENGTH {
             let key = normalized_player_rounded(&sample[j]);
 
             match indexed.entry(key) {

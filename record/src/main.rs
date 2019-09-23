@@ -316,7 +316,7 @@ impl RecordState {
     }
 
     pub fn sample_complete(&self) -> bool {
-        self.records.len() > 16
+        self.records.len() >= predict::sample::MIN_SAMPLE_LENGTH
     }
 
     pub fn sample_valid(&self) -> bool {

@@ -26,7 +26,7 @@ fn test_throttle_straight() {
     for full_sample in predict::sample::THROTTLE_STRAIGHT_ALL.iter() {
         let mut i = 0;
         // offset by 32 frames to ensure minimum 32 frames of simulation ahead in the slice
-        while i + 16 < full_sample.len() {
+        while full_sample[i..].len() >= predict::sample::MIN_SAMPLE_LENGTH {
             let sample = &full_sample[i..];
             i += 1;
 
