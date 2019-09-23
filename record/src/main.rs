@@ -1,8 +1,10 @@
 extern crate csv;
 extern crate flatbuffers;
 extern crate predict;
+extern crate rand;
 extern crate rlbot;
 extern crate state;
+
 use rlbot::{flat, ControllerState};
 use state::*;
 use std::collections::HashMap;
@@ -10,6 +12,7 @@ use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::create_dir_all;
 use std::path::PathBuf;
+use rand::{thread_rng, Rng};
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
@@ -196,6 +199,7 @@ impl RecordState {
         let original_local_vx = self.local_vx;
         let original_local_vy = self.local_vy;
         let original_angular_speed = self.angular_speed;
+        let mut rng = thread_rng();
 
         let mut attempts = 0;
 
@@ -220,7 +224,7 @@ impl RecordState {
                     .get(&original_angular_speed)
                     .map(|e| e.round() as i16)
                     .unwrap_or(0i16);
-            println!("local_vx: {}, local_vy: {}, angular_speed: {}", self.local_vx, self.local_vy, self.angular_speed);
+            //println!("local_vx: {}, local_vy: {}, angular_speed: {}", self.local_vx, self.local_vy, self.angular_speed);
 
             self.set_next_game_state(rlbot)?;
 
@@ -268,7 +272,7 @@ impl RecordState {
                 let vy_diff = original_local_vy as f32 - game_state.player.local_velocity().y;
                 let avz_diff = original_angular_speed as f32
                     - (game_state.player.angular_velocity.z / ANGULAR_GRID);
-                println!("game local vx: {}, game local vy: {}, game avz: {}", game_state.player.local_velocity().x, game_state.player.local_velocity().y, (game_state.player.angular_velocity.z / ANGULAR_GRID));
+                //println!("game local vx: {}, game local vy: {}, game avz: {}", game_state.player.local_velocity().x, game_state.player.local_velocity().y, (game_state.player.angular_velocity.z / ANGULAR_GRID));
 
                 if vx_diff.abs() <= VELOCITY_MARGIN
                     && vy_diff.abs() <= VELOCITY_MARGIN
@@ -291,20 +295,24 @@ impl RecordState {
 
                     return Ok(());
                 } else {
+                    let n1: f32 = rng.gen_range(0.1, 1.0);
+                    let n2: f32 = rng.gen_range(0.1, 1.0);
+                    let n3: f32 = rng.gen_range(0.1, 1.0);
+
                     adjustment
                         .local_vx
                         .entry(original_angular_speed)
-                        .and_modify(|e| *e += vx_diff)
+                        .and_modify(|e| *e += n1 * vx_diff)
                         .or_insert(vx_diff);
                     adjustment
                         .local_vy
                         .entry(original_angular_speed)
-                        .and_modify(|e| *e += vy_diff)
+                        .and_modify(|e| *e += n2 * vy_diff)
                         .or_insert(vy_diff);
                     adjustment
                         .angular_speed
                         .entry(original_angular_speed)
-                        .and_modify(|e| *e += avz_diff)
+                        .and_modify(|e| *e += n3 * avz_diff)
                         .or_insert(avz_diff);
                     attempts += 1;
 
@@ -526,6 +534,18 @@ fn record_missing_record_state<'a>(
         } else {
             println!("invalid sample, retrying");
             record_state.records.clear();
+            adjustment
+                .local_vx
+                .entry(record_state.angular_speed)
+                .and_modify(|e| *e = 0f32);
+            adjustment
+                .local_vy
+                .entry(record_state.angular_speed)
+                .and_modify(|e| *e = 0f32);
+            adjustment
+                .angular_speed
+                .entry(record_state.angular_speed)
+                .and_modify(|e| *e = 0f32);
         }
     }
 
