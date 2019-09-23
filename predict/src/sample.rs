@@ -12,7 +12,8 @@ use std::ffi::OsStr;
 
 type MyHasher = BuildHasherDefault<FnvHasher>;
 
-pub const RECORD_FPS: usize = 120;
+/// the FPS at which samples were recorded
+pub const RECORD_FPS: usize = 60;
 
 lazy_static! {
     pub static ref THROTTLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
