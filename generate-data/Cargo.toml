@@ -9,6 +9,7 @@ bincode = "*"
 flate2 = "1.0"
 csv = "1.0"
 rand = "0.6.5"
+rayon = "1.1"
 
 [dependencies.state]
 path = "../state"

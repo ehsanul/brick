@@ -3,6 +3,7 @@ extern crate brain;
 extern crate flate2;
 extern crate nalgebra as na;
 extern crate state;
+extern crate rayon;
 
 use bincode::serialize_into;
 use brain::plan;
@@ -10,6 +11,7 @@ use brain::HeuristicModel; // TODO as _;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use na::{UnitQuaternion, Vector3};
+use rayon::prelude::*;
 use state::*;
 
 use std::error::Error;
@@ -18,9 +20,9 @@ use std::fs::{create_dir_all, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
-const SPEED_FACTOR: f32 = 100.0;
+const SPEED_FACTOR: f32 = 1000.0;
 const POS_FACTOR: f32 = 200.0;
-const YAW_FACTOR: f32 = 4.0;
+const YAW_FACTOR: f32 = 8.0;
 const MAX_X: i32 = 8000;
 const MAX_Y: i32 = 10000;
 
@@ -34,9 +36,8 @@ fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
 }
 
 // the hybrid a* is not perfect. since it has some discretization/slop, and uses larger time steps
-// for speed, and also since the heuristic used is not actully admissible (another perf thing). so
-// in order to get a more accurate path for our data set, we need to do more searches along the
-// path of the initial plan. this can result in a much better plan being found.
+// for speed. so in order to get a more accurate path for our data set, we need to do more searches
+// along the path of the initial plan. this can result in a much better plan being found.
 fn best_plan<H: HeuristicModel>(
     model: &mut H,
     player: &mut PlayerState,
@@ -89,8 +90,6 @@ fn best_plan<H: HeuristicModel>(
 }
 
 fn main() -> Result<(), Box<Error>> {
-    let mut model = brain::BasicHeuristic::default();
-    let mut player = PlayerState::default();
     let desired_contact = DesiredContact::default();
 
     let config = SearchConfig {
@@ -110,10 +109,14 @@ fn main() -> Result<(), Box<Error>> {
     };
 
     let max_speed_r = (MAX_BOOST_SPEED / SPEED_FACTOR).round() as i32;
-    for speed_r in -max_speed_r..=max_speed_r {
-        for x_r in (-MAX_X / POS_FACTOR as i32)..=(MAX_X / POS_FACTOR as i32) {
-            for y_r in (-MAX_Y / POS_FACTOR as i32)..=(MAX_Y / POS_FACTOR as i32) {
-                for yaw_r in 0..YAW_FACTOR as i32 {
+    //(-max_speed_r..=max_speed_r).into_par_iter().for_each(|speed_r| {
+    (0..=max_speed_r).into_par_iter().for_each(|speed_r| {
+        ((-MAX_X / POS_FACTOR as i32)..=(MAX_X / POS_FACTOR as i32)).into_par_iter().for_each(|x_r| {
+            ((-MAX_Y / POS_FACTOR as i32)..=(MAX_Y / POS_FACTOR as i32)).into_par_iter().for_each(|y_r| {
+                (0..YAW_FACTOR as i32).into_par_iter().for_each(|yaw_r| {
+                    let mut player = PlayerState::default();
+                    let mut model = brain::BasicHeuristic::default();
+
                     player.position.x = x_r as f32 * POS_FACTOR;
                     player.position.y = y_r as f32 * POS_FACTOR;
                     let yaw = -PI + yaw_r as f32 * (2.0 * PI / YAW_FACTOR);
@@ -126,17 +129,17 @@ fn main() -> Result<(), Box<Error>> {
                         speed_r * SPEED_FACTOR as i32,
                         x_r * POS_FACTOR as i32,
                         y_r * POS_FACTOR as i32,
-                        yaw_r,
+                        yaw_r as f32 / YAW_FACTOR,
                     );
 
                     if PathBuf::from(&path).exists() {
-                        continue;
+                        return;
                     }
 
                     if let Some(plan) =
                         best_plan(&mut model, &mut player.clone(), &desired_contact, &config)
                     {
-                        write_data(&path, plan)?;
+                        write_data(&path, plan).expect("writing failed");
                         println!("Done: {:?}", player);
                     } else if let Some(plan) = best_plan(
                         &mut model,
@@ -149,15 +152,15 @@ fn main() -> Result<(), Box<Error>> {
                         // times and the found paths there should always be shorter than paths
                         // found after more searching. but in the case that every single search
                         // failed, we can fallback to a slower version which may find a solution
-                        write_data(&path, plan)?;
+                        write_data(&path, plan).expect("writing failed");
                         println!("SLOW Done: {:?}", player);
                     } else {
                         println!("Failed: {:?}", player);
                     }
-                }
-            }
-        }
-    }
+                })
+            })
+        })
+    });
 
     Ok(())
 }
