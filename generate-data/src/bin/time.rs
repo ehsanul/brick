@@ -24,7 +24,7 @@ fn load_plan(path: &PathBuf) -> Result<Plan, Box<Error>> {
     Ok(deserialize_from(&mut decoder)?)
 }
 
-fn get_row(plan: &Plan, i: usize, row: &mut Vec<String>) {
+fn set_row(plan: &Plan, i: usize, row: &mut Vec<String>) {
     let total_cost: f32 = plan[i..].iter().map(|(_, _, cost)| cost).sum();
     let player = plan[i].0;
     let pos = player.position;
@@ -54,7 +54,7 @@ fn main() -> Result<(), Box<Error>> {
         let plan = load_plan(&path)?;
 
         row.clear();
-        get_row(&plan, 0, &mut row);
+        set_row(&plan, 0, &mut row);
         wtr.write_record(&row)?;
 
         // explode
@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<Error>> {
         let rand_i: usize =
             (plan.len() as f32 * 0.98 + 0.02 * rng.gen::<f32>()).round() as usize - 1;
         row.clear();
-        get_row(&plan, rand_i, &mut row);
+        set_row(&plan, rand_i, &mut row);
         wtr.write_record(&row)?;
     }
 
