@@ -94,7 +94,7 @@ fn main() -> Result<(), Box<Error>> {
 
     let config = SearchConfig {
         step_duration: 16.0 * TICK,
-        slop: 10.0,
+        slop: 40.0,
         max_cost: 10.0,
         max_iterations: 10_000,
         scale_heuristic: 1.0,
@@ -102,13 +102,14 @@ fn main() -> Result<(), Box<Error>> {
 
     let slow_config = SearchConfig {
         step_duration: 16.0 * TICK,
-        slop: 10.0,
+        slop: 20.0,
         max_cost: 10.0,
-        max_iterations: 100_000,
+        max_iterations: 200_000,
         scale_heuristic: 1.0,
     };
 
     let max_speed_r = (MAX_BOOST_SPEED / SPEED_FACTOR).round() as i32;
+    // TODO negative vy
     //(-max_speed_r..=max_speed_r).into_par_iter().for_each(|speed_r| {
     (0..=max_speed_r).into_par_iter().for_each(|speed_r| {
         ((-MAX_X / POS_FACTOR as i32)..=(MAX_X / POS_FACTOR as i32)).into_par_iter().for_each(|x_r| {
@@ -125,7 +126,7 @@ fn main() -> Result<(), Box<Error>> {
                         * Vector3::new(-1.0 * speed_r as f32 * SPEED_FACTOR, 0.0, 0.0);
 
                     let path = format!(
-                        "./data/generated/{}/{}/{}/{}/",
+                        "./data/generated/vy_{}/x_{}/y_{}/yaw_{}/",
                         speed_r * SPEED_FACTOR as i32,
                         x_r * POS_FACTOR as i32,
                         y_r * POS_FACTOR as i32,
@@ -140,7 +141,7 @@ fn main() -> Result<(), Box<Error>> {
                         best_plan(&mut model, &mut player.clone(), &desired_contact, &config)
                     {
                         write_data(&path, plan).expect("writing failed");
-                        println!("Done: {:?}", player);
+                        println!("Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     } else if let Some(plan) = best_plan(
                         &mut model,
                         &mut player.clone(),
@@ -153,9 +154,9 @@ fn main() -> Result<(), Box<Error>> {
                         // found after more searching. but in the case that every single search
                         // failed, we can fallback to a slower version which may find a solution
                         write_data(&path, plan).expect("writing failed");
-                        println!("SLOW Done: {:?}", player);
+                        println!("SLOW Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     } else {
-                        println!("Failed: {:?}", player);
+                        println!("Failed: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     }
                 })
             })
