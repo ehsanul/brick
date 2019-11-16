@@ -18,7 +18,7 @@ const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
 const ANGULAR_GRID: f32 = 0.2;
 const SPEED_GRID: i16 = 100;
-const VELOCITY_MARGIN: f32 = 15.0;
+const VELOCITY_MARGIN: f32 = 25.0;
 const ANGULAR_SPEED_MARGIN: f32 = 0.5;
 
 #[derive(Debug, Clone)]
@@ -295,9 +295,9 @@ impl RecordState {
 
                     return Ok(());
                 } else {
-                    let n1: f32 = rng.gen_range(0.1, 1.0);
-                    let n2: f32 = rng.gen_range(0.1, 1.0);
-                    let n3: f32 = rng.gen_range(0.1, 1.0);
+                    let n1: f32 = rng.gen_range(0.5, 1.0);
+                    let n2: f32 = rng.gen_range(0.5, 1.0);
+                    let n3: f32 = rng.gen_range(0.5, 1.0);
 
                     adjustment
                         .local_vx
@@ -344,14 +344,15 @@ impl RecordState {
         // there must be two physics ticks between each measurement for the sample to be valid as
         // a whole, given a 60fps record rate. it's 60fps by default apparently unless something is
         // done. in practice, i found that sometimes records would be 1 tick or 3 ticks apart, once
-        // in a while, which messes up the sample and this this is now validated
+        // in a while, which messes up the sample and this this is now validated. NOTE we can't
+        // reliably measure the ticks when going very slow, so we check distance travelled too
         assert!(predict::sample::RECORD_FPS == 60);
         self.records[1..].iter().all(|(_frame, player)| {
             let v = 0.5 * (player.velocity + last_player.velocity);
             let d = (player.position - last_player.position).norm();
             let physics_ticks = (FPS * d / v.norm()).round() as i32;
             last_player = player;
-            physics_ticks == 2
+            physics_ticks == 2 || d < 2.0
         })
     }
 
