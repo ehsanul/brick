@@ -17,7 +17,7 @@ fn main() -> Result<(), Box<Error>> {
             let d = (player.position - last_player.position).norm();
             let physics_ticks = (120.0 * d / v.norm()).round() as i32;
             last_player = player;
-            physics_ticks != 2
+            physics_ticks != 2 && d > 3.0
         });
 
         if bad {
