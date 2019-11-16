@@ -21,7 +21,7 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 const SPEED_FACTOR: f32 = 1000.0;
-const POS_FACTOR: f32 = 200.0;
+const POS_FACTOR: f32 = 1000.0;
 const YAW_FACTOR: f32 = 8.0;
 const MAX_X: i32 = 8000;
 const MAX_Y: i32 = 10000;
