@@ -1016,7 +1016,7 @@ fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> R
         //   // XXX including rotation in search space also seems like too much for now
         //   roll: 0, //(roll * 10.0).floor() as i16,
         //   pitch: 0, //(pitch * 10.0).floor() as i16,
-        yaw: (yaw / (PI / 4.0)).round() as i16, // round to nearest pi/4 angle
+        yaw: (yaw / (PI / 8.0)).round() as i16, // round to nearest pi/4 angle
     }
 }
 
