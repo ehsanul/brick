@@ -136,6 +136,7 @@ fn main() -> Result<(), Box<Error>> {
                     );
 
                     if PathBuf::from(&path).exists() {
+                        println!("Path already exists: {}", path);
                         return;
                     }
 
