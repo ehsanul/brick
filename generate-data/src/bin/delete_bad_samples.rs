@@ -12,13 +12,14 @@ fn main() -> Result<(), Box<Error>> {
         let sample = sample::load_sample_file(&f);
 
         let mut last_player = &sample[0];
-        let bad = sample[1..].iter().any(|player| {
-            let v = 0.5 * (player.velocity + last_player.velocity);
-            let d = (player.position - last_player.position).norm();
-            let physics_ticks = (120.0 * d / v.norm()).round() as i32;
-            last_player = player;
-            physics_ticks != 2 && d > 3.0
-        });
+        //let bad = sample[1..].iter().any(|player| {
+        //    let v = 0.5 * (player.velocity + last_player.velocity);
+        //    let d = (player.position - last_player.position).norm();
+        //    let physics_ticks = (120.0 * d / v.norm()).round() as i32;
+        //    last_player = player;
+        //    physics_ticks != 2 && d > 3.0
+        //});
+        let bad = sample.len() < 33;
 
         if bad {
             count_bad += 1;
