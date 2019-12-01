@@ -90,7 +90,9 @@ fn best_plan<H: HeuristicModel>(
 }
 
 fn main() -> Result<(), Box<Error>> {
-    let desired_contact = DesiredContact::default();
+    let desired_ball_position: Vector3<f32> = brain::play::opponent_goal_shoot_at(&GameState::default());
+    let ball = BallState::default();
+    let desired_contact = brain::play::simple_desired_contact(&ball, &desired_ball_position);
 
     let config = SearchConfig {
         step_duration: 16.0 * TICK,
