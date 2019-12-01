@@ -15,7 +15,7 @@ fn what_do(_game: &GameState) -> Action {
     Action::Shoot // TODO
 }
 
-fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
+pub fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
     // TODO calculate which part of the goal is hardest for the opponent to reach
     match game.player.team {
         // FIXME check if we have this right...
