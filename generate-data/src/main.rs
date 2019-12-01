@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<Error>> {
         step_duration: 16.0 * TICK,
         slop: 20.0,
         max_cost: 10.0,
-        max_iterations: 200_000,
+        max_iterations: 300_000,
         scale_heuristic: 1.0,
     };
 
