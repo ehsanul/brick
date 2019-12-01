@@ -106,7 +106,7 @@ fn main() -> Result<(), Box<Error>> {
         step_duration: 16.0 * TICK,
         slop: 20.0,
         max_cost: 10.0,
-        max_iterations: 300_000,
+        max_iterations: 600_000,
         scale_heuristic: 1.0,
     };
 
@@ -144,17 +144,20 @@ fn main() -> Result<(), Box<Error>> {
                     {
                         write_data(&path, plan).expect("writing failed");
                         println!("Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
-                    } else if let Some(plan) = best_plan(
+                    } else if let Some(plan) = plan::hybrid_a_star(
                         &mut model,
                         &mut player.clone(),
                         &desired_contact,
                         &slow_config,
-                    ) {
+                    ).plan {
                         // the slow config allows more iterations before giving up. always using it
                         // is a waste given we are looking for a best_plan by doing a search many
                         // times and the found paths there should always be shorter than paths
                         // found after more searching. but in the case that every single search
                         // failed, we can fallback to a slower version which may find a solution
+                        //
+                        // however, it's so slow that we are only doing it once instead of many
+                        // iterations like with the faster version
                         write_data(&path, plan).expect("writing failed");
                         println!("SLOW Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     } else {
