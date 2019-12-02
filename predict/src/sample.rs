@@ -338,17 +338,26 @@ pub fn normalized_player(player: &PlayerState, ceil_vx: bool, ceil_vy: bool) -> 
 
     let lv = player.local_velocity();
 
-    let local_vx = if ceil_vx {
+    let mut local_vx = if ceil_vx {
         (lv.x / GROUND_SPEED_GRID_FACTOR).ceil() as i16
     } else {
         (lv.x / GROUND_SPEED_GRID_FACTOR).floor() as i16
     };
 
-    let local_vy = if ceil_vy {
+    let mut local_vy = if ceil_vy {
         (lv.y / GROUND_SPEED_GRID_FACTOR).ceil() as i16
     } else {
         (lv.y / GROUND_SPEED_GRID_FACTOR).floor() as i16
     };
+
+    // scale down if we're looking at something beyond the limits after a ceil or something
+    let max = ((MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16).pow(2);
+    let sum = local_vy.pow(2) + local_vx.pow(2);
+    if sum > max {
+        let ratio = (MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR) / (sum as f32).sqrt();
+        local_vx = (local_vx as f32 * ratio).round() as i16;
+        local_vy = (local_vy as f32 * ratio).round() as i16;
+    }
 
     NormalizedPlayerState { local_vx, local_vy, avz }
 }
