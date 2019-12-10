@@ -6,13 +6,13 @@ use crate::HeuristicModel;
 
 #[derive(Debug)]
 pub struct BasicHeuristic {
-    goal_center: Vector3<f32>,
-    desired_heading: Vector3<f32>,
-    scale: f32,
+    pub(crate) goal_center: Vector3<f32>,
+    pub(crate) desired_heading: Vector3<f32>,
+    pub(crate) scale: f32,
 }
 
 impl BasicHeuristic {
-    fn single_heuristic(&self, player: &PlayerState) -> f32 {
+    pub(crate) fn single_heuristic(&self, player: &PlayerState) -> f32 {
         // basic heuristic cost is a lower-bound for how long it would take, given max boost, to reach
         // the desired position and velocity. and we need to do rotation too.
         //

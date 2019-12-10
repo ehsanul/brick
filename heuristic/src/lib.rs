@@ -13,6 +13,9 @@ pub use basic::BasicHeuristic;
 mod knn;
 pub use knn::KnnHeuristic;
 
+mod hybrid_knn;
+pub use hybrid_knn::HybridKnnHeuristic;
+
 #[cfg(feature = "neural")]
 mod neural;
 #[cfg(feature = "neural")]

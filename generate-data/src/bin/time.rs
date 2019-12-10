@@ -28,13 +28,13 @@ fn set_row(plan: &Plan, i: usize, row: &mut Vec<String>) {
     let total_cost: f32 = plan[i..].iter().map(|(_, _, cost)| cost).sum();
     let player = plan[i].0;
     let pos = player.position;
-    let vel = player.velocity;
+    let lvel = player.local_velocity();
     let avel = player.angular_velocity;
     let (roll, pitch, yaw) = player.rotation.euler_angles();
 
     row.extend(
         [
-            total_cost, pos.x, pos.y, pos.z, vel.x, vel.y, vel.z, avel.x, avel.y, avel.z, roll,
+            total_cost, pos.x, pos.y, pos.z, lvel.x, lvel.y, lvel.z, avel.x, avel.y, avel.z, roll,
             pitch, yaw,
         ]
         .iter()

@@ -9,33 +9,38 @@ use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::File;
 
-const KNN_DIMENSIONS: usize = 3; // x, y. yaw
+pub(crate) const KNN_DIMENSIONS: usize = 5; // x, y, vx, vy, yaw
 
 #[derive(Debug)]
 pub struct KnnHeuristic {
-    tree: KdTree<f32, f32, [f32; KNN_DIMENSIONS]>,
-    ball_position: Vector3<f32>,
-    normalization_rotation: Rotation3<f32>,
-    scale: f32,
+    pub(crate) tree: KdTree<f32, f32, [f32; KNN_DIMENSIONS]>,
+    pub(crate) ball_position: Vector3<f32>,
+    pub(crate) normalization_rotation: Rotation3<f32>,
+    pub(crate) scale: f32,
 }
 
 // so that yaw distance is in the same ballpark as positional distance
 const SCALE_CIRCULAR_DISTANCE: f32 = 500.0;
 
+// so that velocity differences are bigger than positional differences, which will bias us to
+// finding states with similar velocity
+const SCALE_VELOCITY_DISTANCE: f32 = 2.0;
+
 // +PI and -PI are the same angle, so the distance needs to take that into account!
 fn circular_distance(a: f32, b: f32) -> f32 {
-    let distance = (a - b).abs().min(2.0 * PI + a - b).min(2.0 * PI + b - a);
-    SCALE_CIRCULAR_DISTANCE * distance
+    (a - b).abs().min(2.0 * PI + a - b).min(2.0 * PI + b - a)
 }
 
 fn squared_distance(a: f32, b: f32) -> f32 {
     (b - a).powf(2.0)
 }
 
-fn knn_distance(a: &[f32], b: &[f32]) -> f32 {
-    squared_distance(a[0], b[0])
-        + squared_distance(a[1], b[1])
-        + circular_distance(a[2], b[2]).powf(2.0)
+pub(crate) fn knn_distance(a: &[f32], b: &[f32]) -> f32 {
+    squared_distance(a[0], b[0]) // x
+        + squared_distance(a[1], b[1]) // y
+        + SCALE_VELOCITY_DISTANCE * squared_distance(a[2], b[2]) // vx
+        + SCALE_VELOCITY_DISTANCE * squared_distance(a[3], b[3]) // vy
+        + SCALE_CIRCULAR_DISTANCE * circular_distance(a[4], b[4]).powf(2.0) // yaw
 }
 
 impl KnnHeuristic {
@@ -45,14 +50,18 @@ impl KnnHeuristic {
         let mut rdr = csv::ReaderBuilder::new()
             .has_headers(false)
             .from_reader(File::open(path)?);
-        //tree.add(&x, 99.0).unwrap();
+
         for record in rdr.records() {
             let record = record?;
             let cost = record.get(0).expect("Invalid row?").parse()?;
             let x = record.get(1).expect("Invalid row?").parse()?;
             let y = record.get(2).expect("Invalid row?").parse()?;
+
+            let lvx = record.get(4).expect("Invalid row?").parse()?;
+            let lvy = record.get(5).expect("Invalid row?").parse()?;
+
             let yaw = record.get(12).expect("Invalid row?").parse()?;
-            tree.add([x, y, yaw], cost)?;
+            tree.add([x, y, lvx, lvy, yaw], cost)?;
         }
 
         Ok(KnnHeuristic {
@@ -62,10 +71,16 @@ impl KnnHeuristic {
         })
     }
 
-    fn single_heuristic(&self, player: &PlayerState) -> f32 {
+    pub(crate) fn to_knn_point(&self, player: &PlayerState) -> [f32; KNN_DIMENSIONS] {
         let pos = self.normalization_rotation * (player.position - self.ball_position);
+        let lvel = player.local_velocity();
         let (_roll, _pitch, yaw) = (self.normalization_rotation * player.rotation).euler_angles();
-        let point = [pos.x, pos.y, yaw];
+
+        [pos.x, pos.y, lvel.x, lvel.y, yaw]
+    }
+
+    pub(crate) fn single_heuristic(&self, player: &PlayerState) -> f32 {
+        let point = self.to_knn_point(&player);
         let nearest = self.tree.nearest(&point, 3, &knn_distance).unwrap();
 
         let max_distance: f32 = *nearest.iter().map(|(d, _)| d).ord_subset_max().unwrap();
