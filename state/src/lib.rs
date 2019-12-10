@@ -249,6 +249,7 @@ pub struct SearchConfig {
     pub max_cost: f32,
     pub max_iterations: i32,
     pub scale_heuristic: f32,
+    pub custom_filter: Option<fn(&PlayerState) -> bool>,
 }
 
 impl Default for SearchConfig {
@@ -260,8 +261,9 @@ impl Default for SearchConfig {
             step_duration: 16.0 * TICK,
             slop: 20.0,
             max_cost: 10.0,
-            max_iterations: 50_000,
+            max_iterations: 300_000, // 50_000 is more appropriate when using knn heuristic
             scale_heuristic: 1.0,
+            custom_filter: None,
         }
     }
 }

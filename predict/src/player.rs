@@ -1,5 +1,6 @@
 use na::{self, Rotation3, UnitQuaternion, Vector3};
 use sample;
+use driving_model;
 use state::*;
 use std::f32;
 
@@ -56,7 +57,7 @@ fn next_player_state_grounded(
     next
 }
 
-fn ground_turn_matching_samples(
+fn ground_turn_matching_transformation(
     normalized: &sample::NormalizedPlayerState,
     controller: &BrickControllerState,
     time_step: f32,
@@ -64,11 +65,11 @@ fn ground_turn_matching_samples(
     yrange: i16,
     skipx: Option<i16>,
     skipy: Option<i16>,
-) -> Option<(&'static PlayerState, &'static PlayerState)> {
-    // based on current player state, and steer, throttle and boost, gets the right samples, with
-    // some wiggle room based on xrange/yrange
+) -> Option<&'static driving_model::PlayerTransformation> {
+    // based on current player state, and steer, throttle and boost, gets the right transformation,
+    // with some wiggle room based on xrange/yrange
     let mut local_normalized = normalized.clone();
-    let mut samples: Option<&'static [PlayerState]> = None;
+    let mut transformation: Option<&'static driving_model::PlayerTransformation> = None;
 
     // step_by is not yet stabilized... so using plain loops instead
     let ystep = if yrange < 0 { -1 } else { 1 };
@@ -82,8 +83,8 @@ fn ground_turn_matching_samples(
                 local_normalized.local_vx = normalized.local_vx + dx;
                 //println!("local_normalized: {:?}", local_normalized);
 
-                samples = sample::get_relevant_turn_samples(&local_normalized, &controller);
-                if samples.is_some() { break 'outer }
+                transformation = driving_model::get_relevant_transformation(&local_normalized, &controller, time_step);
+                if transformation .is_some() { break 'outer }
             }
 
             dx += xstep;
@@ -94,99 +95,63 @@ fn ground_turn_matching_samples(
         if dy.abs() > yrange.abs() { break }
     }
 
-    if samples.is_none() {
-        // TODO log if none?
-        //let samples = samples.expect(&format!(
-        //    "Missing turn sample for player: {:?} & controller: {:?} & xrange {} & yrange {}",
-        //    normalized, controller, xrange, yrange
-        //));
-        return None
-    }
-
-    let samples = samples.unwrap();
-
-    let start_index = 0;
-    let end_index = start_index + (time_step * sample::RECORD_FPS as f32).round() as usize;
-
-    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!(
-        "ground_turn_prediction start_index missing: {}, normalized player: {:?}, controller: {:?}",
-        start_index, normalized, controller
-    ));
-
-    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!(
-        "ground_turn_prediction end_index missing: {}, normalized player: {:?}, controller: {:?}",
-        end_index, normalized, controller
-    ));
-
-    Some((sample_start_state, sample_end_state))
+    transformation
 }
 
-fn ground_turn_surrounding_quad(
+fn ground_turn_quad_tranformations(
     current: &PlayerState,
     controller: &BrickControllerState,
     time_step: f32,
-) -> [Option<(&'static PlayerState, &'static PlayerState)>; 4] {
+) -> [Option<&'static driving_model::PlayerTransformation>; 4] {
     // TODO handle missing values properly: go lower/higher to find another point to use as an
     // interpolation anchor
     //println!("x1y1");
     let normalized = sample::normalized_player(&current, false, false);
-    let mut x1y1 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, -3, None, None);
+    let mut x1y1 = ground_turn_matching_transformation(&normalized, &controller, time_step, -3, -3, None, None);
 
     //println!("x2y1");
     let normalized = sample::normalized_player(&current, true, false);
-    let mut x2y1 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, -3, None, None);
+    let mut x2y1 = ground_turn_matching_transformation(&normalized, &controller, time_step, 3, -3, None, None);
 
     // when we fail in on direction, search in the other
     if x1y1.is_some() && x2y1.is_none() {
         //println!("-- x2y1 fallback --");
-        let x1y1_player = x1y1.as_ref().unwrap().0;
-        let skip = sample::normalized_player_rounded(x1y1_player);
-        x2y1 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, -3, Some(skip.local_vx), Some(skip.local_vy));
+        let x1y1_transformation = x1y1.as_ref().unwrap();
+        let skip = x1y1_transformation.normalized_player(current.angular_velocity.z);
+        x2y1 = ground_turn_matching_transformation(&normalized, &controller, time_step, -3, -3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y1.is_some() && x1y1.is_none() {
         //println!("-- x1y1 fallback --");
-        let x2y1_player = x2y1.as_ref().unwrap().0;
-        let skip = sample::normalized_player_rounded(x2y1_player);
-        x1y1 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, -3, Some(skip.local_vx), Some(skip.local_vy));
+        let x2y1_transformation = x2y1.as_ref().unwrap();
+        let skip = x2y1_transformation.normalized_player(current.angular_velocity.z);
+        x1y1 = ground_turn_matching_transformation(&normalized, &controller, time_step, 3, -3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y1.is_none() && x1y1.is_none() {
         //println!("-- BOTH FAILED --");
     }
 
     //println!("x1y2");
     let normalized = sample::normalized_player(&current, false, true);
-    let mut x1y2 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, 3, None, None);
+    let mut x1y2 = ground_turn_matching_transformation(&normalized, &controller, time_step, -3, 3, None, None);
 
     //println!("x2y2");
     let normalized = sample::normalized_player(&current, true, true);
-    let mut x2y2 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, 3, None, None);
+    let mut x2y2 = ground_turn_matching_transformation(&normalized, &controller, time_step, 3, 3, None, None);
 
     // when we fail in on direction, search in the other
     if x1y2.is_some() && x2y2.is_none() {
         //println!("-- x2y2 fallback --");
-        let x1y2_player = x1y2.as_ref().unwrap().0;
-        let skip = sample::normalized_player_rounded(x1y2_player);
-        x2y2 = ground_turn_matching_samples(&normalized, &controller, time_step, -3, 3, Some(skip.local_vx), Some(skip.local_vy));
+        let x1y2_transformation = x1y2.as_ref().unwrap();
+        let skip = x1y2_transformation.normalized_player(current.angular_velocity.z);
+        x2y2 = ground_turn_matching_transformation(&normalized, &controller, time_step, -3, 3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y2.is_some() && x1y2.is_none() {
         //println!("-- x1y2 fallback --");
-        let x2y2_player = x2y2.as_ref().unwrap().0;
-        let skip = sample::normalized_player_rounded(x2y2_player);
-        x1y2 = ground_turn_matching_samples(&normalized, &controller, time_step, 3, 3, Some(skip.local_vx), Some(skip.local_vy));
+        let x2y2_transformation = x2y2.as_ref().unwrap();
+        let skip = x2y2_transformation.normalized_player(current.angular_velocity.z);
+        x1y2 = ground_turn_matching_transformation(&normalized, &controller, time_step, 3, 3, Some(skip.local_vx), Some(skip.local_vy));
     } else if x2y2.is_none() && x1y2.is_none() {
         //println!("-- BOTH FAILED 2 --");
     }
 
     [x1y1, x2y1, x1y2, x2y2]
-}
-
-
-/// factor: number from 0.0 to 1.0 for interpolation between start and end, 0.0 being 100% at
-/// start, 1.0 being 100% at end. Note that this actually also handles factors outside the 0.0 to
-/// 1.0 range, in which case it's a linear extrapolation
-fn interpolate(start: Vector3<f32>, end: Vector3<f32>, factor: f32) -> Vector3<f32> {
-    (1.0 - factor) * start + factor * end
-}
-
-fn interpolate_scalar(start: f32, end: f32, factor: f32) -> f32 {
-    (1.0 - factor) * start + factor * end
 }
 
 /// returns tuple of (translation, acceleration, angular_acceleration, rotation)
@@ -199,40 +164,40 @@ fn ground_turn_prediction(
     //println!("local_velocity: {:?}", current.local_velocity());
     //println!("controller: {:?}", controller);
 
-    let quad = ground_turn_surrounding_quad(current, controller, time_step);
+    let quad = ground_turn_quad_tranformations(current, controller, time_step);
 
     // TODO error
-    let (x1y1_start, x1y1_end) = quad[0].expect(&format!(
+    let x1y1 = quad[0].expect(&format!(
         "Missing turn x1y1 for player: {:?} & controller: {:?}",
-        current, controller
+        sample::normalized_player(&current, false, false), controller
     ));
-    let (x2y1_start, x2y1_end) = quad[1].expect(&format!(
+    let x2y1 = quad[1].expect(&format!(
         "Missing turn x2y1 for player: {:?} & controller: {:?}",
-        current, controller
+        sample::normalized_player(&current, true, false), controller
     ));
-    let (x1y2_start, x1y2_end) = quad[2].expect(&format!(
+    let x1y2 = quad[2].expect(&format!(
         "Missing turn x1y2 for player: {:?} & controller: {:?}",
-        current, controller
+        sample::normalized_player(&current, false, true), controller
     ));
-    let (x2y2_start, x2y2_end) = quad[3].expect(&format!(
+    let x2y2 = quad[3].expect(&format!(
         "Missing turn x2y2 for player: {:?} & controller: {:?}",
-        current, controller
+        sample::normalized_player(&current, true, true), controller
     ));
 
     let current_vx = current.local_velocity().x;
     let current_vy = current.local_velocity().y;
 
-    let y1_vx1 = x1y1_start.local_velocity().x;
-    let y1_vx2 = x2y1_start.local_velocity().x;
+    let y1_vx1 = x1y1.start_local_vx as f32;
+    let y1_vx2 = x2y1.start_local_vx as f32;
 
-    let y1_vy1 = x1y1_start.local_velocity().y;
-    let y1_vy2 = x2y1_start.local_velocity().y;
+    let y1_vy1 = x1y1.start_local_vy as f32;
+    let y1_vy2 = x2y1.start_local_vy as f32;
 
-    let y2_vx1 = x1y2_start.local_velocity().x;
-    let y2_vx2 = x2y2_start.local_velocity().x;
+    let y2_vx1 = x1y2.start_local_vx as f32;
+    let y2_vx2 = x2y2.start_local_vx as f32;
 
-    let y2_vy1 = x1y2_start.local_velocity().y;
-    let y2_vy2 = x2y2_start.local_velocity().y;
+    let y2_vy1 = x1y2.start_local_vy as f32;
+    let y2_vy2 = x2y2.start_local_vy as f32;
 
     // for interpolating along vx at y1 end
     let y1_vx_diff = y1_vx2 - y1_vx1;
@@ -260,24 +225,15 @@ fn ground_turn_prediction(
         (current_vy - y1_vy) / vy_diff
     };
 
-    // get rotation that when multiplied with closer_sample_start.rotation, gives us current_rotation
-    // normalization_rotation . sample_start.rotation = current_rotation
-    let normalization_rotation_x1y1 = current.rotation.to_rotation_matrix()
-        * na::inverse(&x1y1_start.rotation.to_rotation_matrix());
-    let normalization_rotation_x2y1 = current.rotation.to_rotation_matrix()
-        * na::inverse(&x2y1_start.rotation.to_rotation_matrix());
-    let normalization_rotation_x1y2 = current.rotation.to_rotation_matrix()
-        * na::inverse(&x1y2_start.rotation.to_rotation_matrix());
-    let normalization_rotation_x2y2 = current.rotation.to_rotation_matrix()
-        * na::inverse(&x2y2_start.rotation.to_rotation_matrix());
+    let current_rotation = current.rotation.to_rotation_matrix();
 
-    let translation_x1y1 = normalization_rotation_x1y1 * (x1y1_end.position - x1y1_start.position);
-    let translation_x2y1 = normalization_rotation_x2y1 * (x2y1_end.position - x2y1_start.position);
-    let translation_x1y2 = normalization_rotation_x1y2 * (x1y2_end.position - x1y2_start.position);
-    let translation_x2y2 = normalization_rotation_x2y2 * (x2y2_end.position - x2y2_start.position);
+    let translation_x1y1 = Vector3::new(x1y1.translation_x as f32, x1y1.translation_y as f32, 0.0);
+    let translation_x2y1 = Vector3::new(x2y1.translation_x as f32, x2y1.translation_y as f32, 0.0);
+    let translation_x1y2 = Vector3::new(x1y2.translation_x as f32, x1y2.translation_y as f32, 0.0);
+    let translation_x2y2 = Vector3::new(x2y2.translation_x as f32, x2y2.translation_y as f32, 0.0);
     let translation_y1 = interpolate(translation_x1y1, translation_x2y1, y1_vx_factor);
     let translation_y2 = interpolate(translation_x1y2, translation_x2y2, y2_vx_factor);
-    let translation = interpolate(translation_y1, translation_y2, vy_factor);
+    let translation = current_rotation * interpolate(translation_y1, translation_y2, vy_factor);
 
     // dbg!(current.rotation.to_euler_angles().2);
     // dbg!(x1y1_start.rotation.to_euler_angles().2);
@@ -285,11 +241,11 @@ fn ground_turn_prediction(
     // dbg!(x1y2_start.rotation.to_euler_angles().2);
     // dbg!(x2y2_start.rotation.to_euler_angles().2);
 
-    // dbg!(normalization_rotation_x1y1.to_euler_angles().2);
-    // dbg!(normalization_rotation_x2y1.to_euler_angles().2);
-    // dbg!(normalization_rotation_x1y2.to_euler_angles().2);
-    // dbg!(normalization_rotation_x2y2.to_euler_angles().2);
     // dbg!(x1y1_start.angular_velocity.x);
+    // dbg!(x2y1_start.angular_velocity.x);
+    // dbg!(x1y2_start.angular_velocity.x);
+    // dbg!(x2y2_start.angular_velocity.x);
+
     // dbg!(x1y1_start.position.x);
     // dbg!(x1y1_start.position.y);
 
@@ -311,27 +267,41 @@ fn ground_turn_prediction(
     // dbg!(x1y2_end.local_velocity().y);
     // dbg!(x2y2_end.local_velocity().y);
 
-    let end_velocity_x1y1 = normalization_rotation_x1y1 * x1y1_end.velocity;
-    let end_velocity_x2y1 = normalization_rotation_x2y1 * x2y1_end.velocity;
-    let end_velocity_x1y2 = normalization_rotation_x1y2 * x1y2_end.velocity;
-    let end_velocity_x2y2 = normalization_rotation_x2y2 * x2y2_end.velocity;
+    let end_velocity_x1y1 = Vector3::new(x1y1.end_velocity_x as f32, x1y1.end_velocity_y as f32, 0.0);
+    let end_velocity_x2y1 = Vector3::new(x2y1.end_velocity_x as f32, x2y1.end_velocity_y as f32, 0.0);
+    let end_velocity_x1y2 = Vector3::new(x1y2.end_velocity_x as f32, x1y2.end_velocity_y as f32, 0.0);
+    let end_velocity_x2y2 = Vector3::new(x2y2.end_velocity_x as f32, x2y2.end_velocity_y as f32, 0.0);
     let end_velocity_y1 = interpolate(end_velocity_x1y1, end_velocity_x2y1, y1_vx_factor);
     let end_velocity_y2 = interpolate(end_velocity_x1y2, end_velocity_x2y2, y2_vx_factor);
-    let end_velocity = interpolate(end_velocity_y1, end_velocity_y2, vy_factor);
+    let end_velocity = current_rotation * interpolate(end_velocity_y1, end_velocity_y2, vy_factor);
+
+    // dbg!(end_velocity_x1y1);
+    // dbg!(end_velocity_x2y1);
+    // dbg!(end_velocity_x1y2);
+    // dbg!(end_velocity_x2y2);
+    // dbg!(end_velocity_y1);
+    // dbg!(end_velocity_y2);
+    // dbg!(end_velocity);
 
     (
         translation,
         end_velocity,
         // assuming they are all pretty similar
-        x1y1_end.angular_velocity,
+        Vector3::new(0.0, 0.0, x1y1.end_angular_velocity_z),
         // TODO interpolate yaw, but have to handle the fact that it's circular
-        normalization_rotation_x1y1 * x1y1_end.rotation.to_rotation_matrix(),
+        current_rotation * Rotation3::from_euler_angles(0.0, 0.0, x1y1.end_yaw),
     )
 }
 
-#[no_mangle]
-pub extern "C" fn predict_test() -> Vector3<f32> {
-    Vector3::new(0.0, 0.0, 0.0)
+/// factor: number from 0.0 to 1.0 for interpolation between start and end, 0.0 being 100% at
+/// start, 1.0 being 100% at end. Note that this actually also handles factors outside the 0.0 to
+/// 1.0 range, in which case it's a linear extrapolation
+fn interpolate(start: Vector3<f32>, end: Vector3<f32>, factor: f32) -> Vector3<f32> {
+    (1.0 - factor) * start + factor * end
+}
+
+fn interpolate_scalar(start: f32, end: f32, factor: f32) -> f32 {
+    (1.0 - factor) * start + factor * end
 }
 
 #[no_mangle]

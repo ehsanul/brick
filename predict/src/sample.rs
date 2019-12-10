@@ -307,11 +307,11 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
     indexed
 }
 
-const GROUND_SPEED_GRID_FACTOR: f32 = 100.0;
-const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
+pub const GROUND_SPEED_GRID_FACTOR: f32 = 100.0;
+pub const GROUND_AVZ_GRID_FACTOR: f32 = 0.2;
 
 // XXX is the use of i16 here actually helping?
-#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Eq, PartialEq, Hash, Debug)]
 pub struct NormalizedPlayerState {
     pub local_vx: i16,
     pub local_vy: i16,

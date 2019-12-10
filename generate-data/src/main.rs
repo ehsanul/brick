@@ -100,6 +100,7 @@ fn main() -> Result<(), Box<Error>> {
         max_cost: 10.0,
         max_iterations: 10_000,
         scale_heuristic: 1.0,
+        custom_filter: Some(|_| { true }), // ignore bounds
     };
 
     let slow_config = SearchConfig {
@@ -108,6 +109,7 @@ fn main() -> Result<(), Box<Error>> {
         max_cost: 10.0,
         max_iterations: 600_000,
         scale_heuristic: 1.0,
+        custom_filter: Some(|_| { true }), // ignore bounds
     };
 
     let max_speed_r = (MAX_BOOST_SPEED / SPEED_FACTOR).round() as i32;

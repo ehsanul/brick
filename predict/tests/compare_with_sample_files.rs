@@ -35,7 +35,7 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
 
             // we can miss data at the edges, or not be able to extrapolate at the dges. ignore for now
             // TODO remove all these checks
-            if (player_start.angular_velocity.z.abs() / 0.2) >= 20.0 || player_start.local_velocity().y < -100.0 || player_start.local_velocity().x.abs() > 1000.0 || player_start.velocity.norm() > 2100.0 {
+            if (player_start.angular_velocity.z.abs() / 0.2) >= 20.0 || player_start.local_velocity().y < -100.0 || player_start.local_velocity().x.abs() > 1000.0 {
                 continue;
             }
 
@@ -100,13 +100,13 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
 
     // TODO investigate the worst offenders and reduce these values
     assert!(max_position_error < 20.0);
-    assert!(rms(&position_errors) < 0.5);
-    assert!(percentile_value(&mut position_errors, 50.0) < 0.16);
-    assert!(percentile_value(&mut position_errors, 95.0) < 0.8);
+    assert!(rms(&position_errors) < 0.6);
+    assert!(percentile_value(&mut position_errors, 50.0) < 0.5);
+    assert!(percentile_value(&mut position_errors, 95.0) < 1.5);
     assert!(percentile_value(&mut position_errors, 99.0) < 2.5);
-    assert!(percentile_value(&mut position_errors, 99.9) < 6.5);
+    assert!(percentile_value(&mut position_errors, 99.9) < 7.5);
 
-    assert!(rms(&velocity_errors) < 6.0);
+    assert!(rms(&velocity_errors) < 9.5);
     assert!(rms(&avz_errors) < 0.15);
 }
 

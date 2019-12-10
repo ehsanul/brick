@@ -159,22 +159,23 @@ pub fn explode_plan(plan_result: &mut PlanResult) {
                     < 0.000001
             ); // ensure multiple, ignoring fp inaccuracies
             let exploded_length = (plan[i].2 / EXPLODED_STEP_DURATION).round() as i32;
-            let last_player = plan[i - 1].0;
+            let mut last_player = plan[i - 1].0;
             let controller = plan[i].1;
 
             for j in 1..=exploded_length {
                 let next_player = predict::player::next_player_state(
                     &last_player,
                     &controller,
-                    j as f32 * EXPLODED_STEP_DURATION,
+                    EXPLODED_STEP_DURATION,
                 );
                 exploded_plan.push((next_player, controller, EXPLODED_STEP_DURATION));
+                last_player = next_player;
             }
         }
 
         //println!("===================================");
-        //println!("original: {:?}", plan.iter().map(|(p, c, s)| {
-        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.euler_angles().2, p.angular_velocity.z, c.steer, s)
+        //println!("PLAN: {:?}", plan.iter().map(|(p, c, s)| {
+        //    (p.position.x, p.position.y, p.local_velocity().x, p.local_velocity().y, p.rotation.euler_angles().2, p.angular_velocity.z, c.steer, c.boost, s)
         //}).collect::<Vec<_>>());
         //println!("-----------------------------------");
         //println!("exploded: {:?}", exploded_plan.iter().map(|(p, c, s)| {
@@ -565,9 +566,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, &mut new_vertices, dur, |_| {
-                true
-            })
+            expand_vertex(index, is_secondary, &vertex, &mut new_vertices, dur, config.custom_filter)
         };
 
         new_players.clear();
@@ -743,10 +742,12 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         }
     }
 
+    let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
     println!(
-        "omg failed! step size: {} | expansions: {}",
+        "omg failed! step size: {} | expansions: {} | left: {}",
         config.step_duration * 120.0,
-        visualization_lines.len()
+        expansions,
+        to_see.len()
     );
     PlanResult {
         plan: None,
@@ -1050,7 +1051,7 @@ fn expand_vertex(
     vertex: &PlayerVertex,
     new_vertices: &mut Vec<PlayerVertex>,
     step_duration: f32,
-    custom_filter: fn(&PlayerVertex) -> bool,
+    custom_filter: Option<fn(&PlayerState) -> bool>,
 ) {
     let iterator = control_branches(&vertex.player)
         .iter()
@@ -1063,12 +1064,14 @@ fn expand_vertex(
             parent_is_secondary: is_secondary,
         })
         .filter(|new_vertex| {
-            // if parent (ie vertex) is already out of bounds, allow going out of bounds since we need
-            // to be able to move back in if we start planning from out of bounds (eg player inside
-            // goal)
-            // TODO ideally we'd only allow if we're getting *less* out of bounds than before
-            let outside_arena = out_of_bounds(&new_vertex.player) && !out_of_bounds(&vertex.player);
-            !outside_arena && custom_filter(&new_vertex)
+            if let Some(filter_func) = custom_filter {
+                filter_func(&new_vertex.player)
+            } else {
+                // if parent (ie vertex) is already out of bounds, allow going out of bounds since we need
+                // to be able to move back in if we start planning from out of bounds (eg player inside
+                // goal). we're  only allowing if we're getting *less* out of bounds than before
+                !out_of_bounds(&new_vertex.player) || out_of_bounds(&vertex.player)
+            }
         });
     new_vertices.extend(iterator);
 }
