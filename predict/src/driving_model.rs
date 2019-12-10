@@ -1,6 +1,4 @@
 use bincode::deserialize_from;
-use na::{self, Rotation3, UnitQuaternion, Vector3};
-use std::thread::LocalKey;
 
 use fnv::FnvHasher;
 use std::collections::HashMap;

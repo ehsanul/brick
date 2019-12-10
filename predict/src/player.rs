@@ -1,4 +1,4 @@
-use na::{self, Rotation3, UnitQuaternion, Vector3};
+use na::{Rotation3, UnitQuaternion, Vector3};
 use sample;
 use driving_model;
 use state::*;
