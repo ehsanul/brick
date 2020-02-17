@@ -361,16 +361,21 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
     // TODO also check if existing plan is invalid, if so replace regardless
     if let Some(ref new_plan) = plan_result.plan {
         if bot.plan.is_some() {
-            let new_plan_steps = new_plan.len() - 1;
-            let existing_plan_steps = bot.plan.as_ref().unwrap().len()
-                - 1
-                - brain::play::closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
+            let new_plan_cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
+
+            let closest_index = brain::play::closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
+            let existing_plan_cost = bot.plan.as_ref().unwrap().iter().enumerate().filter(|(index, _val)| {
+                *index > closest_index
+            }).map(|(_index, (_, _, cost))| cost).sum::<f32>();
+
             // bail, we got a worse plan!
-            if new_plan_steps > existing_plan_steps {
+            if new_plan_cost >= existing_plan_cost {
                 return;
             }
         }
 
+        let cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
+        println!("new best plan! cost: {}", cost);
         bot.plan = Some(new_plan.clone());
         bot.turn_errors.clear();
     }
@@ -442,25 +447,56 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let mut plan = vec![];
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
-    let mut controller = BrickControllerState::new();
-    controller.throttle = Throttle::Forward;
-    controller.steer = if angle < 0.0 {
+    let mut turn_controller = BrickControllerState::new();
+    turn_controller.throttle = Throttle::Forward;
+    turn_controller.steer = if angle < 0.0 {
         Steer::Right
     } else {
         Steer::Left
     };
 
-    // iterate till dot product is minimized (ie we match the desired heading)
+    let mut straight_controller = BrickControllerState::new();
+    straight_controller.throttle = Throttle::Forward;
+
+    const TURN_DURATION: f32 = 2.0 * TICK;
+    // straighten out for zero angular velocity at end, hopefully 16 ticks is enough?
+    const STRAIGHT_DURATION: f32 = 16.0 * TICK;
+
+    // iterate till dot product is maximized (ie we match the desired heading)
     let mut last_dot = std::f32::MIN;
     let mut player = current.clone();
     loop {
-        let new_player = brain::predict::player::next_player_state(&player, &controller, TICK);
-        let heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-        let dot = na::Matrix::dot(&heading, &desired_heading);
-        if dot > last_dot {
-            plan.push((new_player, controller, TICK));
-            player = new_player;
-            last_dot = dot;
+        let turn_player = brain::predict::player::next_player_state(&player, &turn_controller, TURN_DURATION);
+        let turn_heading = turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+        let turn_dot = na::Matrix::dot(&turn_heading, &desired_heading);
+
+        // straight duration is much longer than turn duration
+        let long_turn_player = brain::predict::player::next_player_state(&turn_player, &turn_controller, STRAIGHT_DURATION);
+        let long_turn_heading = long_turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+        let long_turn_dot = na::Matrix::dot(&long_turn_heading, &desired_heading);
+
+        let turn_then_straight_player = brain::predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION);
+        let turn_then_straight_heading = turn_then_straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+        let turn_then_straight_dot = na::Matrix::dot(&turn_then_straight_heading, &desired_heading);
+
+        let straight_player = brain::predict::player::next_player_state(&player, &straight_controller, STRAIGHT_DURATION);
+        let straight_heading = straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+        let straight_dot = na::Matrix::dot(&straight_heading, &desired_heading);
+
+        // if we aren't overshooting, add a turn
+        if turn_dot > last_dot && long_turn_dot > turn_then_straight_dot {
+            plan.push((turn_player, turn_controller, TURN_DURATION));
+            player = turn_player;
+            last_dot = turn_dot;
+        } else if turn_then_straight_dot > last_dot && turn_then_straight_dot > straight_dot {
+            plan.push((turn_player, turn_controller, TURN_DURATION));
+            plan.push((turn_then_straight_player, straight_controller, STRAIGHT_DURATION));
+            player = turn_then_straight_player;
+            last_dot = turn_then_straight_dot;
+        } else if straight_dot > last_dot + 0.001 {
+            plan.push((straight_player, straight_controller, STRAIGHT_DURATION));
+            player = straight_player;
+            last_dot = straight_dot;
         } else {
             break;
         }
@@ -477,8 +513,8 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Plan {
 
     let mut player = current.clone();
     while (player.position - current.position).norm() < distance {
-        player = brain::predict::player::next_player_state(&player, &controller, TICK);
-        plan.push((player, controller, TICK));
+        player = brain::predict::player::next_player_state(&player, &controller, 16.0 * TICK); // FIXME step_duration input
+        plan.push((player, controller, 16.0 * TICK));
     }
     plan
 }
