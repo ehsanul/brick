@@ -21,7 +21,7 @@ use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 const SPEED_FACTOR: f32 = 1000.0;
-const POS_FACTOR: f32 = 1000.0;
+const POS_FACTOR: f32 = 500.0;
 const YAW_FACTOR: f32 = 8.0;
 const MAX_X: i32 = 8000;
 const MAX_Y: i32 = 10000;
@@ -105,9 +105,9 @@ fn main() -> Result<(), Box<Error>> {
 
     let slow_config = SearchConfig {
         step_duration: 16.0 * TICK,
-        slop: 20.0,
+        slop: 40.0,
         max_cost: 10.0,
-        max_iterations: 600_000,
+        max_iterations: 10_000_000,
         scale_heuristic: 1.0,
         custom_filter: Some(|_| { true }), // ignore bounds
     };
@@ -138,12 +138,12 @@ fn main() -> Result<(), Box<Error>> {
                     );
 
                     if PathBuf::from(&path).exists() {
-                        println!("Path already exists: {}", path);
+                        //println!("Path already exists: {}", path);
                         return;
                     }
 
                     if let Some(plan) =
-                        best_plan(&mut model, &mut player.clone(), &desired_contact, &config)
+                        plan::hybrid_a_star(&mut model, &mut player.clone(), &desired_contact, &config).plan
                     {
                         write_data(&path, plan).expect("writing failed");
                         println!("Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);

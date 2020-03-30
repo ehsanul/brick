@@ -468,14 +468,14 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     {
         // avoid an infinite graph search
         if cost_so_far > config.max_cost {
-            println!("short circuit, hit max cost!");
+            //println!("short circuit, hit max cost!");
             break;
         }
 
         // HACK avoid very large searches completely
         num_iterations += 1;
         if num_iterations > config.max_iterations {
-            println!("short circuit, too many iterations!");
+            //println!("short circuit, too many iterations!");
             break;
         }
 
@@ -543,12 +543,12 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                         .collect(),
                 );
 
-                println!(
-                    "omg reached! step size: {} | expansions: {} | cost: {}",
-                    config.step_duration * 120.0,
-                    expansions,
-                    cost
-                );
+                //println!(
+                //    "omg reached! step size: {} | expansions: {} | cost: {}",
+                //    config.step_duration * 120.0,
+                //    expansions,
+                //    cost
+                //);
                 return PlanResult {
                     plan: Some(plan),
                     desired: desired.clone(),
@@ -742,13 +742,14 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         }
     }
 
-    let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
-    println!(
-        "omg failed! step size: {} | expansions: {} | left: {}",
-        config.step_duration * 120.0,
-        expansions,
-        to_see.len()
-    );
+    //let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
+    //println!(
+    //    "omg failed! step size: {} | expansions: {} | left: {}",
+    //    config.step_duration * 120.0,
+    //    expansions,
+    //    to_see.len()
+    //);
+
     PlanResult {
         plan: None,
         desired: desired.clone(),
