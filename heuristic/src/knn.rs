@@ -20,15 +20,15 @@ pub struct KnnHeuristic {
 }
 
 // so that yaw distance is in the same ballpark as positional distance
-const SCALE_CIRCULAR_DISTANCE: f32 = 500.0;
+const SCALE_CIRCULAR_DISTANCE: f32 = 200.0;
 
 // so that velocity differences are bigger than positional differences, which will bias us to
 // finding states with similar velocity
 const SCALE_VELOCITY_DISTANCE: f32 = 2.0;
 
 // +PI and -PI are the same angle, so the distance needs to take that into account!
-fn circular_distance(a: f32, b: f32) -> f32 {
-    (a - b).abs().min(2.0 * PI + a - b).min(2.0 * PI + b - a)
+fn scaled_circular_distance(a: f32, b: f32) -> f32 {
+    SCALE_CIRCULAR_DISTANCE * (a - b).abs().min(2.0 * PI + a - b).min(2.0 * PI + b - a)
 }
 
 fn squared_distance(a: f32, b: f32) -> f32 {
@@ -38,9 +38,9 @@ fn squared_distance(a: f32, b: f32) -> f32 {
 pub(crate) fn knn_distance(a: &[f32], b: &[f32]) -> f32 {
     squared_distance(a[0], b[0]) // x
         + squared_distance(a[1], b[1]) // y
-        + SCALE_VELOCITY_DISTANCE * squared_distance(a[2], b[2]) // vx
+        // FIXME we don't set these in generate-data // + SCALE_VELOCITY_DISTANCE * squared_distance(a[2], b[2]) // vx
         + SCALE_VELOCITY_DISTANCE * squared_distance(a[3], b[3]) // vy
-        + SCALE_CIRCULAR_DISTANCE * circular_distance(a[4], b[4]).powf(2.0) // yaw
+        + scaled_circular_distance(a[4], b[4]).powf(2.0) // yaw
 }
 
 impl KnnHeuristic {
