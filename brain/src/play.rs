@@ -1,4 +1,4 @@
-use heuristic::HeuristicModel; // TODO as _;
+use crate::HeuristicModel; // TODO as _;
 use na::{self, Rotation3, Unit, Vector3};
 use plan;
 use predict;
