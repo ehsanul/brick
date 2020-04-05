@@ -173,7 +173,7 @@ fn run_bot() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        bot_io_loop(state_sender, plan_receiver);
+        bot_io_loop(state_sender, plan_receiver, None);
     });
     bot_logic_loop(plan_sender, state_receiver);
 }
@@ -185,9 +185,13 @@ fn run_bot_test() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        bot_io_loop(state_sender, plan_receiver);
+        bot_io_loop(state_sender, plan_receiver, Some(bot_test_manipulator));
     });
     bot_logic_loop_test(plan_sender, state_receiver);
+}
+
+fn bot_test_manipulator(rlbot: &rlbot::RLBot, game_state: &GameState, bot: &BotState) {
+    // TODO implement
 }
 
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
@@ -208,16 +212,22 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
     }
 }
 
+fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> Option<Plan> {
+    //Some(square_plan(&game.player))
+    //Some(offset_forward_plan(&game.player))
+    brain::play::play(model, &game, bot).plan
+}
+
 fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
-
+    let mut model = brain::get_model();
     let mut ratelimiter = ratelimit::Builder::new()
         .interval(Duration::from_millis(1000 / 120)) // bot limited to 120 fps
         .build();
 
     loop {
-        let (game, _bot) = receiver.recv().expect("Coudln't receive game state");
+        let (game, mut bot) = receiver.recv().expect("Coudln't receive game state");
 
         update_gamepad(&mut gilrs, &mut gamepad);
         if !gamepad.select_toggled {
@@ -225,62 +235,60 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
             continue;
         }
 
-        // TODO configure via args? better yet, move this all out to a separate binary after moving
-        // the shared logic to a reusable lib
-        let mut plan = if false {
-            square_plan(&game.player)
-        } else {
-            offset_forward_plan(&game.player)
+        if let Some(plan) = bot_test_plan(&mut model, &game, &mut bot) {
+            sender
+                .send(PlanResult {
+                    plan: Some(plan.clone()),
+                    desired: DesiredContact::default(),
+                    visualization_lines: vec![],
+                    visualization_points: vec![],
+                })
+                .expect("Failed to send plan result");
         };
 
-        sender
-            .send(PlanResult {
-                plan: Some(plan.clone()),
-                desired: DesiredContact::default(),
-                visualization_lines: vec![],
-                visualization_points: vec![],
-            })
-            .expect("Failed to send plan result");
+        ratelimiter.wait();
 
-        let mut square_errors = vec![];
-        loop {
-            let (game, _bot) = receiver.recv().expect("Coudln't receive game state");
+        // below is for figuring out good PD control parameters, with a canned plan
+        //
+        // let mut square_errors = vec![];
+        // loop {
+        //     let (game, _bot) = receiver.recv().expect("Coudln't receive game state");
 
-            let closest_index = brain::play::closest_plan_index(&game.player, &plan);
-            plan = plan.split_off(closest_index);
+        //     let closest_index = brain::play::closest_plan_index(&game.player, &plan);
+        //     plan = plan.split_off(closest_index);
 
-            let square_error = (plan[0].0.position - &game.player.position)
-                .norm()
-                .powf(2.0);
-            square_errors.push(square_error);
+        //     let square_error = (plan[0].0.position - &game.player.position)
+        //         .norm()
+        //         .powf(2.0);
+        //     square_errors.push(square_error);
 
-            if plan.len() <= 2 {
-                break;
-            }
+        //     if plan.len() <= 2 {
+        //         break;
+        //     }
 
-            update_gamepad(&mut gilrs, &mut gamepad);
-            if !gamepad.select_toggled {
-                break;
-            }
+        //     update_gamepad(&mut gilrs, &mut gamepad);
+        //     if !gamepad.select_toggled {
+        //         break;
+        //     }
 
-            let square_error = (plan[0].0.position - &game.player.position)
-                .norm()
-                .powf(2.0);
-            square_errors.push(square_error);
+        //     let square_error = (plan[0].0.position - &game.player.position)
+        //         .norm()
+        //         .powf(2.0);
+        //     square_errors.push(square_error);
 
-            ratelimiter.wait();
-        }
-        println!("========================================");
-        println!("Steps: {}", square_errors.len());
-        println!(
-            "RMS Error: {}",
-            (square_errors.iter().sum::<f32>() / (square_errors.len() as f32)).sqrt()
-        );
-        println!("========================================");
+        //     ratelimiter.wait();
+        // }
+        // println!("========================================");
+        // println!("Steps: {}", square_errors.len());
+        // println!(
+        //     "RMS Error: {}",
+        //     (square_errors.iter().sum::<f32>() / (square_errors.len() as f32)).sqrt()
+        // );
+        // println!("========================================");
     }
 }
 
-fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>) {
+fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>, manipulator: Option<fn(&rlbot::RLBot, &GameState, &BotState)>) {
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
@@ -354,6 +362,11 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         rlbot
             .update_player_input(player_index as i32, &input)
             .expect("update_player_input failed");
+
+        // let's some kind of testing mode update the game state
+        if let Some(func) = manipulator {
+            func(&rlbot, &GAME_STATE.read().unwrap(), &bot);
+        }
     }
 }
 
@@ -604,7 +617,7 @@ fn simulate_over_time() {
     }
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args = Docopt::new(USAGE)
         .and_then(|dopt| dopt.parse())
         .unwrap_or_else(|e| e.exit());
