@@ -135,7 +135,7 @@ pub extern "C" fn plan<H: HeuristicModel>(
     let mut config = SearchConfig::default();
 
     // speed over optimality
-    config.scale_heuristic = 10.0;
+    config.scale_heuristic = 5.0;
     config.max_iterations = 20_000;
 
     // if we have a perfectly good plan, we can use it as benchmark of when to stop looking
@@ -173,7 +173,7 @@ pub fn explode_plan(plan_result: &mut PlanResult) {
                     &last_player,
                     &controller,
                     EXPLODED_STEP_DURATION,
-                );
+                ).expect("next_player_state failed while exploding plan");
                 exploded_plan.push((next_player, controller, EXPLODED_STEP_DURATION));
                 last_player = next_player;
             }
@@ -1062,14 +1062,23 @@ fn expand_vertex(
 ) {
     let iterator = control_branches(&vertex.player)
         .iter()
-        .map(|&controller| PlayerVertex {
-            player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
-            cost_so_far: vertex.cost_so_far + step_duration,
-            prev_controller: controller,
-            step_duration: step_duration,
-            parent_index: index,
-            parent_is_secondary: is_secondary,
+        .map(|&controller: &BrickControllerState| -> Result<PlayerVertex, String> {
+            let next_player = predict::player::next_player_state(&vertex.player, &controller, step_duration);
+            if next_player.is_err() {
+                // print to stderr now since we're swallowing these errors right after this
+                eprintln!("Warning: failed to expand vertex: {}", next_player.as_ref().unwrap_err());
+            }
+
+            Ok(PlayerVertex {
+                player: next_player?,
+                cost_so_far: vertex.cost_so_far + step_duration,
+                prev_controller: controller,
+                step_duration: step_duration,
+                parent_index: index,
+                parent_is_secondary: is_secondary,
+            })
         })
+        .filter_map(Result::ok)
         .filter(|new_vertex| {
             if let Some(filter_func) = custom_filter {
                 filter_func(&new_vertex.player)

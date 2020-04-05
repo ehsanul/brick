@@ -368,10 +368,10 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             //
             if let Some(ref mut plan) = bot.plan {
                 let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
-                println!("closest index: {}, plan len: {}", closest_index, plan.len());
+                //println!("closest index: {}, plan len: {}", closest_index, plan.len());
                 *plan = plan.split_off(closest_index);
             } else {
-                println!("no plan");
+                //println!("no plan");
             }
 
             // the difference between these is the frame lag
@@ -528,20 +528,20 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let mut last_dot = std::f32::MIN;
     let mut player = current.clone();
     loop {
-        let turn_player = brain::predict::player::next_player_state(&player, &turn_controller, TURN_DURATION);
+        let turn_player = brain::predict::player::next_player_state(&player, &turn_controller, TURN_DURATION).unwrap();
         let turn_heading = turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let turn_dot = na::Matrix::dot(&turn_heading, &desired_heading);
 
         // straight duration is much longer than turn duration
-        let long_turn_player = brain::predict::player::next_player_state(&turn_player, &turn_controller, STRAIGHT_DURATION);
+        let long_turn_player = brain::predict::player::next_player_state(&turn_player, &turn_controller, STRAIGHT_DURATION).unwrap();
         let long_turn_heading = long_turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let long_turn_dot = na::Matrix::dot(&long_turn_heading, &desired_heading);
 
-        let turn_then_straight_player = brain::predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION);
+        let turn_then_straight_player = brain::predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION).unwrap();
         let turn_then_straight_heading = turn_then_straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let turn_then_straight_dot = na::Matrix::dot(&turn_then_straight_heading, &desired_heading);
 
-        let straight_player = brain::predict::player::next_player_state(&player, &straight_controller, STRAIGHT_DURATION);
+        let straight_player = brain::predict::player::next_player_state(&player, &straight_controller, STRAIGHT_DURATION).unwrap();
         let straight_heading = straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let straight_dot = na::Matrix::dot(&straight_heading, &desired_heading);
 
@@ -575,7 +575,7 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Plan {
 
     let mut player = current.clone();
     while (player.position - current.position).norm() < distance {
-        player = brain::predict::player::next_player_state(&player, &controller, 16.0 * TICK); // FIXME step_duration input
+        player = brain::predict::player::next_player_state(&player, &controller, 16.0 * TICK).unwrap(); // FIXME step_duration input
         plan.push((player, controller, 16.0 * TICK));
     }
     plan

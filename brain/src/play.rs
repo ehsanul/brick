@@ -307,7 +307,6 @@ pub extern "C" fn next_input(
     current_player: &PlayerState,
     bot: &mut BotState,
 ) -> rlbot::ControllerState {
-    // TODO DRY with closest_plan_index function
     if let Some(ref plan) = bot.plan {
         let index = closest_plan_index(&current_player, &plan);
 

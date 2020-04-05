@@ -32,11 +32,11 @@ fn next_player_state_grounded(
     current: &PlayerState,
     controller: &BrickControllerState,
     time_step: f32,
-) -> PlayerState {
+) -> Result<PlayerState, String> {
     let mut next = (*current).clone();
 
     let (translation, velocity, angular_velocity, rotation) =
-        ground_turn_prediction(&current, &controller, time_step);
+        ground_turn_prediction(&current, &controller, time_step)?;
 
     // because we extrapolate around the edges of our measurements, it's possible we calculate
     // a velocity beyond what's possible in the game. so we must scale it down here.
@@ -54,7 +54,7 @@ fn next_player_state_grounded(
     next.angular_velocity = angular_velocity;
     next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
 
-    next
+    Ok(next)
 }
 
 fn ground_turn_matching_transformation(
@@ -159,7 +159,7 @@ fn ground_turn_prediction(
     current: &PlayerState,
     controller: &BrickControllerState,
     time_step: f32,
-) -> (Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
+) -> Result<(Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>), String> {
     //println!("-----------------------------");
     //println!("local_velocity: {:?}", current.local_velocity());
     //println!("controller: {:?}", controller);
@@ -167,22 +167,22 @@ fn ground_turn_prediction(
     let quad = ground_turn_quad_tranformations(current, controller, time_step);
 
     // TODO error
-    let x1y1 = quad[0].expect(&format!(
+    let x1y1 = quad[0].ok_or_else(|| format!(
         "Missing turn x1y1 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, false, false), controller
-    ));
-    let x2y1 = quad[1].expect(&format!(
+    ))?;
+    let x2y1 = quad[1].ok_or_else(|| format!(
         "Missing turn x2y1 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, true, false), controller
-    ));
-    let x1y2 = quad[2].expect(&format!(
+    ))?;
+    let x1y2 = quad[2].ok_or_else(|| format!(
         "Missing turn x1y2 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, false, true), controller
-    ));
-    let x2y2 = quad[3].expect(&format!(
+    ))?;
+    let x2y2 = quad[3].ok_or_else(|| format!(
         "Missing turn x2y2 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, true, true), controller
-    ));
+    ))?;
 
     let current_vx = current.local_velocity().x;
     let current_vy = current.local_velocity().y;
@@ -283,14 +283,14 @@ fn ground_turn_prediction(
     // dbg!(end_velocity_y2);
     // dbg!(end_velocity);
 
-    (
+    Ok((
         translation,
         end_velocity,
         // assuming they are all pretty similar
         Vector3::new(0.0, 0.0, x1y1.end_angular_velocity_z),
         // TODO interpolate yaw, but have to handle the fact that it's circular
         current_rotation * Rotation3::from_euler_angles(0.0, 0.0, x1y1.end_yaw),
-    )
+    ))
 }
 
 /// factor: number from 0.0 to 1.0 for interpolation between start and end, 0.0 being 100% at
@@ -309,9 +309,9 @@ pub extern "C" fn next_player_state(
     current: &PlayerState,
     controller: &BrickControllerState,
     time_step: f32,
-) -> PlayerState {
+) -> Result<PlayerState, String> {
     let mut next_player = match find_prediction_category(&current) {
-        PredictionCategory::Ground => next_player_state_grounded(&current, &controller, time_step),
+        PredictionCategory::Ground => next_player_state_grounded(&current, &controller, time_step)?,
         //PredictionCategory::Ground2 => next_velocity_grounded2(&current, &controller, time_step),
         //PredictionCategory::Wall => next_velocity_walled(&current, &controller, time_step),
         //PredictionCategory::Ceiling => next_velocity_ceilinged(&current, &controller, time_step),
@@ -323,5 +323,5 @@ pub extern "C" fn next_player_state(
         next_player.position.z = CAR_DIMENSIONS.z / 2.0;
     }
 
-    next_player
+    Ok(next_player)
 }
