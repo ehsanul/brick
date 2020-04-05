@@ -47,9 +47,14 @@ use na::{Point3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
 
 pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
-lazy_static! {
-    static ref PLAYER_INDEX: Mutex<Option<usize>> = Mutex::new(None);
+#[derive(Default)]
+struct BotIoConfig<'a> {
+    manipulator: Option<fn(&rlbot::RLBot, &GameState, &BotState)>,
+    start_match: bool,
+    match_settings: Option<rlbot::MatchSettings<'a>>,
+}
 
+lazy_static! {
     static ref GAME_STATE: RwLock<GameState> = {
         RwLock::new(GameState::default())
     };
@@ -173,7 +178,7 @@ fn run_bot() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        bot_io_loop(state_sender, plan_receiver, None);
+        bot_io_loop(state_sender, plan_receiver, BotIoConfig::default());
     });
     bot_logic_loop(plan_sender, state_receiver);
 }
@@ -185,7 +190,27 @@ fn run_bot_test() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        bot_io_loop(state_sender, plan_receiver, Some(bot_test_manipulator));
+        let batmobile = rlbot::PlayerLoadout::new().car_id(803);
+        let mut match_settings =
+            rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
+                rlbot::PlayerClass::RLBotPlayer,
+                "Brick Test",
+                0,
+            )
+            .loadout(batmobile)]);
+
+        match_settings.mutator_settings =
+            rlbot::MutatorSettings::new().
+            match_length(rlbot::MatchLength::Unlimited).
+            boost_option(rlbot::BoostOption::Unlimited_Boost);
+
+        let bot_io_config = BotIoConfig {
+            manipulator: Some(bot_test_manipulator),
+            start_match: true,
+            match_settings: Some(match_settings),
+        };
+
+        bot_io_loop(state_sender, plan_receiver, bot_io_config);
     });
     bot_logic_loop_test(plan_sender, state_receiver);
 }
@@ -288,7 +313,7 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
     }
 }
 
-fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>, manipulator: Option<fn(&rlbot::RLBot, &GameState, &BotState)>) {
+fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>, bot_io_config: BotIoConfig) {
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
@@ -299,15 +324,20 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         .interval(Duration::from_millis(1000 / 120)) // bot io limited to 120 fps
         .build();
 
+    if bot_io_config.start_match {
+        if let Some(match_settings) = bot_io_config.match_settings {
+            rlbot.start_match(&match_settings).expect("Failed to start match");
+            rlbot.wait_for_match_start().expect("Failed waiting for match start");
+            println!("Started Match!");
+        } else {
+            eprintln!("WARNING: Trying to start a match, but no match settings given. Ignoring start_match option.");
+        }
+    }
+
     loop {
-        let player_index = *PLAYER_INDEX.lock().unwrap();
-        let player_index = match player_index {
-            Some(i) => i,
-            None => {
-                ratelimiter.wait();
-                continue;
-            }
-        };
+        // FIXME find out the new method for setting the correct player index since the tcp server
+        // thing is gone afaik. just a command line argument now perhaps?
+        let player_index = 0;
 
         let tick = physicist.next_flat().expect("Missing physics tick");
         update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
@@ -338,7 +368,6 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         // the difference between these is the frame lag
         let input_frame = GAME_STATE.read().unwrap().input_frame;
         let frame = GAME_STATE.read().unwrap().frame;
-        println!("frame: {}, input_frame: {}", frame, input_frame);
 
         update_gamepad(&mut gilrs, &mut gamepad);
         let mut input = if gamepad.select_toggled {
@@ -349,8 +378,8 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
         // allows tracking the frame lag using a side-channel in the player inputs
         {
-            let mut game = GAME_STATE.write().unwrap();
-            set_frame_metadata(&mut game, &mut input);
+            let game = GAME_STATE.read().unwrap();
+            set_frame_metadata(game.frame, &mut input);
         }
 
         bot.controller_history.push_back((frame, (&input).into()));
@@ -364,8 +393,8 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             .expect("update_player_input failed");
 
         // let's some kind of testing mode update the game state
-        if let Some(func) = manipulator {
-            func(&rlbot, &GAME_STATE.read().unwrap(), &bot);
+        if let Some(manipulator) = bot_io_config.manipulator {
+            manipulator(&rlbot, &GAME_STATE.read().unwrap(), &bot);
         }
     }
 }

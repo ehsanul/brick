@@ -290,9 +290,11 @@ impl Default for DesiredContact {
     }
 }
 
-const MAX_FRAMES: f32 = 100_000.0;
+const MAX_FRAMES: i32 = 32;
+const FRAME_MASK: i32 = MAX_FRAMES - 1;
 
-/// updates our game state, which is a representation of the packet, but with our own data types etc
+/// updates our game state, which is a representation of the packet/ticket, but with our own data
+/// types etc
 pub fn update_game_state(
     game_state: &mut GameState,
     tick: &rlbot::flat::RigidBodyTick,
@@ -302,6 +304,7 @@ pub fn update_game_state(
     let ball = ball.state().expect("Missing rigid body ball state");
     let players = tick.players().expect("Missing players");
     let player = players.get(player_index);
+    let input = player.input().expect("Missing player input");
     let player = player.state().expect("Missing rigid body player state");
 
     let bl = ball.location().expect("Missing ball location");
@@ -329,8 +332,7 @@ pub fn update_game_state(
     game_state.player.rotation =
         UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), -pr.y(), -pr.z()));
 
-    let pitch = game_state.player.rotation.euler_angles().1;
-    game_state.input_frame = (pitch * MAX_FRAMES).round() as i32;
+    game_state.input_frame = calculate_input_frame(game_state.frame, input.roll());
 
     // FIXME we don't get team in the physics tick. maybe we need to seed this with a single
     //       GameTickPacket to start
@@ -341,8 +343,54 @@ pub fn update_game_state(
     // };
 }
 
-pub fn set_frame_metadata(game_state: &mut GameState, controller: &mut rlbot::ControllerState) {
-    controller.pitch = (game_state.frame as f32 % MAX_FRAMES) / MAX_FRAMES;
+/// we use the least significant bits of the roll input to encode the frame used when determining
+/// the input. this lets us measure lag in frames later
+pub fn set_frame_metadata(frame: i32, controller: &mut rlbot::ControllerState) {
+    controller.roll = calculate_frame_metadata(frame, controller.roll);
+}
+
+fn calculate_frame_metadata(frame: i32, container: f32) -> f32 {
+    // checks that MAX_FRAMES is a power of two, and thus ensures that the FRAME_MASK is correct,
+    // since FRAME_MASK is defined as MAX_FRAMES - 1
+    assert!(MAX_FRAMES & FRAME_MASK == 0);
+
+    // ensure our manipulation doesn't result in a an out of range value for the input.
+    // NOTE this won't work if many bits are being used for the frame metadata, but why would we?
+    let mut container = container;
+    if container >= 0.999 {
+        container -= 0.001;
+    } else if container <= -0.999 {
+        container += 0.001;
+    }
+
+    let frame_remainder = frame % MAX_FRAMES;
+    unsafe {
+        // ensure least significant bits are zeroed out
+        let masked = std::mem::transmute::<f32, i32>(container) & !FRAME_MASK;
+
+        // set least significate bits
+        std::mem::transmute::<i32, f32>(masked | frame_remainder)
+    }
+}
+
+// extract frame metadata
+// NOTE will produce an incorrect result if actual lag exceeds MAX_FRAMES
+fn calculate_input_frame(current_frame: i32, container: f32) -> i32 {
+    // checks that MAX_FRAMES is a power of two, and thus ensures that the FRAME_MASK is correct,
+    // since FRAME_MASK is defined as MAX_FRAMES - 1
+    assert!(MAX_FRAMES & FRAME_MASK == 0);
+
+    let input_frame_remainder = unsafe { std::mem::transmute::<f32, i32>(container) } & FRAME_MASK;
+    let current_frame_remainder = current_frame % MAX_FRAMES;
+    let current_frame_base = current_frame - current_frame_remainder;
+
+    let mut input_frame = current_frame_base + input_frame_remainder;
+    if current_frame_remainder < input_frame_remainder {
+        // rolled over, so let's adjust appropriately
+        input_frame -= MAX_FRAMES;
+    }
+
+    input_frame
 }
 
 #[cfg(test)]
