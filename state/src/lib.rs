@@ -261,7 +261,7 @@ impl Default for SearchConfig {
             step_duration: 16.0 * TICK,
             slop: 20.0,
             max_cost: 10.0,
-            max_iterations: 300_000, // 50_000 is more appropriate when using knn heuristic
+            max_iterations: 300_000, // 50_000 or lower is more appropriate when using knn heuristic
             scale_heuristic: 1.0,
             custom_filter: None,
         }

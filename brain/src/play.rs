@@ -126,12 +126,14 @@ fn reachable_desired_player_state<H: HeuristicModel>(
 
 fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
     let desired_ball_position: Vector3<f32> = opponent_goal_shoot_at(&game);
-    let last_plan =
-        if bot.last_action.is_some() && bot.last_action.as_ref().unwrap() == &Action::Shoot {
-            bot.plan.as_ref()
-        } else {
-            None
-        };
+    let last_plan = None;
+    // FIXME check if last plan is still valid before using this
+    // let last_plan
+    //     if bot.last_action.is_some() && bot.last_action.as_ref().unwrap() == &Action::Shoot {
+    //         bot.plan.as_ref()
+    //     } else {
+    //         None
+    //     };
     let result = hit_ball(model, &game, &desired_ball_position, last_plan);
     bot.last_action = Some(Action::Shoot);
     result
@@ -372,33 +374,22 @@ fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
     let last_error = errors[errors.len() - 1];
     let error_slope =
         (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
-    println!(
-        "last_error: {:?}, error_slope: {:?}",
-        last_error, error_slope
-    ); // TODO normalize slope to speed!
+    //println!(
+    //    "last_error: {:?}, error_slope: {:?}",
+    //    last_error, error_slope
+    //); // TODO normalize slope to speed!
     let proportional_signal = PROPORTIONAL_DIST_GAIN * last_error;
     let differential_signal = DIFFERENTIAL_GAIN * error_slope;
     let signal = proportional_signal + differential_signal;
-    println!(
-        "signal: {}, p: {}, d: {}",
-        signal, proportional_signal, differential_signal
-    );
+    //println!(
+    //    "signal: {}, p: {}, d: {}",
+    //    signal, proportional_signal, differential_signal
+    //);
     input.steer += signal;
 
     if input.steer > 1.0 {
-        if input.steer > 2.0 {
-            println!("super right");
-            //input.handbrake = true;
-        }
-
         input.steer = 1.0;
-    }
-
-    if input.steer < -1.0 {
-        if input.steer < -2.0 {
-            println!("super left");
-            //input.handbrake = true;
-        }
+    } else if input.steer < -1.0 {
         input.steer = -1.0;
     }
 }
@@ -415,11 +406,11 @@ fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot
             Steer::Left => -1.0,
             Steer::Right => 1.0,
         },
-        pitch: 0.0,       // brick is a brick
-        yaw: 0.0,         // brick is a brick
-        roll: 0.0,        // brick is a brick
-        jump: false,      // brick is a brick
-        boost: false,     // brick is a brick
-        handbrake: false, // brick is a brick
+        pitch: controller.pitch,
+        yaw: controller.yaw,
+        roll: controller.roll,
+        jump: controller.jump,
+        boost: controller.boost,
+        handbrake: controller.handbrake,
     }
 }

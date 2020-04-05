@@ -23,7 +23,7 @@ pub struct Gamepad {
 
 pub fn update_gamepad(gilrs: &mut Gilrs, gamepad: &mut Gamepad) {
     while let Some(Event { id, event, time }) = gilrs.next_event() {
-        println!("{:?} New event from {}: {:?}", time, id, event);
+        //println!("{:?} New event from {}: {:?}", time, id, event);
         match event {
             EventType::ButtonChanged(button, value, _code) => match button {
                 Button::RightTrigger2 => gamepad.rt2 = value,

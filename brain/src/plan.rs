@@ -122,7 +122,9 @@ lazy_static! {
 
 const EXPLODED_STEP_DURATION: f32 = 2.0 * TICK;
 
-/// wrapper around hybrid_a_star for convenience and some extra smarts
+/// wrapper around hybrid_a_star for convenience and some extra smarts. meant to be used by the
+/// live bot or bot simulation only, as it configures the serch paramters to favor speed over
+/// accuracy/optimality.
 // TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
 pub extern "C" fn plan<H: HeuristicModel>(
     model: &mut H,
@@ -133,8 +135,12 @@ pub extern "C" fn plan<H: HeuristicModel>(
     let mut config = SearchConfig::default();
 
     // speed over optimality
-    config.scale_heuristic = 1.4;
+    config.scale_heuristic = 10.0;
+    config.max_iterations = 20_000;
 
+    // if we have a perfectly good plan, we can use it as benchmark of when to stop looking
+    // further, since if we get a worse plan now we'll ignore it.
+    // TODO let's check if the last plan is still valid before doing this
     if let Some(last_plan) = last_plan {
         config.max_cost = (10.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
     }

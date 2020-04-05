@@ -252,7 +252,13 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
         .build();
 
     loop {
-        let (game, mut bot) = receiver.recv().expect("Coudln't receive game state");
+        let (mut game, mut bot) = receiver.recv().expect("Coudln't receive game state");
+
+        // make sure we have the latest, drop earlier states
+        while let Ok((g, b)) = receiver.try_recv() {
+            game = g;
+            bot = b;
+        }
 
         update_gamepad(&mut gilrs, &mut gamepad);
         if !gamepad.select_toggled {
@@ -339,85 +345,99 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         // thing is gone afaik. just a command line argument now perhaps?
         let player_index = 0;
 
-        let tick = physicist.next_flat().expect("Missing physics tick");
-        update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
+        while let Ok(tick) = physicist.next_flat() {
+            update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
 
-        send_to_bot_logic(&sender, &bot);
-        ratelimiter.wait();
+            send_to_bot_logic(&sender, &bot);
+            ratelimiter.wait();
 
-        // make sure we have the latest results in case there are multiple, though note we may save
-        // the plan from an earlier run if it happens to be the best one
-        while let Ok(plan_result) = receiver.try_recv() {
-            update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
-            update_visualization(&bot, &plan_result);
-        }
+            // make sure we have the latest results in case there are multiple, though note we may save
+            // the plan from an earlier run if it happens to be the best one
+            while let Ok(plan_result) = receiver.try_recv() {
+                update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
+                update_visualization(&bot, &plan_result);
+            }
 
-        // remove part of plan that is no longer relevant since we've already passed it
-        //
-        // TODO
-        //    we need to take into account the inputs previously sent that will be processed
-        //    prior to finding where we are. instead of passing the current player, apply N inputs
-        //    that are not yet applied, where N is the number of frames we're lagging by
-        // TODO
-        //
-        if let Some(ref mut plan) = bot.plan {
-            let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
-            *plan = plan.split_off(closest_index);
-        }
+            // remove part of plan that is no longer relevant since we've already passed it
+            //
+            // TODO
+            //    we need to take into account the inputs previously sent that will be processed
+            //    prior to finding where we are. instead of passing the current player, apply N inputs
+            //    that are not yet applied, where N is the number of frames we're lagging by
+            // TODO
+            //
+            if let Some(ref mut plan) = bot.plan {
+                let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
+                println!("closest index: {}, plan len: {}", closest_index, plan.len());
+                *plan = plan.split_off(closest_index);
+            } else {
+                println!("no plan");
+            }
 
-        // the difference between these is the frame lag
-        let input_frame = GAME_STATE.read().unwrap().input_frame;
-        let frame = GAME_STATE.read().unwrap().frame;
+            // the difference between these is the frame lag
+            let input_frame = GAME_STATE.read().unwrap().input_frame;
+            let frame = GAME_STATE.read().unwrap().frame;
 
-        update_gamepad(&mut gilrs, &mut gamepad);
-        let mut input = if gamepad.select_toggled {
-            brain::play::next_input(&GAME_STATE.read().unwrap().player, &mut bot)
-        } else {
-            human_input(&gamepad)
-        };
+            update_gamepad(&mut gilrs, &mut gamepad);
+            let mut input = if gamepad.select_toggled {
+                brain::play::next_input(&GAME_STATE.read().unwrap().player, &mut bot)
+            } else {
+                human_input(&gamepad)
+            };
 
-        // allows tracking the frame lag using a side-channel in the player inputs
-        {
-            let game = GAME_STATE.read().unwrap();
-            set_frame_metadata(game.frame, &mut input);
-        }
+            // allows tracking the frame lag using a side-channel in the player inputs
+            {
+                let game = GAME_STATE.read().unwrap();
+                set_frame_metadata(game.frame, &mut input);
+            }
 
-        bot.controller_history.push_back((frame, (&input).into()));
-        if bot.controller_history.len() > 100 {
-            // keep last 10
-            bot.controller_history = bot.controller_history.split_off(90);
-        }
+            bot.controller_history.push_back((frame, (&input).into()));
+            if bot.controller_history.len() > 100 {
+                // keep last 10
+                bot.controller_history = bot.controller_history.split_off(90);
+            }
 
-        rlbot
-            .update_player_input(player_index as i32, &input)
-            .expect("update_player_input failed");
+            rlbot
+                .update_player_input(player_index as i32, &input)
+                .expect("update_player_input failed");
 
-        // let's some kind of testing mode update the game state
-        if let Some(manipulator) = bot_io_config.manipulator {
-            manipulator(&rlbot, &GAME_STATE.read().unwrap(), &bot);
+            // let's some kind of testing mode update the game state
+            if let Some(manipulator) = bot_io_config.manipulator {
+                manipulator(&rlbot, &GAME_STATE.read().unwrap(), &bot);
+            }
         }
     }
 }
 
+fn plan_is_valid(game: &GameState, plan: &Plan) -> bool {
+    let closest_index = brain::play::closest_plan_index(&game.player, &plan);
+    if let Some((player, _, _)) = plan.get(closest_index) {
+        // TODO tune
+        (player.position - game.player.position).norm() < 100.0 && (player.velocity - game.player.velocity).norm() < 200.0
+    } else {
+        false
+    }
+}
+
 fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResult) {
-    // TODO also check if existing plan is invalid, if so replace regardless
     if let Some(ref new_plan) = plan_result.plan {
-        if bot.plan.is_some() {
+        if let Some(ref existing_plan) = bot.plan {
             let new_plan_cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
 
-            let closest_index = brain::play::closest_plan_index(&game.player, &bot.plan.as_ref().unwrap());
-            let existing_plan_cost = bot.plan.as_ref().unwrap().iter().enumerate().filter(|(index, _val)| {
+            let closest_index = brain::play::closest_plan_index(&game.player, &existing_plan);
+            let existing_plan_cost = existing_plan.iter().enumerate().filter(|(index, _val)| {
                 *index > closest_index
             }).map(|(_index, (_, _, cost))| cost).sum::<f32>();
 
             // bail, we got a worse plan!
-            if new_plan_cost >= existing_plan_cost {
+            if new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
+                //println!("bailing worse plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
                 return;
             }
         }
 
         let cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
-        println!("new best plan! cost: {}", cost);
+        //println!("new best plan! cost: {}", cost);
         bot.plan = Some(new_plan.clone());
         bot.turn_errors.clear();
     }
