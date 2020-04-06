@@ -652,17 +652,19 @@ fn simulate_over_time() {
             let i = brain::play::closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
                 game_state.player = plan[i + 1].0;
-            // TODO move the ball. but ball velocity is zero for now
+                // TODO move the ball too. ball velocity is zero for now
             } else {
                 // we're at the goal, so start over
                 *game_state = initial_game_state.clone();
                 bot.plan = None;
             }
-            ratelimiter.wait();
         } else {
-            // just panic in case no plan is found during simulation, as this should not happen
-            unimplemented!("go forward 2")
+            // no plan, just try again with a slightly different position
+            let mut game_state = GAME_STATE.write().unwrap();
+            game_state.player.position += Vector3::new(20.0, 20.0, 0.0);
         }
+
+        ratelimiter.wait();
     }
 }
 
