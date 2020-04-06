@@ -67,7 +67,7 @@ fn reachable_desired_player_state<H: HeuristicModel>(
         let ball_time2 = (*i2 as f32) * TICK;
         let diff1 = (ball_time - shooting_time).abs();
         let diff2 = (ball_time2 - shooting_time2).abs();
-        if diff1 == diff1 {
+        if diff1 == diff2 {
             std::cmp::Ordering::Equal
         } else if diff1 < diff2 {
             std::cmp::Ordering::Less
@@ -268,38 +268,25 @@ pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotSta
         Action::Shoot => shoot(model, game, bot),
     };
     let duration = start.elapsed();
-    if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
-        println!("#############################");
-        println!("TOTAL DURATION: {:?}", duration);
-        println!("#############################");
-    }
-
     plan_result
 }
 
 #[no_mangle]
 pub extern "C" fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
-    let mut iter = plan.iter();
-    let mut last_distance = std::f32::MAX;
-    let mut index = 0;
     assert!(plan.len() != 0);
-    while let Some((player, _controller, _step_duration)) = iter.next() {
-        let delta = current_player.position - player.position;
-        let distance = delta.norm();
 
-        if distance > last_distance {
-            // we iterate and choose the controller at the point distance increases. this
-            // is because `controller` is the previous controller input to reach the given
-            // player.position. NOTE this logic is only good if we provide a "exploded"
-            // plan, ie we have a position for every tick, and also only if we cut parts of
-            // the path off as we pass them
-            break;
+    let mut index = 0;
+    let mut min_distance = std::f32::MAX;
+
+    for (i, (player, _, _)) in plan.iter().enumerate() {
+        let distance = (current_player.position - player.position).norm();
+        if distance < min_distance {
+            min_distance = distance;
+            index = i
         }
-        last_distance = distance;
-        index += 1;
     }
 
-    index - 1
+    index
 }
 
 #[no_mangle]
