@@ -135,8 +135,8 @@ pub extern "C" fn plan<H: HeuristicModel>(
     let mut config = SearchConfig::default();
 
     // speed over optimality
-    config.scale_heuristic = 5.0;
-    config.max_iterations = 20_000;
+    config.scale_heuristic = 10.0;
+    config.max_iterations = 500;
 
     // if we have a perfectly good plan, we can use it as benchmark of when to stop looking
     // further, since if we get a worse plan now we'll ignore it.
@@ -549,12 +549,12 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                         .collect(),
                 );
 
-                //println!(
-                //    "omg reached! step size: {} | expansions: {} | cost: {}",
-                //    config.step_duration * 120.0,
-                //    expansions,
-                //    cost
-                //);
+                println!(
+                    "omg reached! step size: {} | expansions: {} | cost: {}",
+                    config.step_duration * 120.0,
+                    expansions,
+                    cost
+                );
                 return PlanResult {
                     plan: Some(plan),
                     desired: desired.clone(),
@@ -748,13 +748,13 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         }
     }
 
-    //let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
-    //println!(
-    //    "omg failed! step size: {} | expansions: {} | left: {}",
-    //    config.step_duration * 120.0,
-    //    expansions,
-    //    to_see.len()
-    //);
+    let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
+    println!(
+        "omg failed! step size: {} | expansions: {} | left: {}",
+        config.step_duration * 120.0,
+        expansions,
+        to_see.len()
+    );
 
     PlanResult {
         plan: None,
