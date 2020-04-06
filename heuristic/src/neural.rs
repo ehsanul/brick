@@ -66,7 +66,7 @@ fn scale_rot(val: f32) -> f32 {
 }
 
 impl HeuristicModel for NeuralHeuristic {
-    fn heuristic(
+    fn unscaled_heuristic(
         &mut self,
         players: &[PlayerState],
         costs: &mut [f32],
@@ -126,12 +126,10 @@ impl HeuristicModel for NeuralHeuristic {
         let predictions = output_step.fetch(prediction_token)?;
         costs.copy_from_slice(&predictions);
 
-        for c in costs.iter_mut() {
-            *c *= self.scale
-        }
-
         Ok(())
     }
+
+    fn scale(&self) -> f32 { self.scale }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.normalization_rotation = get_normalization_rotation(desired);

@@ -76,7 +76,7 @@ impl Default for BasicHeuristic {
 }
 
 impl HeuristicModel for BasicHeuristic {
-    fn heuristic(
+    fn unscaled_heuristic(
         &mut self,
         players: &[PlayerState],
         costs: &mut [f32],
@@ -84,11 +84,13 @@ impl HeuristicModel for BasicHeuristic {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
-            *cost = self.single_heuristic(player) * self.scale;
+            *cost = self.single_heuristic(player);
         }
 
         Ok(())
     }
+
+    fn scale(&self) -> f32 { self.scale }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.desired_heading = Unit::new_normalize(desired.heading.clone()).into_inner();

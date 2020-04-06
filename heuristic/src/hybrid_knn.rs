@@ -9,6 +9,7 @@ use crate::HeuristicModel;
 pub struct HybridKnnHeuristic {
     knn_heuristic: knn::KnnHeuristic,
     basic_heuristic: basic::BasicHeuristic,
+    scale: f32,
 }
 
 impl HybridKnnHeuristic {
@@ -18,12 +19,13 @@ impl HybridKnnHeuristic {
         Ok(HybridKnnHeuristic {
             knn_heuristic,
             basic_heuristic,
+            scale: 1.0,
         })
     }
 }
 
 impl HeuristicModel for HybridKnnHeuristic {
-    fn heuristic(
+    fn unscaled_heuristic(
         &mut self,
         players: &[PlayerState],
         costs: &mut [f32],
@@ -40,17 +42,20 @@ impl HeuristicModel for HybridKnnHeuristic {
 
             // if under some empirically determined threshold, we decide knn is accurate
             if distance < 1_500_000.0 {
-                *cost = self.knn_heuristic.single_heuristic(player) * self.knn_heuristic.scale;
+                *cost = self.knn_heuristic.single_heuristic(player);
             } else {
-                *cost = 1.05 * self.basic_heuristic.single_heuristic(player) * self.basic_heuristic.scale;
+                *cost = 1.05 * self.basic_heuristic.single_heuristic(player);
             }
         }
 
         Ok(())
     }
 
+    fn scale(&self) -> f32 { self.scale }
+
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
-        self.knn_heuristic.configure(desired, scale);
-        self.basic_heuristic.configure(desired, scale);
+        self.scale = scale;
+        self.knn_heuristic.configure(desired, 1.0);
+        self.basic_heuristic.configure(desired, 1.0);
     }
 }

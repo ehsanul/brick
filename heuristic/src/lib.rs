@@ -22,11 +22,27 @@ mod neural;
 pub use neural::NeuralHeuristic;
 
 pub trait HeuristicModel {
-    fn heuristic(
+    fn unscaled_heuristic(
         &mut self,
         players: &[PlayerState],
         costs: &mut [f32],
     ) -> Result<(), Box<dyn Error>>;
+
+    fn heuristic(
+        &mut self,
+        players: &[PlayerState],
+        costs: &mut [f32],
+    ) -> Result<(), Box<dyn Error>> {
+        self.unscaled_heuristic(&players, costs)?;
+
+        for c in costs.iter_mut() {
+            *c *= self.scale()
+        }
+
+        Ok(())
+    }
+
+    fn scale(&self) -> f32;
 
     // NOTE scale is a fudge factor to make the heuristic over-estimate, which gives up
     // accuracy/optimality in exchange for speed

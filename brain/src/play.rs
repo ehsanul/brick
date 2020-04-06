@@ -229,13 +229,9 @@ fn hit_ball<H: HeuristicModel>(
     //    ball: shooting_player
     //})
     let start = Instant::now();
-    let x = plan::plan(model, &game.player, &desired_contact, last_plan);
-    if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
-        println!("#############################");
-        println!("PLAN DURATION: {:?}", start.elapsed());
-        println!("#############################");
-    }
-    x
+    let result = plan::plan(model, &game.player, &desired_contact, last_plan);
+    println!("PLAN DURATION: {:?}", start.elapsed());
+    result
 }
 
 fn non_admissable_estimated_time<H: HeuristicModel>(
@@ -250,7 +246,7 @@ fn non_admissable_estimated_time<H: HeuristicModel>(
 
     let mut single_heuristic_cost = [0.0];
     model
-        .heuristic(&[current.clone()], &mut single_heuristic_cost[0..1])
+        .unscaled_heuristic(&[current.clone()], &mut single_heuristic_cost[0..1])
         .expect("Heuristic failed initial!");
     unsafe { *single_heuristic_cost.get_unchecked(0) }
 }
