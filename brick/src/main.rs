@@ -10,8 +10,8 @@ Options:
   -h --help     Show this screen.
   --version     Show version.
   --bot         Run regular bot in a match.
-  --bot-test    Run bot using a hard-coded plan.
-  --simulate    Simulate game over time.
+  --bot-test    Run test bot during dev in an empty match.
+  --simulate    Run bot in a simulation of RL with visualization.
 ";
 
 extern crate brain;
@@ -222,7 +222,7 @@ fn bot_test_manipulator(rlbot: &rlbot::RLBot, game_state: &GameState, bot: &BotS
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
     let mut model = brain::get_model();
     loop {
-        let (mut game, mut bot) = receiver.recv().expect("Coudln't receive game state");
+        let (mut game, mut bot) = receiver.recv().expect("Couldn't receive game state");
 
         // make sure we have the latest, drop earlier states
         while let Ok((g, b)) = receiver.try_recv() {
@@ -237,10 +237,16 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
     }
 }
 
-fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> Option<Plan> {
-    //Some(square_plan(&game.player))
-    //Some(offset_forward_plan(&game.player))
-    brain::play::play(model, &game, bot).plan
+fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
+    ////let plan = offset_forward_plan(&game.player);
+    //let plan = square_plan(&game.player);
+    //PlanResult {
+    //    plan: plan,
+    //    desired: DesiredContact::default(),
+    //    visualization_lines: vec![],
+    //    visualization_points: vec![],
+    //})
+    brain::play::play(model, &game, bot)
 }
 
 fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
@@ -252,7 +258,7 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
         .build();
 
     loop {
-        let (mut game, mut bot) = receiver.recv().expect("Coudln't receive game state");
+        let (mut game, mut bot) = receiver.recv().expect("Couldn't receive game state");
 
         // make sure we have the latest, drop earlier states
         while let Ok((g, b)) = receiver.try_recv() {
@@ -266,16 +272,9 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
             continue;
         }
 
-        if let Some(plan) = bot_test_plan(&mut model, &game, &mut bot) {
-            sender
-                .send(PlanResult {
-                    plan: Some(plan.clone()),
-                    desired: DesiredContact::default(),
-                    visualization_lines: vec![],
-                    visualization_points: vec![],
-                })
-                .expect("Failed to send plan result");
-        };
+        sender
+            .send(bot_test_plan(&mut model, &game, &mut bot))
+            .expect("Failed to send plan result");
 
         ratelimiter.wait();
 
@@ -355,7 +354,10 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             // the plan from an earlier run if it happens to be the best one
             while let Ok(plan_result) = receiver.try_recv() {
                 update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
-                update_visualization(&bot, &plan_result);
+                match update_in_game_visualization(&rlbot, &bot, &plan_result) {
+                    Ok(_) => {},
+                    Err(e) => eprintln!("Failed rendering to rlbot: {}", e),
+                };
             }
 
             // remove part of plan that is no longer relevant since we've already passed it
@@ -458,7 +460,7 @@ fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>,
     lines
 }
 
-fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
+fn update_simulation_visualization(bot: &BotState, plan_result: &PlanResult) {
     let game_state = GAME_STATE.read().unwrap();
     let PlanResult {
         plan,
@@ -487,7 +489,7 @@ fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
         visualization_lines.append(&mut plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)));
     }
 
-    // yellow line showing most recently calculated path
+    // blue line showing most recently calculated path
     if let Some(plan) = plan {
         visualization_lines.append(&mut plan_lines(&plan, Point3::new(0.0, 1.0, 1.0)));
     }
@@ -495,6 +497,50 @@ fn update_visualization(bot: &BotState, plan_result: &PlanResult) {
     let mut visualization_points = POINTS.write().unwrap();
     visualization_points.clear();
     visualization_points.append(&mut points.clone());
+}
+
+const VISUALIZATION_GROUP_ID: i32 = 7323; // trying to not overlap with other bots, though idk if they CAN overlap
+
+fn draw_lines(rlbot: &rlbot::RLBot, lines: &Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>, chunk_num: &mut i32) -> Result<(), Box<dyn Error>> {
+    for chunk in lines.chunks(200) {
+        // TODO in case of multiple bricks, add player index * 1000 to the group id
+        let mut group = rlbot.begin_render_group(VISUALIZATION_GROUP_ID + *chunk_num);
+
+        for &l in chunk.iter() {
+            let p1 = l.0;
+            let p2 = l.1;
+            let p3 = l.2;
+            let color = group.color_rgb((255.0 * p3.x) as u8, (255.0 * p3.y) as u8, (255.0 * p3.z) as u8);
+            group.draw_line_3d((-p1.x, p1.y, p1.z), (-p2.x, p2.y, p2.z), color);
+        }
+
+        group.render()?;
+
+        *chunk_num += 1;
+    }
+
+    Ok(())
+}
+
+fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_result: &PlanResult) -> Result<(), Box<dyn Error>> {
+    let PlanResult { plan, visualization_lines, ..  } = plan_result;
+    let mut chunk_num = 0;
+
+    // white line showing best planned path
+    if let Some(ref plan) = bot.plan {
+        draw_lines(&rlbot, &plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)), &mut chunk_num)?;
+    }
+
+    if let Some(plan) = plan {
+        // turquoise line showing most recently calculated path
+        draw_lines(&rlbot, &plan_lines(&plan, Point3::new(0.0, 1.0, 1.0)), &mut chunk_num)?;
+
+        // visualization of work done to find this path
+        // XXX maybe this is too many lines, cos it doesn't render much of this
+        // draw_lines(&rlbot, &visualization_lines, &mut chunk_num)?;
+    }
+
+    Ok(())
 }
 
 fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
@@ -639,7 +685,7 @@ fn simulate_over_time() {
             let game_state = GAME_STATE.read().unwrap();
             let plan_result = brain::play::play(&mut model, &game_state, &mut bot);
             update_bot_state(&game_state, &mut bot, &plan_result);
-            update_visualization(&bot, &plan_result);
+            update_simulation_visualization(&bot, &plan_result);
             // this pauses the simulation forever when no plan is found
             // if plan_result.plan.is_none() {
             //     thread::sleep(Duration::from_millis(5000)));
@@ -695,9 +741,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         });
     } else if args.get_bool("--simulate") {
         thread::spawn(simulate_over_time);
+    } else {
+        panic!("Must provide --bot, --bot-test or --simulate");
     }
 
-    run_visualization();
+    if args.get_bool("--simulate") {
+        run_visualization();
+    } else {
+        thread::park();
+    }
 
     Ok(())
 }
