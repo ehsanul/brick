@@ -50,7 +50,7 @@ fn reachable_desired_player_state<H: HeuristicModel>(
     player: &PlayerState,
     ball_trajectory: &[BallState],
     desired_ball_position: &Vector3<f32>,
-) -> Option<DesiredContact> {
+) -> DesiredContact {
     let start = Instant::now();
 
     let mut estimates = ball_trajectory
@@ -75,53 +75,16 @@ fn reachable_desired_player_state<H: HeuristicModel>(
             std::cmp::Ordering::Greater
         }
     });
-    let shootable_ball_state = estimates.iter().map(|(i, _)| *i).next(); // next == first
 
-    //let closest_desired_contact = DesiredContact::default();
-    //let mut closest_time_diff = std::f32::MAX;
-    //let shootable_ball_state = .binary_search_by(|(i, ball)| {
-    //    let ball_time = (*i as f32) * TICK;
-    //    let start2 = Instant::now();
-    //    let desired_contact = simple_desired_contact(ball, &desired_ball_position);
-    //    let shooting_time = non_admissable_estimated_time(&player, &desired_contact);
-    //    //println!("#############################");
-    //    //println!("SINGLE SHOOTABLE DURATION: {:?}", start2.elapsed());
-    //    println!("ball: {:?}", ball);
-    //    println!("desired_ball_position: {:?}", desired_ball_position);
-    //    println!("contact position: {:?}", desired_contact.position);
-    //    println!("shooting time: {}", shooting_time);
-    //    println!("ball time: {}", ball_time);
-    //    println!("----------------------");
-
-    //    let time_diff = (ball_time - shooting_time).abs();
-    //    if time_diff < closest_time_diff {
-    //        closest_time_diff = time_diff;
-    //        closest_desired_contact = desired_contact;
-    //    }
-    //    if shooting_time == ball_time {
-    //        std::cmp::Ordering::Equal
-    //    } else if shooting_time < ball_time {
-    //        std::cmp::Ordering::Greater
-    //    } else {
-    //        std::cmp::Ordering::Less
-    //    }
-    //});
     if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
         println!("#############################");
         println!("TOTAL SHOOTABLE DURATION: {:?}", start.elapsed());
         println!("#############################");
     }
 
-    match shootable_ball_state {
-        Some(i) => {
-            // TODO don't re-calculate this, store temporarily in a variable instead
-            Some(simple_desired_contact(
-                &ball_trajectory[i],
-                &desired_ball_position,
-            ))
-        }
-        None => None,
-    }
+    // TODO let's return the ball time and/or shooting time too here?
+    let shootable_ball_index = estimates[0].0;
+    simple_desired_contact(&ball_trajectory[shootable_ball_index], &desired_ball_position)
 }
 
 fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
@@ -166,68 +129,12 @@ fn hit_ball<H: HeuristicModel>(
     //println!("#############################");
     //let start = Instant::now();
 
-    // since we binary search the trajectory, it's useful to do that over two slices,
-    // depending on whether we have to turn to reach the ball or not. this ensures we
-    // don't think we need to turn to hit a ball that will be behind us in 5 seconds,
-    // given it's coming towards us and right in front already.
-    let current_heading = game.player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let mut last_dot = None;
-    let transition_index = ball_trajectory.iter().position(|ball| {
-        let towards_ball = Unit::new_normalize(ball.position - game.player.position);
-        let dot = na::Matrix::dot(&current_heading, &towards_ball);
-        if let Some(last_dot_value) = last_dot {
-            last_dot_value * dot < 0.0 // if only one is negative, we've transitioned
-        } else {
-            last_dot = Some(dot);
-            false
-        }
-    });
-    let trajectory_segment1: &[BallState];
-    let trajectory_segment2: &[BallState];
-    if let Some(transition_index) = transition_index {
-        //println!("len: {}, transition: {}", ball_trajectory.len(), transition_index);
-        let (first, last) = ball_trajectory.split_at(transition_index);
-        trajectory_segment1 = first;
-        trajectory_segment2 = last;
-    } else {
-        //println!("no transition");
-        trajectory_segment1 = &ball_trajectory;
-        trajectory_segment2 = &[];
-    }
-
-    let desired_contact = match reachable_desired_player_state(
+    let desired_contact = reachable_desired_player_state(
         model,
         &game.player,
-        &trajectory_segment1,
+        &ball_trajectory,
         &desired_ball_position,
-    ) {
-        Some(dc) => dc,
-        None => {
-            match reachable_desired_player_state(
-                model,
-                &game.player,
-                &trajectory_segment2,
-                &desired_ball_position,
-            ) {
-                Some(dc) => dc,
-                None => {
-                    let fake_desired = DesiredContact::default();
-                    return PlanResult {
-                        plan: None,
-                        desired: fake_desired,
-                        visualization_lines: vec![],
-                        visualization_points: vec![],
-                    };
-                }
-            }
-        }
-    };
-
-    // TODO if we move the above logic to `plan::plan`, we can maybe call it this way:
-    //plan::plan(&game.player, &game.ball, &DesiredState {
-    //    player: None,
-    //    ball: shooting_player
-    //})
+    );
     let start = Instant::now();
     let result = plan::plan(model, &game.player, &desired_contact, last_plan);
     println!("PLAN DURATION: {:?}", start.elapsed());
