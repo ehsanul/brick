@@ -35,62 +35,10 @@ fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
     Ok(serialize_into(&mut e, &serializable_plan)?)
 }
 
-// the hybrid a* is not perfect. since it has some discretization/slop, and uses larger time steps
-// for speed. so in order to get a more accurate path for our data set, we need to do more searches
-// along the path of the initial plan. this can result in a much better plan being found.
-fn best_plan<H: HeuristicModel>(
-    model: &mut H,
-    player: &mut PlayerState,
-    ball: &BallState,
-    desired_contact: &DesiredContact,
-    config: &SearchConfig,
-) -> Option<Plan> {
-    // the formula is based on our heuristic function, and the fact that we use 32-tick steps when
-    // far away
-    let iterations = if player.position.norm() / 1150.0 > 2.0 {
-        32 / 2
-    } else {
-        (config.step_duration / (2.0 * TICK)).round() as i32
-    };
-    let mut last_plan: Option<Plan> = None;
-    let mut last_exploded_plan: Option<Plan> = None;
-    let mut reset_at = 0;
-    for i in 0..iterations {
-        let plan_result = plan::hybrid_a_star(model, player, ball, desired_contact, config);
-
-        let mut exploded_plan_result = plan_result.clone();
-        plan::explode_plan(&mut exploded_plan_result);
-
-        if let Some(exploded_plan) = exploded_plan_result.plan {
-            if last_exploded_plan.is_none()
-                || exploded_plan.len() < last_exploded_plan.as_ref().unwrap().len()
-            {
-                last_exploded_plan = Some(exploded_plan);
-                last_plan = plan_result.plan;
-                reset_at = i;
-            }
-        } else if last_exploded_plan.is_none() {
-            // plan wasn't found in a previous iteration either.
-            // advance straight by two ticks and retry
-            player.position += 2.0 * TICK * player.velocity;
-            continue;
-        }
-
-        // advance two ticks along best plan so far
-        // NOTE zeroth index is original player start
-        let index = 2 + (i - reset_at) as usize * 2;
-        if let Some((next_player, _, _)) = last_exploded_plan.as_ref().unwrap().get(index) {
-            player.position = next_player.position;
-            player.velocity = next_player.velocity;
-            player.angular_velocity = next_player.angular_velocity;
-            player.rotation = next_player.rotation;
-        }
-    }
-
-    last_plan
-}
-
 fn main() -> Result<(), Box<Error>> {
+    // fewer than normal  threads, so some cores are left free for the computer user...
+    rayon::ThreadPoolBuilder::new().num_threads(10).build_global().unwrap();
+
     let desired_ball_position: Vector3<f32> = brain::play::opponent_goal_shoot_at(&GameState::default());
     let ball = BallState::default();
     let desired_contact = brain::play::simple_desired_contact(&ball, &desired_ball_position);
@@ -99,16 +47,7 @@ fn main() -> Result<(), Box<Error>> {
         step_duration: 16.0 * TICK,
         slop: 40.0,
         max_cost: 10.0,
-        max_iterations: 10_000,
-        scale_heuristic: 1.0,
-        custom_filter: Some(|_| { true }), // ignore bounds
-    };
-
-    let slow_config = SearchConfig {
-        step_duration: 16.0 * TICK,
-        slop: 40.0,
-        max_cost: 10.0,
-        max_iterations: 10_000_000,
+        max_iterations: 10_000_000, // allow more iterations before giving up
         scale_heuristic: 1.0,
         custom_filter: Some(|_| { true }), // ignore bounds
     };
@@ -143,28 +82,15 @@ fn main() -> Result<(), Box<Error>> {
                         return;
                     }
 
-                    if let Some(plan) =
-                        plan::hybrid_a_star(&mut model, &mut player.clone(), &ball, &desired_contact, &config).plan
-                    {
-                        write_data(&path, plan).expect("writing failed");
-                        println!("Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
-                    } else if let Some(plan) = plan::hybrid_a_star(
+                    if let Some(plan) = plan::hybrid_a_star(
                         &mut model,
                         &mut player.clone(),
                         &ball,
                         &desired_contact,
-                        &slow_config,
+                        &config,
                     ).plan {
-                        // the slow config allows more iterations before giving up. always using it
-                        // is a waste given we are looking for a best_plan by doing a search many
-                        // times and the found paths there should always be shorter than paths
-                        // found after more searching. but in the case that every single search
-                        // failed, we can fallback to a slower version which may find a solution
-                        //
-                        // however, it's so slow that we are only doing it once instead of many
-                        // iterations like with the faster version
                         write_data(&path, plan).expect("writing failed");
-                        println!("SLOW Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
+                        println!("Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     } else {
                         println!("Failed: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     }

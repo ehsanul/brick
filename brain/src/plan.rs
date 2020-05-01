@@ -254,125 +254,6 @@ struct RoundedPlayerState {
     yaw: i16,
 }
 
-fn setup_goals(
-    desired_contact: &Vector3<f32>,
-    desired_hit_direction: &Unit<Vector3<f32>>,
-    slop: f32,
-) -> Vec<Goal> {
-    let contact_to_car = -(CAR_DIMENSIONS.x / 2.0) * desired_hit_direction.as_ref();
-    let car_corner_distance = (CAR_DIMENSIONS.x.powf(2.0) + CAR_DIMENSIONS.y.powf(2.0)).sqrt();
-    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI / 2.0);
-
-    let mut goals = vec![];
-
-    // straight on basic hit
-    goals.push(Goal {
-        bounding_box: BoundingBox::new(&(desired_contact + contact_to_car), slop),
-        heading: -Unit::new_normalize(contact_to_car.clone()),
-        min_dot: (PI / 16.0).cos(), // FIXME seems this should depend on the step size!
-    });
-
-    // slightly off but straight hits
-    let mut offset = slop * 2.0;
-    while offset <= 21.0 {
-        let offset_right = offset
-            * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).into_inner());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(
-                &(desired_contact + contact_to_car + offset_right),
-                slop,
-            ),
-            heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_right),
-            min_dot: (PI / 16.0).cos(), // FIXME seems this should depend on the step size!
-        });
-
-        let offset_left = -offset
-            * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).into_inner());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_left), slop),
-            heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_left),
-            min_dot: (PI / 16.0).cos(), // FIXME seems this should depend on the step size!
-        });
-
-        offset += slop * 2.0;
-    }
-    let num_straight_goals = goals.len();
-
-    // corner hits from right side of the ball (left side of the car)
-    let margin = PI / 6.0;
-    let mut angle = -PI / 2.0 + margin;
-    let mut i = 0;
-    while angle < -margin {
-        // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
-        // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
-        // more goals with slightly different angles
-        // FIXME this weird log thingy is just a hack to get better coverage in the arc. we don't
-        // have good coverage because we are iterating over angles rotating about the wrong point!
-        // we need to rotate about the corner, not about front center
-        let max_arc_length = i as f32 * slop * 1.2 / (1.1 + (i as f32)).log(2.0);
-        i += 1;
-
-        // FIXME we should be rotating about the corner too instead of the front center
-        angle += max_arc_length / car_corner_distance;
-        let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
-        let rotated_contact_to_car = rotation * contact_to_car;
-        // corner offset from front center
-        let offset = (CAR_DIMENSIONS.y / 2.0)
-            * (clockwise_90_rotation
-                * Unit::new_normalize(rotated_contact_to_car.clone()).into_inner());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(
-                &(desired_contact + rotated_contact_to_car + offset),
-                slop,
-            ),
-            heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
-            min_dot: 0.0, // set later
-        });
-    }
-
-    // corner hits from left side of the ball (right side of car)
-    let mut angle = PI / 2.0 - margin;
-    let mut i = 0;
-    while angle > margin {
-        // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
-        // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
-        // more goals with slightly different angles
-        // FIXME this weird log thingy is just a hack to get better coverage in the arc. we don't
-        // have good coverage because we are iterating over angles rotating about the wrong point!
-        // we need to rotate about the corner, not about front center
-        let max_arc_length = i as f32 * slop * 1.2 / (1.1 + (i as f32)).log(2.0);
-        i += 1;
-
-        // FIXME we should be rotating about the corner too instead of the front center
-        angle -= max_arc_length / car_corner_distance;
-        let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
-        let rotated_contact_to_car = rotation * contact_to_car;
-        // corner offset from front center
-        let offset = -(CAR_DIMENSIONS.y / 2.0)
-            * (clockwise_90_rotation
-                * Unit::new_normalize(rotated_contact_to_car.clone()).into_inner());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(
-                &(desired_contact + rotated_contact_to_car + offset),
-                slop,
-            ),
-            heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
-            min_dot: 0.0, // set later
-        });
-    }
-
-    // set the desired accuracy based on how many different angles we're checking for. the desired
-    // accuracy goes up as we check more angles
-    let num_angle_goals = goals.len() - num_straight_goals;
-    for goal in goals.iter_mut() {
-        if goal.min_dot == 0.0 {
-            (*goal).min_dot = (1.0 * (PI - 2.0 * margin) / num_angle_goals as f32).cos(); // TODO TUNE
-        }
-    }
-
-    goals
-}
-
 fn known_unreachable(_current: &PlayerState, desired: &DesiredContact) -> bool {
     // we can't fly yet :(
     desired.position.z > BALL_COLLISION_RADIUS + CAR_DIMENSIONS.z
@@ -388,24 +269,24 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     config: &SearchConfig,
 ) -> PlanResult {
     // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
-    let is_ball_hit_towards_goal = |ball: &BallState, player: &PlayerState, _next_player: &PlayerState, controller: &BrickControllerState, time_step: f32| -> bool {
-        if let Some((colliding_player, collision)) = predict::player::get_collision(ball, player, controller, time_step) {
-            match predict::ball::calculate_hit(&ball, &colliding_player, &collision) {
+    let is_ball_hit_towards_goal = |ball: &BallState, player: &PlayerState, _next_player: &PlayerState, controller: &BrickControllerState, time_step: f32| -> Option<(PlayerState, f32)> {
+        if let Some((colliding_player, collision_point, collision_time)) = predict::player::get_collision(ball, player, controller, time_step) {
+            match predict::ball::calculate_hit(&ball, &colliding_player, &collision_point) {
                 Ok(next_ball) => {
                     if predict::ball::trajectory_enters_soccar_goal(&next_ball) {
-                        // println!("collision: {:?}, ball velocity: {:?}", collision, next_ball.velocity);
-                        true
+                        // println!("collision point: {:?}, ball velocity: {:?}", collision_point, next_ball.velocity);
+                        Some((colliding_player, collision_time))
                     } else {
-                        false
+                        None
                     }
                 }
                 Err(e) => {
                     eprintln!("Error calculating ball hit: {}", e);
-                    false
+                    None
                 }
             }
         } else {
-            false
+            None
         }
     };
 
@@ -432,15 +313,6 @@ pub fn hybrid_a_star<H: HeuristicModel>(
 
     let desired_contact = desired.position;
     let desired_hit_direction = Unit::new_normalize(desired.heading.clone());
-    let goals = setup_goals(&desired_contact, &desired_hit_direction, config.slop);
-
-    let coarse_box =
-        BoundingBox::from_boxes(&(goals.iter().map(|g| g.bounding_box.clone())).collect());
-    let coarse_goal = Goal {
-        bounding_box: coarse_box,
-        heading: desired_hit_direction,
-        min_dot: (PI / 2.0 - PI / 8.0).cos(),
-    };
 
     // buffers to avoid re-allocating in a loop
     let mut new_vertices = vec![];
@@ -472,19 +344,6 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         round_player_state(&current, config.step_duration, current.velocity.norm()),
         (start, None),
     );
-
-    for goal in goals.iter() {
-        let hit_pos = goal.bounding_box.center()
-            + (config.slop + CAR_DIMENSIONS.x / 2.0) * goal.heading.as_ref();
-        visualization_lines.append(&mut goal.bounding_box.lines());
-        for (l, ..) in goal.bounding_box.lines() {
-            visualization_lines.push((
-                Point3::new(l.x, l.y, l.z),
-                Point3::new(hit_pos.x, hit_pos.y, hit_pos.z),
-                Point3::new(0.0, 0.0, 1.0),
-            ));
-        }
-    }
 
     let mut num_iterations = 0;
 
@@ -549,17 +408,15 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 parent_player.position.z += 0.1;
             }
 
-            if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player, &ball, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
-                let plan = reverse_path(&parents, index, is_secondary);
-                let expansions = visualization_lines.len()
-                    - 2 * goals.len() * goals[0].bounding_box.lines().len();
+            if let Some((player, cost)) = player_goal_reached(&vertex.player, &parent_player, &ball, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
+                let plan = reverse_path(&parents, index, is_secondary, &player, cost);
 
-                println!(
-                    "omg reached! step size: {} | expansions: {} | cost: {}",
-                    config.step_duration * 120.0,
-                    expansions,
-                    plan.iter().map(|(_, _, cost)| cost).sum::<f32>(),
-                );
+                // println!(
+                //     "omg reached! step size: {} | expansions: {} | cost: {}",
+                //     config.step_duration * 120.0,
+                //     visualization_lines.len(),
+                //     plan.iter().map(|(_, _, cost)| cost).sum::<f32>(),
+                // );
                 return PlanResult {
                     plan: Some(plan),
                     desired: desired.clone(),
@@ -759,13 +616,12 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         }
     }
 
-    let expansions = visualization_lines.len() - 2 * goals.len() * goals[0].bounding_box.lines().len();
-    println!(
-        "omg failed! step size: {} | expansions: {} | left: {}",
-        config.step_duration * 120.0,
-        expansions,
-        to_see.len()
-    );
+    // println!(
+    //     "omg failed! step size: {} | expansions: {} | left: {}",
+    //     config.step_duration * 120.0,
+    //     visualization_lines.len(),
+    //     to_see.len()
+    // );
 
     PlanResult {
         plan: None,
@@ -773,29 +629,6 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         visualization_lines,
         visualization_points,
     }
-}
-
-fn player_goal_reached<'a>(
-    coarse_goal: &Goal,
-    precise_goals: &'a Vec<Goal>,
-    candidate: &PlayerState,
-    previous: &PlayerState,
-    ball: &BallState,
-    controller: &BrickControllerState,
-    time_step: f32,
-    evaluator: fn(&BallState, &PlayerState, &PlayerState, &BrickControllerState, f32) -> bool, // consider using Fn trait + generics to make this inlinable
-) -> bool {
-    let old_reached = player_goal_reached_old(coarse_goal, precise_goals, candidate, previous);
-    let new_reached = player_goal_reached_new(candidate, previous, ball, controller, time_step,  evaluator);
-    if old_reached && !new_reached {
-        eprintln!("false positive! nice!");
-    }
-
-    if new_reached && !old_reached {
-        eprintln!("false negative! BAD");
-    }
-
-    new_reached
 }
 
 fn coarse_collision_new(candidate: &PlayerState, previous: &PlayerState, ball: &BallState) -> bool {
@@ -811,52 +644,23 @@ fn coarse_collision_new(candidate: &PlayerState, previous: &PlayerState, ball: &
     line_collides_bounding_box(&coarse_box, previous.hitbox_center(), candidate.hitbox_center())
 }
 
-fn player_goal_reached_new<'a>(
+fn player_goal_reached(
     candidate: &PlayerState,
     previous: &PlayerState,
     ball: &BallState,
     controller: &BrickControllerState,
     time_step: f32,
-    evaluator: fn(&BallState, &PlayerState, &PlayerState, &BrickControllerState, f32) -> bool, // consider using Fn trait + generics to make this inlinable
-) -> bool {
+    evaluator: fn(&BallState, &PlayerState, &PlayerState, &BrickControllerState, f32) -> Option<(PlayerState, f32)>, // consider using Fn trait + generics to make this inlinable
+) -> Option<(PlayerState, f32)> {
     let coarse_collision = coarse_collision_new(candidate, previous, ball);
     if !coarse_collision {
-        return false;
+        return None;
     };
 
     evaluator(ball, previous, candidate,  controller, time_step)
 }
 
-fn player_goal_reached_old<'a>(
-    coarse_goal: &Goal,
-    precise_goals: &'a Vec<Goal>,
-    candidate: &PlayerState,
-    previous: &PlayerState,
-) -> bool {
-    let coarse_box = coarse_goal.bounding_box;
-
-    // NOTE we are just using the candidate. what we really want is the heading at the closest
-    // positions. well, what we really really want is the heading at every intermediate position.
-    // so we'd need to calculate intersection between the list of headings, and our desired
-    // heading, with some tolerance. but idk the math for that yet so we're just using the
-    // candidate heading
-    let candidate_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-
-    let coarse_collision =
-        line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
-    if !coarse_collision {
-        return false;
-    };
-
-    precise_goals.iter().any(|goal| {
-        let correct_precise_direction =
-            na::Matrix::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
-        correct_precise_direction
-            && line_collides_bounding_box(&goal.bounding_box, previous.position, candidate.position)
-    })
-}
-
-fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool) -> Plan {
+fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool, initial_player: &PlayerState, initial_cost: f32) -> Plan {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
         let is_secondary = (*vals).1;
@@ -868,7 +672,9 @@ fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary
             };
             (*vals).0 = vertex.parent_index;
             (*vals).1 = vertex.parent_is_secondary;
-            (vertex.player, vertex.prev_controller, vertex.step_duration)
+            let player = if index == initial_index { initial_player.clone() } else { vertex.player };
+            let cost = if index == initial_index { initial_cost } else { vertex.step_duration };
+            (player, vertex.prev_controller, cost)
         })
     })
     .collect::<Vec<_>>();

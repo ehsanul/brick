@@ -338,7 +338,7 @@ pub extern "C" fn next_player_state(
     Ok(next_player)
 }
 
-pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickControllerState, time_step: f32) -> Option<(PlayerState, Vector3<f32>)> {
+pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickControllerState, time_step: f32) -> Option<(PlayerState, Vector3<f32>, f32)> {
     let num_ticks: usize = (time_step / TICK).round() as usize;
     assert!(num_ticks % 2 == 0);
 
@@ -350,11 +350,13 @@ pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickC
                 // check if one tick earlier collides, since we are using 2-tick steps
                 if let Ok(next_single_tick) = next_player_state(&last, controller, TICK) {
                     if ball_collides(ball, &next_single_tick) {
-                        return Some((next_single_tick, closest_point_for_collision(ball, &next_single_tick)))
+                        let collision_time = (2 * step - 1) as f32 * TICK;
+                        return Some((next_single_tick, closest_point_for_collision(ball, &next_single_tick), collision_time))
                     }
                 }
 
-                return Some((next, closest_point_for_collision(ball, &next)))
+                let collision_time = (2 * step) as f32 * TICK;
+                return Some((next, closest_point_for_collision(ball, &next), collision_time))
             }
             last = next;
         } else {
