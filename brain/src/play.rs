@@ -40,7 +40,7 @@ pub extern "C" fn simple_desired_contact(
     let ball_normal = -1.0 * impulse_direction.into_inner();
 
     DesiredContact {
-        position: ball.position + BALL_RADIUS * ball_normal,
+        position: ball.position + BALL_COLLISION_RADIUS * ball_normal,
         heading: -1.0 * ball_normal,
     }
 }
@@ -136,7 +136,7 @@ fn hit_ball<H: HeuristicModel>(
         &desired_ball_position,
     );
     let start = Instant::now();
-    let result = plan::plan(model, &game.player, &desired_contact, last_plan);
+    let result = plan::plan(model, &game.player, &game.ball, &desired_contact, last_plan);
     println!("PLAN DURATION: {:?}", start.elapsed());
     result
 }
@@ -147,7 +147,7 @@ fn non_admissable_estimated_time<H: HeuristicModel>(
     desired: &DesiredContact,
 ) -> f32 {
     // unreachable, we can't fly
-    if desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z {
+    if desired.position.z > BALL_COLLISION_RADIUS + CAR_DIMENSIONS.z {
         return std::f32::MAX;
     }
 

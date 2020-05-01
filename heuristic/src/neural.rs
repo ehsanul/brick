@@ -8,7 +8,7 @@ use self::tensorflow::SessionRunArgs;
 use self::tensorflow::Tensor;
 use crate::{get_ball_position, get_normalization_rotation, HeuristicModel};
 use na::{Rotation3, Unit, Vector3};
-use state::{DesiredContact, PlayerState, BALL_RADIUS, CAR_DIMENSIONS};
+use state::{DesiredContact, PlayerState};
 use std::error::Error;
 use std::fs::File;
 

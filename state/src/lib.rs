@@ -32,14 +32,30 @@ pub const MAX_GROUND_ANGULAR_SPEED: f32 = 4.4; // NOTE this is based on the turn
 pub const RESTING_Z: f32 = 18.65;
 pub const RESTING_Z_VELOCITY: f32 = 8.0;
 
-// XXX must confirm. this might include height of the ball in free play when it first starts
-// floating above the ground, which would be no good. 91.25 has been seen in RLBounce
-pub static BALL_RADIUS: f32 = 93.143;
+// source: https://github.com/samuelpmish/RLUtilities/blob/master/src/simulation/ball.cc#L17
+// TODO handle hoops/dropshot radii
+pub const BALL_INERTIAL_RADIUS: f32 = 91.25;
+pub const BALL_COLLISION_RADIUS: f32 = 93.15;
 
+pub const CAR_MASS: f32 = 180.0;
+
+// using lazy static for now due to const restrictions:
+// https://github.com/rustsim/nalgebra/issues/521
 lazy_static! {
+    // source: https://github.com/samuelpmish/RLUtilities/blob/master/src/simulation/car.cc#L369
+    pub static ref CAR_INERTIA: na::Matrix3<f32> = CAR_MASS * na::Matrix3::new(
+        751.0,    0.0,    0.0,
+        0.0  , 1334.0,    0.0,
+        0.0  ,    0.0, 1836.0,
+    );
+    pub static ref CAR_INVERSE_INERTIA: na::Matrix3<f32> = CAR_INERTIA.try_inverse().expect("Inverse car inertia failed");
+
     // batmobile
-    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.82, 84.67, 29.39);
-    pub static ref PIVOT_OFFSET: Vector3<f32> = Vector3::new(9.008, 0.0, 12.094);
+    //pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.8198, 84.67036, 29.3944);
+    //pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-9.008572, 0.0, 12.0942);
+    // octane
+    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(118.0074, 84.19941, 36.15907);
+    pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-13.87566, 0.0, 20.75499);
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -126,8 +142,14 @@ impl Default for PlayerState {
 }
 
 impl PlayerState {
-    //pub fn heading(&self) -> Vector3<f32> {
-    //}
+    pub fn hitbox_center(&self) -> Vector3<f32> {
+        self.position + self.rotation.to_rotation_matrix() * (*CAR_OFFSET)
+    }
+
+    pub fn heading(&self) -> Vector3<f32> {
+        // the actual car with no rotation is sideways, pointed towards negative x
+        self.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0)
+    }
 
     // global_velocity = rotation * local_velocity
     pub fn local_velocity(&self) -> Vector3<f32> {
@@ -150,7 +172,7 @@ pub struct BallState {
 impl Default for BallState {
     fn default() -> BallState {
         BallState {
-            position: Vector3::new(0.0, 0.0, BALL_RADIUS), // on ground, center of field
+            position: Vector3::new(0.0, 0.0, BALL_COLLISION_RADIUS), // on ground, center of field
             velocity: Vector3::new(0.0, 0.0, 0.0),
             angular_velocity: Vector3::new(0.0, 0.0, 0.0),
             //rotation: UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0),

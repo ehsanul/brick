@@ -4,7 +4,7 @@ extern crate ord_subset;
 extern crate state;
 
 use na::{Rotation3, Vector3};
-use state::{DesiredContact, PlayerState, BALL_RADIUS};
+use state::{DesiredContact, PlayerState, BALL_COLLISION_RADIUS};
 use std::error::Error;
 
 mod basic;
@@ -70,5 +70,5 @@ pub(crate) fn get_normalization_rotation(desired: &DesiredContact) -> Rotation3<
 }
 
 pub(crate) fn get_ball_position(desired: &DesiredContact) -> Vector3<f32> {
-    desired.position + BALL_RADIUS * desired.heading
+    desired.position + BALL_COLLISION_RADIUS * desired.heading
 }

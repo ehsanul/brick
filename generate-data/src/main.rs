@@ -41,6 +41,7 @@ fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
 fn best_plan<H: HeuristicModel>(
     model: &mut H,
     player: &mut PlayerState,
+    ball: &BallState,
     desired_contact: &DesiredContact,
     config: &SearchConfig,
 ) -> Option<Plan> {
@@ -55,7 +56,7 @@ fn best_plan<H: HeuristicModel>(
     let mut last_exploded_plan: Option<Plan> = None;
     let mut reset_at = 0;
     for i in 0..iterations {
-        let plan_result = plan::hybrid_a_star(model, &player, &desired_contact, &config);
+        let plan_result = plan::hybrid_a_star(model, player, ball, desired_contact, config);
 
         let mut exploded_plan_result = plan_result.clone();
         plan::explode_plan(&mut exploded_plan_result);
@@ -143,13 +144,14 @@ fn main() -> Result<(), Box<Error>> {
                     }
 
                     if let Some(plan) =
-                        plan::hybrid_a_star(&mut model, &mut player.clone(), &desired_contact, &config).plan
+                        plan::hybrid_a_star(&mut model, &mut player.clone(), &ball, &desired_contact, &config).plan
                     {
                         write_data(&path, plan).expect("writing failed");
                         println!("Done: x: {}, y: {}, local_vy: {}, yaw: {}", player.position.x, player.position.y, speed_r as f32 * SPEED_FACTOR, yaw);
                     } else if let Some(plan) = plan::hybrid_a_star(
                         &mut model,
                         &mut player.clone(),
+                        &ball,
                         &desired_contact,
                         &slow_config,
                     ).plan {

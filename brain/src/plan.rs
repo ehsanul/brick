@@ -129,6 +129,7 @@ const EXPLODED_STEP_DURATION: f32 = 2.0 * TICK;
 pub extern "C" fn plan<H: HeuristicModel>(
     model: &mut H,
     player: &PlayerState,
+    ball: &BallState,
     desired_contact: &DesiredContact,
     last_plan: Option<&Plan>,
 ) -> PlanResult {
@@ -145,7 +146,7 @@ pub extern "C" fn plan<H: HeuristicModel>(
         config.max_cost = (10.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
     }
 
-    let mut plan_result = hybrid_a_star(model, player, &desired_contact, &config);
+    let mut plan_result = hybrid_a_star(model, player, ball, desired_contact, &config);
     explode_plan(&mut plan_result);
     plan_result
 }
@@ -163,7 +164,7 @@ pub fn explode_plan(plan_result: &mut PlanResult) {
             assert!(
                 ((plan[i].2 / TICK).round() % (EXPLODED_STEP_DURATION / TICK).round()).abs()
                     < 0.000001
-            ); // ensure multiple, ignoring fp inaccuracies
+            ); // ensure exact multiple, ignoring fp inaccuracies
             let exploded_length = (plan[i].2 / EXPLODED_STEP_DURATION).round() as i32;
             let mut last_player = plan[i - 1].0;
             let controller = plan[i].1;
@@ -374,7 +375,7 @@ fn setup_goals(
 
 fn known_unreachable(_current: &PlayerState, desired: &DesiredContact) -> bool {
     // we can't fly yet :(
-    desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
+    desired.position.z > BALL_COLLISION_RADIUS + CAR_DIMENSIONS.z
 }
 
 type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
@@ -382,9 +383,32 @@ type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVerte
 pub fn hybrid_a_star<H: HeuristicModel>(
     model: &mut H,
     current: &PlayerState,
+    ball: &BallState,
     desired: &DesiredContact,
     config: &SearchConfig,
 ) -> PlanResult {
+    // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
+    let is_ball_hit_towards_goal = |ball: &BallState, player: &PlayerState, _next_player: &PlayerState, controller: &BrickControllerState, time_step: f32| -> bool {
+        if let Some((colliding_player, collision)) = predict::player::get_collision(ball, player, controller, time_step) {
+            match predict::ball::calculate_hit(&ball, &colliding_player, &collision) {
+                Ok(next_ball) => {
+                    if predict::ball::trajectory_enters_soccar_goal(&next_ball) {
+                        // println!("collision: {:?}, ball velocity: {:?}", collision, next_ball.velocity);
+                        true
+                    } else {
+                        false
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error calculating ball hit: {}", e);
+                    false
+                }
+            }
+        } else {
+            false
+        }
+    };
+
     let mut visualization_lines = vec![];
 
     #[allow(unused_mut)]
@@ -525,35 +549,16 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 parent_player.position.z += 0.1;
             }
 
-            if let Some(reached_goal) =
-                player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player)
-            {
+            if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player, &ball, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
                 let plan = reverse_path(&parents, index, is_secondary);
                 let expansions = visualization_lines.len()
                     - 2 * goals.len() * goals[0].bounding_box.lines().len();
-                let cost = plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
-                visualization_lines.append(
-                    &mut reached_goal
-                        .bounding_box
-                        .lines()
-                        .iter()
-                        .map(|l| {
-                            let c1 = l.0;
-                            let c2 = l.1;
-                            (
-                                Point3::new(c1.x, c1.y, c1.z),
-                                Point3::new(c2.x, c2.y, c2.z),
-                                Point3::new(1.0f32, 0.0f32, 1.0f32),
-                            )
-                        })
-                        .collect(),
-                );
 
                 println!(
                     "omg reached! step size: {} | expansions: {} | cost: {}",
                     config.step_duration * 120.0,
                     expansions,
-                    cost
+                    plan.iter().map(|(_, _, cost)| cost).sum::<f32>(),
                 );
                 return PlanResult {
                     plan: Some(plan),
@@ -561,6 +566,12 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                     visualization_lines,
                     visualization_points,
                 };
+            } else if coarse_collision_new(&vertex.player, &parent_player, &ball) {
+                // if we hit the ball but we didn't reach the goal, we skip instead of expanding
+                // this vertex
+                if predict::player::get_collision(&ball, &parent_player, &vertex.prev_controller, config.step_duration).is_some() {
+                    continue
+                }
             }
 
             // We may have inserted a node several times into the binary heap if we found
@@ -769,7 +780,59 @@ fn player_goal_reached<'a>(
     precise_goals: &'a Vec<Goal>,
     candidate: &PlayerState,
     previous: &PlayerState,
-) -> Option<&'a Goal> {
+    ball: &BallState,
+    controller: &BrickControllerState,
+    time_step: f32,
+    evaluator: fn(&BallState, &PlayerState, &PlayerState, &BrickControllerState, f32) -> bool, // consider using Fn trait + generics to make this inlinable
+) -> bool {
+    let old_reached = player_goal_reached_old(coarse_goal, precise_goals, candidate, previous);
+    let new_reached = player_goal_reached_new(candidate, previous, ball, controller, time_step,  evaluator);
+    if old_reached && !new_reached {
+        eprintln!("false positive! nice!");
+    }
+
+    if new_reached && !old_reached {
+        eprintln!("false negative! BAD");
+    }
+
+    new_reached
+}
+
+fn coarse_collision_new(candidate: &PlayerState, previous: &PlayerState, ball: &BallState) -> bool {
+    // the bounding box size includes the car dimensions because we use the center of the car's
+    // position to create the line for the coarse collision check
+    let size = BALL_COLLISION_RADIUS + CAR_DIMENSIONS.norm() / 2.0;
+
+    let coarse_box = BoundingBox::new(&ball.position, size);
+    // XXX note if using large time steps, this will be especially  inaccurate as we assume prev to
+    // current is a straight line but it may be curved. this is offset by the fact that we use the
+    // maximium car dimension to extend the bounding box though, so we may have fewer false
+    // negatives than otherwise
+    line_collides_bounding_box(&coarse_box, previous.hitbox_center(), candidate.hitbox_center())
+}
+
+fn player_goal_reached_new<'a>(
+    candidate: &PlayerState,
+    previous: &PlayerState,
+    ball: &BallState,
+    controller: &BrickControllerState,
+    time_step: f32,
+    evaluator: fn(&BallState, &PlayerState, &PlayerState, &BrickControllerState, f32) -> bool, // consider using Fn trait + generics to make this inlinable
+) -> bool {
+    let coarse_collision = coarse_collision_new(candidate, previous, ball);
+    if !coarse_collision {
+        return false;
+    };
+
+    evaluator(ball, previous, candidate,  controller, time_step)
+}
+
+fn player_goal_reached_old<'a>(
+    coarse_goal: &Goal,
+    precise_goals: &'a Vec<Goal>,
+    candidate: &PlayerState,
+    previous: &PlayerState,
+) -> bool {
     let coarse_box = coarse_goal.bounding_box;
 
     // NOTE we are just using the candidate. what we really want is the heading at the closest
@@ -782,10 +845,10 @@ fn player_goal_reached<'a>(
     let coarse_collision =
         line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
     if !coarse_collision {
-        return None;
+        return false;
     };
 
-    precise_goals.iter().find(|goal| {
+    precise_goals.iter().any(|goal| {
         let correct_precise_direction =
             na::Matrix::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
         correct_precise_direction
@@ -842,8 +905,8 @@ impl BoundingBox {
             max_z: pos.z + slop,
         };
         // FIXME hack to extend bounds down to the ground, where the car can reach them
-        if bb.max_z - bb.min_z < BALL_RADIUS * 2.0 {
-            bb.min_z = (bb.min_z + bb.max_z) / 2.0 - BALL_RADIUS
+        if bb.max_z - bb.min_z < BALL_COLLISION_RADIUS * 2.0 {
+            bb.min_z = (bb.min_z + bb.max_z) / 2.0 - BALL_COLLISION_RADIUS
         }
         bb
     }
@@ -876,8 +939,8 @@ impl BoundingBox {
             }
         }
         // FIXME hack to extend bounds down to the ground, where the car can reach them
-        if max_z - min_z < BALL_RADIUS * 2.0 {
-            min_z = (min_z + max_z) / 2.0 - BALL_RADIUS
+        if max_z - min_z < BALL_COLLISION_RADIUS * 2.0 {
+            min_z = (min_z + max_z) / 2.0 - BALL_COLLISION_RADIUS
         }
         BoundingBox {
             min_x,
@@ -1122,6 +1185,10 @@ mod tests {
         }
     }
 
+    fn test_ball() -> BallState {
+        BallState::default()
+    }
+
     fn test_desired_contact() -> DesiredContact {
         DesiredContact {
             position: resting_position(),
@@ -1220,7 +1287,7 @@ mod tests {
         let mut current = resting_player_state();
         current.position.y = -1000.0;
         let desired = test_desired_contact();
-        let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, 0.5);
+        let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, 0.5);
         //assert!(plan.is_some());
         if plan.is_some() {
             count += 1
@@ -1246,7 +1313,7 @@ mod tests {
                 let mut current = resting_player_state();
                 current.position.y = distance as f32;
                 let desired = test_desired_contact();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+                let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
                 //assert!(plan.is_some());
                 if plan.is_some() {
                     count += 1
@@ -1274,7 +1341,7 @@ mod tests {
     //             let mut current = resting_player_state();
     //             current.position.y = distance as f32;
     //             let desired = test_desired_contact();
-    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
     //             //assert!(plan.is_some());
     //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
     //         }
@@ -1297,7 +1364,7 @@ mod tests {
     //             let mut current = resting_player_state();
     //             current.position.y = distance as f32;
     //             let desired = test_desired_contact();
-    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
     //             //assert!(plan.is_some());
     //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
     //         }
@@ -1318,7 +1385,7 @@ mod tests {
     //             let mut current = resting_player_state();
     //             current.position.y = distance as f32;
     //             let desired = test_desired_contact();
-    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
     //             //assert!(plan.is_some());
     //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
     //         }
@@ -1338,7 +1405,7 @@ mod tests {
             let mut current = resting_player_state();
             current.position.y = distance as f32;
             let desired = test_desired_contact();
-            let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
+            let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
             assert!(plan.is_none());
         }
     }

@@ -72,7 +72,7 @@ fn run_visualization(){
     let mut window = Window::new("Rocket League Visualization");
 
     // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
-    let mut sphere = window.add_sphere(BALL_RADIUS / 1000.0);
+    let mut sphere = window.add_sphere(BALL_COLLISION_RADIUS / 1000.0);
     let mut car = window.add_cube(
         CAR_DIMENSIONS.x / 1000.0,
         CAR_DIMENSIONS.y / 1000.0,
@@ -117,10 +117,9 @@ fn run_visualization(){
         ));
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-        let hitbox_position =
-            game_state.player.position.map(|c| c / 1000.0) + PIVOT_OFFSET.map(|c| c / 1000.0);
+        let hitbox_position = game_state.player.hitbox_center().map(|c| c / 1000.0);
         car.set_local_translation(Translation3::from(hitbox_position));
-        car.set_local_rotation(game_state.player.rotation); // FIXME need to rotate about the pivot, not center
+        car.set_local_rotation(game_state.player.rotation);
 
         // grid for debugging
         //for x in (-160..160) {
@@ -190,14 +189,16 @@ fn run_bot_test() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        let batmobile = rlbot::PlayerLoadout::new().car_id(803);
+        let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
+        let fennec = rlbot::PlayerLoadout::new().car_id(4284);
+
         let mut match_settings =
             rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
                 rlbot::PlayerClass::RLBotPlayer,
                 "Brick Test",
                 0,
             )
-            .loadout(batmobile)]);
+            .loadout(fennec)]);
 
         match_settings.mutator_settings =
             rlbot::MutatorSettings::new().
@@ -664,16 +665,16 @@ fn simulate_over_time() {
 
     {
         let mut game_state = GAME_STATE.write().unwrap();
-        game_state.ball.position = Vector3::new(0.0, 0.0, BALL_RADIUS);
-        game_state.player.position = Vector3::new(0.0, 4000.0, 0.0);
+        game_state.ball.position = Vector3::new(0.0, 0.0, BALL_COLLISION_RADIUS);
+        game_state.player.position = Vector3::new(0.0, 1000.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
 
         // left
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         // up
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0);
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0);
         // down
-        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
         // right
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
 

@@ -721,14 +721,15 @@ fn idle_right_drift() -> ControllerState {
 fn main() -> Result<(), Box<Error>> {
     let rlbot = rlbot::init()?;
 
-    let batmobile = rlbot::PlayerLoadout::new().car_id(803);
+    let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
+    let fennec = rlbot::PlayerLoadout::new().car_id(4284);
     let mut settings =
         rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
             rlbot::PlayerClass::RLBotPlayer,
             "Recorder",
             0,
         )
-        .loadout(batmobile)]);
+        .loadout(fennec)]);
 
     settings.mutator_settings =
         rlbot::MutatorSettings::new().

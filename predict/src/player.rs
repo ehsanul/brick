@@ -14,7 +14,7 @@ pub enum PredictionCategory {
     Wall,
     /// Wheels on ceiling
     Ceiling,
-    /// Wheels on curve. might want to expand this into top/bottom/corner/etc curves
+    /// Wheels on curve. might want to expand this into side/back/top/bottom/corner/etc curves
     CurveWall,
     /// Wheels not touching arena
     Air,
@@ -98,6 +98,25 @@ fn ground_turn_matching_transformation(
     transformation
 }
 
+fn interpolate_transformation_halfway(transformation: driving_model::PlayerTransformation, current: &PlayerState) -> driving_model::PlayerTransformation {
+    let mut transformation = transformation;
+    transformation.translation_x /= 2;
+    transformation.translation_y /= 2;
+    transformation.end_yaw /= 2.0;
+    transformation.end_angular_velocity_z = current.angular_velocity.z + (transformation.end_angular_velocity_z - current.angular_velocity.z) / 2.0;
+
+    // NOTE this is an inaccurate interpolation while rotation changes, as both the start and end
+    // velocities are in in relation to the starting rotation. we could improve this by inverse
+    // rotation of the end velocities using end_yaw, then interpolating, then rotating again, but
+    // it's unclear how big the problem is given we are only using this for going from 2 ticks to
+    // one: this basic linear interpolation should suffice for that, as long as this is used for
+    // plan explosion and other non-critical functions only
+    transformation.end_velocity_x = transformation.end_velocity_x + (transformation.end_velocity_x - transformation.start_local_vx) / 2;
+    transformation.end_velocity_y = transformation.end_velocity_y + (transformation.end_velocity_y - transformation.start_local_vy) / 2;
+
+    transformation
+}
+
 fn ground_turn_quad_tranformations(
     current: &PlayerState,
     controller: &BrickControllerState,
@@ -160,29 +179,49 @@ fn ground_turn_prediction(
     controller: &BrickControllerState,
     time_step: f32,
 ) -> Result<(Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>), String> {
-    //println!("-----------------------------");
-    //println!("local_velocity: {:?}", current.local_velocity());
-    //println!("controller: {:?}", controller);
+    // we don't have transformations for single ticks, but we'll do some special handling of
+    // this case as we need it for car-ball collisions
+    let original_time_step = time_step;
+    let time_step = if time_step == TICK { 2.0 * TICK } else { time_step };
 
     let quad = ground_turn_quad_tranformations(current, controller, time_step);
 
     // TODO error
-    let x1y1 = quad[0].ok_or_else(|| format!(
+    let mut x1y1 = quad[0].ok_or_else(|| format!(
         "Missing turn x1y1 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, false, false), controller
     ))?;
-    let x2y1 = quad[1].ok_or_else(|| format!(
+    let mut x2y1 = quad[1].ok_or_else(|| format!(
         "Missing turn x2y1 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, true, false), controller
     ))?;
-    let x1y2 = quad[2].ok_or_else(|| format!(
+    let mut x1y2 = quad[2].ok_or_else(|| format!(
         "Missing turn x1y2 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, false, true), controller
     ))?;
-    let x2y2 = quad[3].ok_or_else(|| format!(
+    let mut x2y2 = quad[3].ok_or_else(|| format!(
         "Missing turn x2y2 for player: {:?} & controller: {:?}",
         sample::normalized_player(&current, true, true), controller
     ))?;
+
+    // interpolating for a single tick, for which we are lacking data currently
+    let interpolated_x1y1;
+    let interpolated_x1y2;
+    let interpolated_x2y1;
+    let interpolated_x2y2;
+    if original_time_step == TICK {
+        interpolated_x1y1 = interpolate_transformation_halfway(x1y1.clone(), &current);
+        interpolated_x1y2 = interpolate_transformation_halfway(x1y2.clone(), &current);
+        interpolated_x2y1 = interpolate_transformation_halfway(x2y1.clone(), &current);
+        interpolated_x2y2 = interpolate_transformation_halfway(x2y2.clone(), &current);
+        x1y1 = &interpolated_x1y1;
+        x1y2 = &interpolated_x1y2;
+        x2y1 = &interpolated_x2y1;
+        x2y2 = &interpolated_x2y2;
+    };
+    #[allow(unused_variables)]
+    let time_step = original_time_step;
+
 
     let current_vx = current.local_velocity().x;
     let current_vy = current.local_velocity().y;
@@ -235,38 +274,6 @@ fn ground_turn_prediction(
     let translation_y2 = interpolate(translation_x1y2, translation_x2y2, y2_vx_factor);
     let translation = current_rotation * interpolate(translation_y1, translation_y2, vy_factor);
 
-    // dbg!(current.rotation.to_euler_angles().2);
-    // dbg!(x1y1_start.rotation.to_euler_angles().2);
-    // dbg!(x2y1_start.rotation.to_euler_angles().2);
-    // dbg!(x1y2_start.rotation.to_euler_angles().2);
-    // dbg!(x2y2_start.rotation.to_euler_angles().2);
-
-    // dbg!(x1y1_start.angular_velocity.x);
-    // dbg!(x2y1_start.angular_velocity.x);
-    // dbg!(x1y2_start.angular_velocity.x);
-    // dbg!(x2y2_start.angular_velocity.x);
-
-    // dbg!(x1y1_start.position.x);
-    // dbg!(x1y1_start.position.y);
-
-    // dbg!(x1y1_start.velocity.y);
-    // dbg!(x2y1_start.velocity.y);
-    // dbg!(x1y2_start.velocity.y);
-    // dbg!(x2y2_start.velocity.y);
-    // dbg!(x1y1_start.local_velocity().y);
-    // dbg!(x2y1_start.local_velocity().y);
-    // dbg!(x1y2_start.local_velocity().y);
-    // dbg!(x2y2_start.local_velocity().y);
-
-    // dbg!(x1y1_end.velocity.y);
-    // dbg!(x2y1_end.velocity.y);
-    // dbg!(x1y2_end.velocity.y);
-    // dbg!(x2y2_end.velocity.y);
-    // dbg!(x1y1_end.local_velocity().y);
-    // dbg!(x2y1_end.local_velocity().y);
-    // dbg!(x1y2_end.local_velocity().y);
-    // dbg!(x2y2_end.local_velocity().y);
-
     let end_velocity_x1y1 = Vector3::new(x1y1.end_velocity_x as f32, x1y1.end_velocity_y as f32, 0.0);
     let end_velocity_x2y1 = Vector3::new(x2y1.end_velocity_x as f32, x2y1.end_velocity_y as f32, 0.0);
     let end_velocity_x1y2 = Vector3::new(x1y2.end_velocity_x as f32, x1y2.end_velocity_y as f32, 0.0);
@@ -274,14 +281,6 @@ fn ground_turn_prediction(
     let end_velocity_y1 = interpolate(end_velocity_x1y1, end_velocity_x2y1, y1_vx_factor);
     let end_velocity_y2 = interpolate(end_velocity_x1y2, end_velocity_x2y2, y2_vx_factor);
     let end_velocity = current_rotation * interpolate(end_velocity_y1, end_velocity_y2, vy_factor);
-
-    // dbg!(end_velocity_x1y1);
-    // dbg!(end_velocity_x2y1);
-    // dbg!(end_velocity_x1y2);
-    // dbg!(end_velocity_x2y2);
-    // dbg!(end_velocity_y1);
-    // dbg!(end_velocity_y2);
-    // dbg!(end_velocity);
 
     Ok((
         translation,
@@ -304,6 +303,19 @@ fn interpolate_scalar(start: f32, end: f32, factor: f32) -> f32 {
     (1.0 - factor) * start + factor * end
 }
 
+// rip-off of: https://github.com/samuelpmish/RLUtilities/blob/master/src/simulation/ball.cc#L82
+pub fn closest_point_for_collision(ball: &BallState, player: &PlayerState) -> Vector3<f32> {
+	let mut local_pos = player.rotation.to_rotation_matrix().inverse() * (ball.position - player.hitbox_center());
+	local_pos.x = na::clamp(local_pos.x, -CAR_DIMENSIONS.x / 2.0, CAR_DIMENSIONS.x / 2.0);
+	local_pos.y = na::clamp(local_pos.y, -CAR_DIMENSIONS.y / 2.0, CAR_DIMENSIONS.y / 2.0);
+	local_pos.z = na::clamp(local_pos.z, -CAR_DIMENSIONS.z / 2.0, CAR_DIMENSIONS.z / 2.0);
+	player.hitbox_center() + player.rotation.to_rotation_matrix() * local_pos
+}
+
+pub fn ball_collides(ball: &BallState, player: &PlayerState) -> bool {
+    (closest_point_for_collision(ball, player) - ball.position).norm() < BALL_COLLISION_RADIUS
+}
+
 #[no_mangle]
 pub extern "C" fn next_player_state(
     current: &PlayerState,
@@ -324,4 +336,31 @@ pub extern "C" fn next_player_state(
     }
 
     Ok(next_player)
+}
+
+pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickControllerState, time_step: f32) -> Option<(PlayerState, Vector3<f32>)> {
+    let num_ticks: usize = (time_step / TICK).round() as usize;
+    assert!(num_ticks % 2 == 0);
+
+    // 2-tick steps
+    let mut last = *player;
+    for step in 1..=(num_ticks/2) {
+        if let Ok(next) = next_player_state(&last, controller, TICK * 2.0) {
+            if ball_collides(ball, &next) {
+                // check if one tick earlier collides, since we are using 2-tick steps
+                if let Ok(next_single_tick) = next_player_state(&last, controller, TICK) {
+                    if ball_collides(ball, &next_single_tick) {
+                        return Some((next_single_tick, closest_point_for_collision(ball, &next_single_tick)))
+                    }
+                }
+
+                return Some((next, closest_point_for_collision(ball, &next)))
+            }
+            last = next;
+        } else {
+            return None
+        }
+    }
+
+    None
 }
