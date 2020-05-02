@@ -87,6 +87,7 @@ fn main() -> Result<(), Box<Error>> {
                         &mut player.clone(),
                         &ball,
                         &desired_contact,
+                        0.0, // doesn't matter, used just to keep track of when we think we should hit it
                         &config,
                     ).plan {
                         write_data(&path, plan).expect("writing failed");

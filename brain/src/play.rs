@@ -45,20 +45,19 @@ pub extern "C" fn simple_desired_contact(
     }
 }
 
-fn reachable_desired_player_state<H: HeuristicModel>(
+fn reachable_contact_and_time<H: HeuristicModel>(
     model: &mut H,
     player: &PlayerState,
     ball_trajectory: &[BallState],
     desired_ball_position: &Vector3<f32>,
-) -> DesiredContact {
-    let start = Instant::now();
-
+) -> (DesiredContact, f32) {
     let mut estimates = ball_trajectory
         .iter()
         .enumerate()
         .map(|(i, ball)| {
             let desired_contact = simple_desired_contact(ball, &desired_ball_position);
-            let shooting_time = non_admissable_estimated_time(model, &player, &desired_contact);
+            model.configure(&desired_contact, 1.0);
+            let shooting_time = non_admissable_estimated_time(model, &player, &ball);
             (i, shooting_time)
         })
         .collect::<Vec<_>>();
@@ -76,15 +75,11 @@ fn reachable_desired_player_state<H: HeuristicModel>(
         }
     });
 
-    if start.elapsed().as_secs() >= 1 || start.elapsed().subsec_millis() > 200 {
-        println!("#############################");
-        println!("TOTAL SHOOTABLE DURATION: {:?}", start.elapsed());
-        println!("#############################");
-    }
+    let reachable_ball_index = estimates[0].0;
+    let reachable_time = estimates[0].1;
+    let desired_contact = simple_desired_contact(&ball_trajectory[reachable_ball_index], &desired_ball_position);
 
-    // TODO let's return the ball time and/or shooting time too here?
-    let shootable_ball_index = estimates[0].0;
-    simple_desired_contact(&ball_trajectory[shootable_ball_index], &desired_ball_position)
+    (desired_contact, reachable_time)
 }
 
 fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
@@ -129,14 +124,14 @@ fn hit_ball<H: HeuristicModel>(
     //println!("#############################");
     //let start = Instant::now();
 
-    let desired_contact = reachable_desired_player_state(
+    let (desired_contact, time) = reachable_contact_and_time(
         model,
         &game.player,
         &ball_trajectory,
         &desired_ball_position,
     );
     let start = Instant::now();
-    let result = plan::plan(model, &game.player, &game.ball, &desired_contact, last_plan);
+    let result = plan::plan(model, &game.player, &game.ball, &desired_contact, time, last_plan);
     println!("PLAN DURATION: {:?}", start.elapsed());
     result
 }
@@ -144,10 +139,10 @@ fn hit_ball<H: HeuristicModel>(
 fn non_admissable_estimated_time<H: HeuristicModel>(
     model: &mut H,
     current: &PlayerState,
-    desired: &DesiredContact,
+    ball: &BallState,
 ) -> f32 {
     // unreachable, we can't fly
-    if desired.position.z > BALL_COLLISION_RADIUS + CAR_DIMENSIONS.z {
+    if ball.position.z - BALL_COLLISION_RADIUS > CAR_DIMENSIONS.z + CAR_OFFSET.z {
         return std::f32::MAX;
     }
 
@@ -198,6 +193,11 @@ pub extern "C" fn next_input(
     bot: &mut BotState,
 ) -> rlbot::ControllerState {
     if let Some(ref plan) = bot.plan {
+        // TODO
+        //    we need to take into account the inputs previously sent that will be processed
+        //    prior to finding where we are. instead of passing the current player, apply N inputs
+        //    that are not yet applied, where N is the number of frames we're lagging by
+        // TODO
         let index = closest_plan_index(&current_player, &plan);
 
         // we need to look one past closest index to see the controller to reach next position

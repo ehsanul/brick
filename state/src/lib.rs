@@ -97,6 +97,7 @@ impl From<&rlbot::ControllerState> for FullController {
 #[derive(Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
+    pub cost_diff: f32,
     /// queue of (frame, controller)
     pub controller_history: VecDeque<(i32, FullController)>,
     pub turn_errors: VecDeque<f32>,
@@ -249,7 +250,7 @@ pub struct SerializablePlan(pub Plan);
 #[derive(Clone)]
 pub struct PlanResult {
     pub plan: Option<Plan>,
-    pub desired: DesiredContact,
+    pub cost_diff: f32,
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
     pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,
 }
@@ -258,7 +259,7 @@ impl Default for PlanResult {
     fn default() -> PlanResult {
         PlanResult {
             plan: None,
-            desired: DesiredContact::default(),
+            cost_diff: 0.0,
             visualization_lines: vec![],
             visualization_points: vec![],
         }

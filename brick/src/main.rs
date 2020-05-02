@@ -362,13 +362,6 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             }
 
             // remove part of plan that is no longer relevant since we've already passed it
-            //
-            // TODO
-            //    we need to take into account the inputs previously sent that will be processed
-            //    prior to finding where we are. instead of passing the current player, apply N inputs
-            //    that are not yet applied, where N is the number of frames we're lagging by
-            // TODO
-            //
             if let Some(ref mut plan) = bot.plan {
                 let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
                 //println!("closest index: {}, plan len: {}", closest_index, plan.len());
@@ -416,7 +409,7 @@ fn plan_is_valid(game: &GameState, plan: &Plan) -> bool {
     let closest_index = brain::play::closest_plan_index(&game.player, &plan);
     if let Some((player, _, _)) = plan.get(closest_index) {
         // TODO tune
-        (player.position - game.player.position).norm() < 100.0 && (player.velocity - game.player.velocity).norm() < 200.0
+        (player.position - game.player.position).norm() < 30.0 && (player.velocity - game.player.velocity).norm() < 200.0
     } else {
         false
     }
@@ -432,16 +425,27 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
                 *index > closest_index
             }).map(|(_index, (_, _, cost))| cost).sum::<f32>();
 
-            // bail, we got a worse plan!
-            if new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
-                //println!("bailing worse plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
+            // // bail, we got a worse plan!
+            // if new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
+            //     println!("bailing longer plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
+            //     return;
+            // }
+
+            let existing_diff = bot.cost_diff.abs();
+            let new_diff = plan_result.cost_diff.abs();
+            if new_diff > existing_diff && plan_is_valid(&game, &existing_plan) {
+                //println!("bailing less accurate plan! existing_diff: {}, new_diff: {}", existing_diff, new_diff);
+                return;
+            } else if new_diff == existing_diff && new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
+                //println!("bailing longer plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
                 return;
             }
         }
 
-        let cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
+        //let cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
         //println!("new best plan! cost: {}", cost);
         bot.plan = Some(new_plan.clone());
+        bot.cost_diff = plan_result.cost_diff;
         bot.turn_errors.clear();
     }
 }
@@ -462,12 +466,11 @@ fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>,
 }
 
 fn update_simulation_visualization(bot: &BotState, plan_result: &PlanResult) {
-    let game_state = GAME_STATE.read().unwrap();
     let PlanResult {
         plan,
-        desired,
         visualization_lines: lines,
         visualization_points: points,
+        ..
     } = plan_result;
 
     let mut visualization_lines = LINES.write().unwrap();
@@ -475,15 +478,6 @@ fn update_simulation_visualization(bot: &BotState, plan_result: &PlanResult) {
 
     // lines directly from plan result
     visualization_lines.append(&mut lines.clone());
-
-    // red line from player center to contact point
-    let pos = game_state.player.position;
-    let dpos = desired.position;
-    visualization_lines.push((
-        Point3::new(pos.x, pos.y, pos.z),
-        Point3::new(dpos.x, dpos.y, dpos.z),
-        Point3::new(1.0, 0.0, 0.0),
-    ));
 
     // white line showing best planned path
     if let Some(ref plan) = bot.plan {
@@ -666,15 +660,15 @@ fn simulate_over_time() {
     {
         let mut game_state = GAME_STATE.write().unwrap();
         game_state.ball.position = Vector3::new(0.0, 0.0, BALL_COLLISION_RADIUS);
-        game_state.player.position = Vector3::new(0.0, 1000.0, 0.0);
+        game_state.player.position = Vector3::new(0.0, 4000.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
 
         // left
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 0.0);
         // up
-        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0);
+        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0);
         // down
-        game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
+        //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
         // right
         //game_state.player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI);
 

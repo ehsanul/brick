@@ -132,7 +132,8 @@ pub extern "C" fn plan<H: HeuristicModel>(
     model: &mut H,
     player: &PlayerState,
     ball: &BallState,
-    desired_contact: &DesiredContact,
+    desired: &DesiredContact,
+    cost_to_strive_for: f32,
     last_plan: Option<&Plan>,
 ) -> PlanResult {
     let mut config = SearchConfig::default();
@@ -274,11 +275,6 @@ struct RoundedPlayerState {
     yaw: i16,
 }
 
-fn known_unreachable(_current: &PlayerState, desired: &DesiredContact) -> bool {
-    // we can't fly yet :(
-    desired.position.z > BALL_COLLISION_RADIUS + CAR_DIMENSIONS.z
-}
-
 type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
 
 pub fn hybrid_a_star<H: HeuristicModel>(
@@ -286,6 +282,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     current: &PlayerState,
     ball: &BallState,
     desired: &DesiredContact,
+    cost_to_strive_for: f32,
     config: &SearchConfig,
 ) -> PlanResult {
     // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
@@ -315,10 +312,11 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     #[allow(unused_mut)]
     let mut visualization_points = vec![];
 
-    if known_unreachable(&current, &desired) {
+    // we can't fly yet :(
+    if ball.position.z - BALL_COLLISION_RADIUS > CAR_DIMENSIONS.z + CAR_OFFSET.z {
         return PlanResult {
             plan: None,
-            desired: desired.clone(),
+            cost_diff: std::f32::MAX,
             visualization_lines,
             visualization_points,
         };
@@ -330,9 +328,6 @@ pub fn hybrid_a_star<H: HeuristicModel>(
 
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: ParentsMap = IndexMap::default();
-
-    let desired_contact = desired.position;
-    let desired_hit_direction = Unit::new_normalize(desired.heading.clone());
 
     // buffers to avoid re-allocating in a loop
     let mut new_vertices = vec![];
@@ -431,15 +426,16 @@ pub fn hybrid_a_star<H: HeuristicModel>(
             if let Some((player, cost)) = player_goal_reached(&vertex.player, &parent_player, &ball, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
                 let plan = reverse_path(&parents, index, is_secondary, &player, cost);
 
+                let total_cost = plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
                 // println!(
                 //     "omg reached! step size: {} | expansions: {} | cost: {}",
                 //     config.step_duration * 120.0,
                 //     visualization_lines.len(),
-                //     plan.iter().map(|(_, _, cost)| cost).sum::<f32>(),
+                //     total_cost,
                 // );
                 return PlanResult {
                     plan: Some(plan),
-                    desired: desired.clone(),
+                    cost_diff: total_cost - cost_to_strive_for,
                     visualization_lines,
                     visualization_points,
                 };
@@ -645,7 +641,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
 
     PlanResult {
         plan: None,
-        desired: desired.clone(),
+        cost_diff: std::f32::MAX,
         visualization_lines,
         visualization_points,
     }
