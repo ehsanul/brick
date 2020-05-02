@@ -4,6 +4,7 @@ use predict;
 use state::*;
 use std;
 use std::cmp::Ordering;
+use std::error::Error;
 use std::f32::consts::PI;
 
 use indexmap::map::Entry::{Occupied, Vacant};
@@ -120,7 +121,8 @@ lazy_static! {
     };
 }
 
-const EXPLODED_STEP_DURATION: f32 = 2.0 * TICK;
+const TICKS_PER_STEP: i32 = 2;
+const EXPLODED_STEP_DURATION: f32 = TICKS_PER_STEP as f32 * TICK;
 
 /// wrapper around hybrid_a_star for convenience and some extra smarts. meant to be used by the
 /// live bot or bot simulation only, as it configures the serch paramters to favor speed over
@@ -146,37 +148,54 @@ pub extern "C" fn plan<H: HeuristicModel>(
         config.max_cost = (10.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
     }
 
-    let mut plan_result = hybrid_a_star(model, player, ball, desired_contact, &config);
-    explode_plan(&mut plan_result);
+    let mut plan_result = hybrid_a_star(model, player, ball, desired, cost_to_strive_for, &config);
+
+    match explode_plan(&mut plan_result) {
+        Ok(exploded) => plan_result.plan = exploded,
+        Err(e) => {
+            eprintln!("Exploding plan failed: {}", e);
+            plan_result.plan = None;
+        }
+    };
+
     plan_result
 }
 
 /// modifies the plan to use finer-grained steps
-pub fn explode_plan(plan_result: &mut PlanResult) {
-    if let Some(ref mut plan) = plan_result.plan {
+pub fn explode_plan(plan_result: &PlanResult) -> Result<Option<Plan>, Box<dyn Error>> {
+    if let Some(ref plan) = plan_result.plan {
         if plan.get(0).is_none() {
-            return;
+            return Ok(None)
         }
         let mut exploded_plan = Vec::with_capacity(plan.len()); // will be at least this long
         exploded_plan.push(plan[0]);
-
         for i in 1..plan.len() {
-            assert!(
-                ((plan[i].2 / TICK).round() % (EXPLODED_STEP_DURATION / TICK).round()).abs()
-                    < 0.000001
-            ); // ensure exact multiple, ignoring fp inaccuracies
-            let exploded_length = (plan[i].2 / EXPLODED_STEP_DURATION).round() as i32;
+            let num_ticks = (plan[i].2 / TICK).round() as i32;
+            let num_steps = num_ticks / TICKS_PER_STEP;
+            let remaining_ticks = num_ticks % TICKS_PER_STEP;
             let mut last_player = plan[i - 1].0;
             let controller = plan[i].1;
 
-            for j in 1..=exploded_length {
+            for j in 1..=num_steps {
                 let next_player = predict::player::next_player_state(
                     &last_player,
                     &controller,
                     EXPLODED_STEP_DURATION,
-                ).expect("next_player_state failed while exploding plan");
+                )?;
                 exploded_plan.push((next_player, controller, EXPLODED_STEP_DURATION));
                 last_player = next_player;
+            }
+
+            if remaining_ticks > 0 {
+                for j in 1..=remaining_ticks {
+                    let next_player = predict::player::next_player_state(
+                        &last_player,
+                        &controller,
+                        TICK,
+                    )?;
+                    exploded_plan.push((next_player, controller, TICK));
+                    last_player = next_player;
+                }
             }
         }
 
@@ -190,8 +209,9 @@ pub fn explode_plan(plan_result: &mut PlanResult) {
         //}).collect::<Vec<_>>());
         //println!("===================================");
 
-        plan.clear();
-        plan.append(&mut exploded_plan);
+        Ok(Some(exploded_plan))
+    } else {
+        Ok(None)
     }
 }
 
