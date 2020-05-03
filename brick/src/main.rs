@@ -50,6 +50,7 @@ pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 #[derive(Default)]
 struct BotIoConfig<'a> {
     manipulator: Option<fn(&rlbot::RLBot, &GameState, &BotState)>,
+    print_turn_errors: bool,
     start_match: bool,
     match_settings: Option<rlbot::MatchSettings<'a>>,
 }
@@ -207,6 +208,7 @@ fn run_bot_test() {
 
         let bot_io_config = BotIoConfig {
             manipulator: Some(bot_test_manipulator),
+            print_turn_errors: true,
             start_match: true,
             match_settings: Some(match_settings),
         };
@@ -391,6 +393,19 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             if bot.controller_history.len() > 100 {
                 // keep last 10
                 bot.controller_history = bot.controller_history.split_off(90);
+            }
+
+            if bot_io_config.print_turn_errors {
+                if bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
+                    let errors = bot.turn_errors.iter().take(20).cloned().collect::<Vec<_>>();
+                    //let sum = errors.iter().map(f32::abs).sum::<f32>();
+                    //let avg = sum / 20.0;
+                    let squared_sum = errors.iter().map(|x| x.abs() * x.abs()).sum::<f32>();
+                    let rms = (squared_sum / 20.0).powf(0.5);
+                    let max = errors.iter().cloned().fold(-1.0f32/0.0 /* -inf */, f32::max);
+                    let min = errors.iter().cloned().fold(1.0f32/0.0 /* inf */, f32::min);
+                    println!("rms: {}, min: {}, max: {}", rms, min, max);
+                }
             }
 
             rlbot
