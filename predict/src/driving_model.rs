@@ -65,7 +65,7 @@ impl DrivingModel {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct PlayerTransformation {
     pub start_local_vx: i16,
     pub start_local_vy: i16,
