@@ -15,6 +15,7 @@ use std::f32::consts::PI;
 // general constants
 pub const FPS: f32 = 120.0;
 pub const TICK: f32 = 1.0 / FPS; // matches RL's internal fixed physics tick rate
+pub const LAG_FRAMES: usize = 2; // FIXME tune
 
 // arena constants
 pub const SIDE_WALL_DISTANCE: f32 = 4096.0;
@@ -94,12 +95,43 @@ impl From<&rlbot::ControllerState> for FullController {
     }
 }
 
+impl From<&rlbot::ControllerState> for BrickControllerState {
+    /// NOTE this is approximate
+    fn from(ctrl: &rlbot::ControllerState) -> Self {
+        let throttle = if ctrl.throttle.abs() < 0.2 {
+            Throttle::Idle
+        } else if ctrl.throttle >= 0.0 {
+            Throttle::Forward
+        } else {
+            Throttle::Reverse
+        };
+
+        let steer = if ctrl.steer.abs() < 0.25 {
+            Steer::Straight
+        } else if ctrl.steer >= 0.0 {
+            Steer::Right
+        } else {
+            Steer::Left
+        };
+
+        BrickControllerState {
+            throttle,
+            steer,
+            pitch: ctrl.pitch,
+            yaw: ctrl.yaw,
+            roll: ctrl.roll,
+            jump: ctrl.jump,
+            boost: ctrl.boost,
+            handbrake: ctrl.handbrake,
+        }
+    }
+}
+
 #[derive(Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
     pub cost_diff: f32,
-    /// queue of (frame, controller)
-    pub controller_history: VecDeque<(i32, FullController)>,
+    pub controller_history: VecDeque<BrickControllerState>,
     pub turn_errors: VecDeque<f32>,
     pub last_action: Option<Action>,
 }
@@ -320,50 +352,46 @@ const FRAME_MASK: i32 = MAX_FRAMES - 1;
 /// types etc
 pub fn update_game_state(
     game_state: &mut GameState,
-    tick: &rlbot::flat::RigidBodyTick,
+    tick: &rlbot::flat::GameTickPacket,
     player_index: usize,
 ) {
     let ball = tick.ball().expect("Missing ball");
-    let ball = ball.state().expect("Missing rigid body ball state");
     let players = tick.players().expect("Missing players");
     let player = players.get(player_index);
-    let input = player.input().expect("Missing player input");
-    let player = player.state().expect("Missing rigid body player state");
 
-    let bl = ball.location().expect("Missing ball location");
-    let bv = ball.velocity().expect("Missing ball velocity");
-    let bav = ball
-        .angularVelocity()
-        .expect("Missing ball angular velocity");
-    game_state.frame = ball.frame();
+    let bp = ball.physics().expect("Missing ball physics");
+    let bl = bp.location().expect("Missing ball location");
+    let bv = bp.velocity().expect("Missing ball velocity");
+    let bav = bp.angularVelocity().expect("Missing ball angular velocity");
     game_state.ball.position = Vector3::new(-bl.x(), bl.y(), bl.z()); // x should be positive towards right, it only makes sense
     game_state.ball.velocity = Vector3::new(-bv.x(), bv.y(), bv.z()); // x should be positive towards right, it only makes sense
     game_state.ball.angular_velocity = Vector3::new(-bav.x(), bav.y(), bav.z()); // x should be positive towards right, it only makes sense
 
-    let pl = player.location().expect("Missing player location");
-    let pv = player.velocity().expect("Missing player velocity");
-    let pav = player
-        .angularVelocity()
-        .expect("Missing player angular velocity");
-    let pr = player.rotation().expect("Missing player rotation");
+    let pp = player.physics().expect("Missing player physics");
+    let pl = pp.location().expect("Missing player location");
+    let pv = pp.velocity().expect("Missing player velocity");
+    let pav = pp.angularVelocity().expect("Missing player angular velocity");
+    let pr = pp.rotation().expect("Missing player rotation");
     game_state.player.position = Vector3::new(-pl.x(), pl.y(), pl.z()); // x should be positive towards right, it only makes sense
     game_state.player.velocity = Vector3::new(-pv.x(), pv.y(), pv.z()); // x should be positive towards right, it only makes sense
     game_state.player.angular_velocity = Vector3::new(-pav.x(), pav.y(), pav.z()); // x should be positive towards right, it only makes sense
 
+    let uq = UnitQuaternion::from_euler_angles(pr.roll(), pr.pitch(), pr.yaw());
+    let q = uq.quaternion();
     // converting from right handed to left handed coordinate system (goes with the x axis flip above)
     // https://stackoverflow.com/a/34366144/127219
-    game_state.player.rotation =
-        UnitQuaternion::from_quaternion(Quaternion::new(pr.w(), pr.x(), -pr.y(), -pr.z()));
+    game_state.player.rotation = UnitQuaternion::from_quaternion(
+        Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2])
+    );
 
-    game_state.input_frame = calculate_input_frame(game_state.frame, input.roll());
+    // i guess we no longer get input back, nor current game frame
+    //game_state.input_frame = calculate_input_frame(game_state.frame, input.roll());
 
-    // FIXME we don't get team in the physics tick. maybe we need to seed this with a single
-    //       GameTickPacket to start
-    // game_state.player.team = match player.Team {
-    //     0 => Team::Blue,
-    //     1 => Team::Orange,
-    //     _ => unimplemented!(),
-    // };
+    game_state.player.team = match player.team() {
+        0 => Team::Blue,
+        1 => Team::Orange,
+        _ => unimplemented!(),
+    };
 }
 
 /// we use the least significant bits of the roll input to encode the frame used when determining

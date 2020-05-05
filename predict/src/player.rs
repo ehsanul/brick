@@ -3,6 +3,7 @@ use sample;
 use driving_model;
 use state::*;
 use std::f32;
+use std::collections::VecDeque;
 
 pub enum PredictionCategory {
     /// Wheels on ground
@@ -366,3 +367,27 @@ pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickC
 
     None
 }
+
+// hack: use trait to add methods since PlayerState belongs to another crate
+pub trait PredictPlayer {
+    fn lag_compensated_player(&self, controller_history: &VecDeque<BrickControllerState>, lag_frames: usize) -> PlayerState;
+}
+
+impl PredictPlayer for PlayerState {
+    /// applies lag_frames of latest controller history to the given player. if compensation
+    /// calculation fails for some steps, this failure is ignored and only printed to stderr
+    fn lag_compensated_player(&self, controller_history: &VecDeque<BrickControllerState>, lag_frames: usize) -> PlayerState {
+        assert!(lag_frames % 2 == 0);
+        let mut player = self.clone();
+        for offset in (0..lag_frames / 2).rev() {
+            if let Some(controller) = controller_history.get(controller_history.len() - 2 - offset * 2) {
+                match next_player_state(&player, &controller, TICK * 2.0) {
+                    Ok(next_player) => player = next_player,
+                    Err(e) => eprintln!("Lag compensation error: {}", e),
+                }
+            }
+        }
+        player
+    }
+}
+

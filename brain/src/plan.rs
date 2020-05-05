@@ -151,7 +151,7 @@ pub extern "C" fn plan<H: HeuristicModel>(
 
     let mut plan_result = hybrid_a_star(model, player, ball, desired, cost_to_strive_for, &config);
 
-    match explode_plan(&mut plan_result) {
+    match explode_plan(&plan_result) {
         Ok(exploded) => plan_result.plan = exploded,
         Err(e) => {
             eprintln!("Exploding plan failed: {}", e);

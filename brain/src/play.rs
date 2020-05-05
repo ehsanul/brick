@@ -1,7 +1,7 @@
 use crate::HeuristicModel; // TODO as _;
 use na::{self, Rotation3, Unit, Vector3};
 use plan;
-use predict;
+use predict::{self, player::PredictPlayer};
 use rlbot;
 use state::*;
 use std;
@@ -45,6 +45,10 @@ pub extern "C" fn simple_desired_contact(
     }
 }
 
+// 1. for each point in the ball trajectory estimate the
+//    time by which we can hit the ball into the goal
+// 2. compare that to the time in the ball trajectory
+// 3. choose the point in trajectory with smallest diff
 fn reachable_contact_and_time<H: HeuristicModel>(
     model: &mut H,
     player: &PlayerState,
@@ -92,28 +96,15 @@ fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState)
     //     } else {
     //         None
     //     };
-    let result = hit_ball(model, &game, &desired_ball_position, last_plan);
+    let result = hit_ball(model, game, bot, &desired_ball_position, last_plan);
     bot.last_action = Some(Action::Shoot);
     result
 }
 
-// 1. binary search the ball trajectory
-// 2. for each search pivot point, determine a set of car states (position/velocity) that collide
-//    with the ball in such a way as to cause the ball to head towards the desired ball position
-// 3. based on that desired player state (shooting_player_state), we now need to determine the
-//    time by which we can arrive at that point. this is a guestimate, maybe we can use very
-//    coarse a* for this if it's fast enough, or just a version of the heuristic_cost function
-//    that isn't so admissible (ie more realistic/average timing).
-// 4. compare that to the time in the ball trajectory
-// 5. if we arrived earlier than the ball, we know we can hit it at an earlier point in it's
-//    trajectory. if we arrived later, then we hope we can hit it on time at a later point in
-//    the trajctory
-// 6. boom we found the earliest point at which it's possible to hit the ball into its desired
-//    position, and got the corresponding desired player state all at once.
-// 7. plan motion to reach desired player state
 fn hit_ball<H: HeuristicModel>(
     model: &mut H,
     game: &GameState,
+    bot: &BotState,
     desired_ball_position: &Vector3<f32>,
     last_plan: Option<&Plan>,
 ) -> PlanResult {
@@ -124,15 +115,17 @@ fn hit_ball<H: HeuristicModel>(
     //println!("#############################");
     //let start = Instant::now();
 
+    // FIXME additional lag should be added for brick's planning calculation lag
     let (desired_contact, time) = reachable_contact_and_time(
         model,
-        &game.player,
+        &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES),
         &ball_trajectory,
         &desired_ball_position,
     );
     let start = Instant::now();
-    let result = plan::plan(model, &game.player, &game.ball, &desired_contact, time, last_plan);
-    println!("PLAN DURATION: {:?}", start.elapsed());
+    // FIXME additional lag should be added for brick's planning calculation lag
+    let result = plan::plan(model, &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES), &game.ball, &desired_contact, time, last_plan);
+    // println!("PLAN DURATION: {:?}", start.elapsed());
     result
 }
 
@@ -170,14 +163,14 @@ pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotSta
 }
 
 #[no_mangle]
-pub extern "C" fn closest_plan_index(current_player: &PlayerState, plan: &Plan) -> usize {
+pub extern "C" fn closest_plan_index(given_player: &PlayerState, plan: &Plan) -> usize {
     assert!(plan.len() != 0);
 
     let mut index = 0;
     let mut min_distance = std::f32::MAX;
 
     for (i, (player, _, _)) in plan.iter().enumerate() {
-        let distance = (current_player.position - player.position).norm();
+        let distance = (given_player.position - player.position).norm();
         if distance < min_distance {
             min_distance = distance;
             index = i
@@ -189,27 +182,27 @@ pub extern "C" fn closest_plan_index(current_player: &PlayerState, plan: &Plan) 
 
 #[no_mangle]
 pub extern "C" fn next_input(
-    current_player: &PlayerState,
+    player: &PlayerState,
     bot: &mut BotState,
 ) -> rlbot::ControllerState {
     if let Some(ref plan) = bot.plan {
-        // TODO
-        //    we need to take into account the inputs previously sent that will be processed
-        //    prior to finding where we are. instead of passing the current player, apply N inputs
-        //    that are not yet applied, where N is the number of frames we're lagging by
-        // TODO
-        let index = closest_plan_index(&current_player, &plan);
+        // we need to take into account the inputs previously sent that will be processed
+        // prior to finding where we are. instead of passing the current player, apply
+        // LAG_FRAMES inputs that are not yet applied
+        let player = player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
+        let index = closest_plan_index(&player, &plan);
 
         // we need to look one past closest index to see the controller to reach next position
         if index < plan.len() - 1 {
             let current_heading =
-                current_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+                player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
             let (closest_player, _, _) = plan[index];
             let (_next_player, controller, _) = plan[index + 1];
+            //println!("index: {}, controller.steer: {:?}", index, controller.steer);
 
             // FIXME we should account for differences in the tick and interpolate between the two
             // closest indices to get the real closet delta/distance
-            let closest_delta = current_player.position - closest_player.position;
+            let closest_delta = player.position - closest_player.position;
             let closest_distance = closest_delta.norm();
             let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI / 2.0);
             let relative_right = clockwise_90_rotation * current_heading;
@@ -221,8 +214,8 @@ pub extern "C" fn next_input(
                     &Unit::new_normalize(closest_delta.clone()).into_inner(),
                     &relative_right,
                 ); // positive for right, negative for left
-                println!("direction: {}, distance: {}", direction, closest_distance);
-                let error = direction * closest_distance;
+                //println!("direction: {}, distance: {}", direction, closest_distance);
+                let error = if direction > 0.0 { closest_distance } else { -closest_distance };
                 bot.turn_errors.push_back(error);
             }
 
@@ -234,7 +227,7 @@ pub extern "C" fn next_input(
             //println!("controller: {:?}", controller);
             let mut input = convert_controller_to_rlbot_input(&controller);
             //println!("input before: {:?}", input);
-            pd_adjust(&mut input, &bot.turn_errors);
+            // FIXME // pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
 
             return input;
@@ -243,9 +236,9 @@ pub extern "C" fn next_input(
 
     // fallback
     let mut input = rlbot::ControllerState::default();
-    input.throttle = 0.5;
-    if current_player.position.z > 150.0 {
-        if (current_player.position.z as i32 % 2) == 0 {
+    input.throttle = 1.0;
+    if player.position.z > 150.0 {
+        if (player.position.z as i32 % 2) == 0 {
             input.jump = true;
         }
     }

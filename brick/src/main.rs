@@ -19,7 +19,7 @@ extern crate docopt;
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate passthrough;
-extern crate ratelimit;
+extern crate spin_sleep;
 extern crate rlbot;
 extern crate state;
 
@@ -33,9 +33,9 @@ use std::f32::consts::PI;
 use std::panic;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Mutex, RwLock};
+use std::sync::RwLock;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use passthrough::{human_input, update_gamepad, Gamepad, Gilrs};
 use state::*;
@@ -43,7 +43,9 @@ use state::*;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
 use kiss3d::window::Window;
-use na::{Point3, Rotation3, Translation3, Unit, UnitQuaternion, Vector3};
+use na::{Point3, Rotation3, Translation3, UnitQuaternion, Vector3};
+use brain::predict::{self, player::PredictPlayer};
+use spin_sleep::LoopHelper;
 
 pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
@@ -101,12 +103,11 @@ fn run_visualization(){
 
     window.set_light(Light::StickToCamera);
 
-    let mut ratelimiter = ratelimit::Builder::new()
-        .interval(Duration::from_millis(1000 / 60)) // rendering limited to 60 fps
-        .build();
+    let mut loop_helper = LoopHelper::builder()
+        .build_with_target_rate(60.0); // limit to 240 FPS
 
     while window.render() {
-        ratelimiter.wait();
+        loop_helper.loop_start();
 
         let game_state = &GAME_STATE.read().unwrap();
         let lines = &LINES.read().unwrap();
@@ -166,6 +167,8 @@ fn run_visualization(){
                 &p.1,
             );
         }
+
+        loop_helper.loop_sleep();
     }
 }
 
@@ -190,8 +193,8 @@ fn run_bot_test() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
-        let fennec = rlbot::PlayerLoadout::new().car_id(4284);
+        let batmobile = rlbot::PlayerLoadout::new().car_id(803);
+        let _fennec = rlbot::PlayerLoadout::new().car_id(4284); // TODO get recordings of driving fennec for model
 
         let mut match_settings =
             rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
@@ -199,10 +202,11 @@ fn run_bot_test() {
                 "Brick Test",
                 0,
             )
-            .loadout(fennec)]);
+            .loadout(batmobile)]);
 
         match_settings.mutator_settings =
             rlbot::MutatorSettings::new().
+            //game_speed_option(rlbot::GameSpeedOption::Slo_Mo). // XXX this doesn't work wtf
             match_length(rlbot::MatchLength::Unlimited).
             boost_option(rlbot::BoostOption::Unlimited_Boost);
 
@@ -241,26 +245,59 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
 }
 
 fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
-    ////let plan = offset_forward_plan(&game.player);
-    //let plan = square_plan(&game.player);
-    //PlanResult {
-    //    plan: plan,
-    //    desired: DesiredContact::default(),
-    //    visualization_lines: vec![],
-    //    visualization_points: vec![],
-    //})
-    brain::play::play(model, &game, bot)
+    let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
+    //if let Ok(plan) = offset_forward_plan(&player) {
+    //let mut plan_result = if let Ok(plan) = snek_plan(&player) {
+    let mut plan_result = if let Ok(plan) = square_plan(&player) {
+        for (i, (_next_player, controller, cost)) in plan.iter().enumerate() {
+            println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
+        }
+        PlanResult {
+            plan: Some(plan),
+            cost_diff: 0.0,
+            visualization_lines: vec![],
+            visualization_points: vec![],
+        }
+    } else {
+        PlanResult {
+            plan: None,
+            cost_diff: 0.0,
+            visualization_lines: vec![],
+            visualization_points: vec![],
+        }
+    };
+    match brain::plan::explode_plan(&plan_result) {
+        Ok(exploded) => {
+            plan_result.plan = exploded;
+            println!("============= EXPLODED =============");
+            if let Some(x) = plan_result.plan.as_ref() {
+                for (i, (_next_player, controller, cost)) in x.iter().enumerate() {
+                    println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
+                }
+            }
+            println!("============= DONE =============");
+        },
+        Err(e) => {
+            eprintln!("Exploding plan failed: {}", e);
+            plan_result.plan = None;
+        }
+    };
+    plan_result
+
+    //brain::play::play(model, &game, bot)
 }
 
 fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
     let mut model = brain::get_model();
-    let mut ratelimiter = ratelimit::Builder::new()
-        .interval(Duration::from_millis(1000 / 120)) // bot limited to 120 fps
-        .build();
+
+    let mut loop_helper = LoopHelper::builder()
+        //.build_with_target_rate(120.0); // limit to 120 FPS
+        .build_with_target_rate(0.2); // limit to 0.2 FPS
 
     loop {
+        loop_helper.loop_start();
         let (mut game, mut bot) = receiver.recv().expect("Couldn't receive game state");
 
         // make sure we have the latest, drop earlier states
@@ -271,7 +308,8 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
 
         update_gamepad(&mut gilrs, &mut gamepad);
         if !gamepad.select_toggled {
-            ratelimiter.wait();
+            bot.turn_errors.clear();
+            loop_helper.loop_sleep();
             continue;
         }
 
@@ -279,7 +317,7 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
             .send(bot_test_plan(&mut model, &game, &mut bot))
             .expect("Failed to send plan result");
 
-        ratelimiter.wait();
+        loop_helper.loop_sleep();
 
         // below is for figuring out good PD control parameters, with a canned plan
         //
@@ -309,7 +347,7 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
         //         .powf(2.0);
         //     square_errors.push(square_error);
 
-        //     ratelimiter.wait();
+        //     loop_helper.loop_sleep();
         // }
         // println!("========================================");
         // println!("Steps: {}", square_errors.len());
@@ -321,16 +359,26 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
     }
 }
 
+pub fn try_next_flat<'fb>(rlbot: &rlbot::RLBot, last_time: f32) -> Option<rlbot::flat::GameTickPacket<'fb>> {
+    if let Some(packet) = rlbot.interface().update_live_data_packet_flatbuffer() {
+        let game_time = packet.gameInfo().map(|gi| gi.secondsElapsed());
+        if let Some(game_time) = game_time {
+            if game_time != last_time {
+                return Some(packet);
+            }
+        }
+    }
+    None
+}
+
 fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>, bot_io_config: BotIoConfig) {
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
     let rlbot = rlbot::init().expect("rlbot init failed");
-    let mut physicist = rlbot.physicist();
 
-    let mut ratelimiter = ratelimit::Builder::new()
-        .interval(Duration::from_millis(1000 / 120)) // bot io limited to 120 fps
-        .build();
+    let mut loop_helper = LoopHelper::builder()
+        .build_with_target_rate(240.0); // bot io limited to 240 FPS
 
     if bot_io_config.start_match {
         if let Some(match_settings) = bot_io_config.match_settings {
@@ -342,16 +390,22 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         }
     }
 
-    loop {
-        // FIXME find out the new method for setting the correct player index since the tcp server
-        // thing is gone afaik. just a command line argument now perhaps?
-        let player_index = 0;
+    // FIXME find out the new method for setting the correct player index since the tcp server
+    // thing is gone afaik. just a command line argument now perhaps?
+    let player_index = 0;
 
-        while let Ok(tick) = physicist.next_flat() {
+    let mut start = Instant::now();
+    let mut count = 0;
+
+    let mut last_time = 0.0;
+    loop {
+        loop_helper.loop_start();
+        if let Some(tick) = try_next_flat(&rlbot, last_time) {
+            last_time = tick.gameInfo().expect("Missing gameinfo").secondsElapsed();
             update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
 
             send_to_bot_logic(&sender, &bot);
-            ratelimiter.wait();
+            loop_helper.loop_sleep();
 
             // make sure we have the latest results in case there are multiple, though note we may save
             // the plan from an earlier run if it happens to be the best one
@@ -363,14 +417,14 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 };
             }
 
-            // remove part of plan that is no longer relevant since we've already passed it
-            if let Some(ref mut plan) = bot.plan {
-                let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
-                //println!("closest index: {}, plan len: {}", closest_index, plan.len());
-                *plan = plan.split_off(closest_index);
-            } else {
-                //println!("no plan");
-            }
+            // // remove part of plan that is no longer relevant since we've already passed it
+            // if let Some(ref mut plan) = bot.plan {
+            //     let closest_index = brain::play::closest_plan_index(&GAME_STATE.read().unwrap().player, &plan);
+            //     //println!("closest index: {}, plan len: {}", closest_index, plan.len());
+            //     *plan = plan.split_off(closest_index);
+            // } else {
+            //     //println!("no plan");
+            // }
 
             // the difference between these is the frame lag
             let input_frame = GAME_STATE.read().unwrap().input_frame;
@@ -380,6 +434,8 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             let mut input = if gamepad.select_toggled {
                 brain::play::next_input(&GAME_STATE.read().unwrap().player, &mut bot)
             } else {
+                bot.plan = None;
+                bot.turn_errors.clear();
                 human_input(&gamepad)
             };
 
@@ -389,22 +445,25 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 set_frame_metadata(game.frame, &mut input);
             }
 
-            bot.controller_history.push_back((frame, (&input).into()));
-            if bot.controller_history.len() > 100 {
-                // keep last 10
-                bot.controller_history = bot.controller_history.split_off(90);
+            bot.controller_history.push_back((&input).into());
+            if bot.controller_history.len() > 1000 {
+                // keep last 100
+                bot.controller_history = bot.controller_history.split_off(900);
             }
 
             if bot_io_config.print_turn_errors {
                 if bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
-                    let errors = bot.turn_errors.iter().take(20).cloned().collect::<Vec<_>>();
+                    // last 20
+                    let errors = bot.turn_errors.iter().skip(bot.turn_errors.len() - 20).cloned().collect::<Vec<_>>();
                     //let sum = errors.iter().map(f32::abs).sum::<f32>();
                     //let avg = sum / 20.0;
-                    let squared_sum = errors.iter().map(|x| x.abs() * x.abs()).sum::<f32>();
+                    let squared_sum = errors.iter().map(|x| x * x).sum::<f32>();
                     let rms = (squared_sum / 20.0).powf(0.5);
-                    let max = errors.iter().cloned().fold(-1.0f32/0.0 /* -inf */, f32::max);
-                    let min = errors.iter().cloned().fold(1.0f32/0.0 /* inf */, f32::min);
+                    let max = errors.iter().map(|x| x.abs()).fold(-1.0f32/0.0 /* -inf */, f32::max);
+                    let min = errors.iter().map(|x| x.abs()).fold(1.0f32/0.0 /* inf */, f32::min);
+                    //println!("errors: {:?}", errors);
                     println!("rms: {}, min: {}, max: {}", rms, min, max);
+                    //println!("first error: {}", bot.turn_errors[0]);
                 }
             }
 
@@ -416,6 +475,13 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             if let Some(manipulator) = bot_io_config.manipulator {
                 manipulator(&rlbot, &GAME_STATE.read().unwrap(), &bot);
             }
+            count += 1;
+            if count % 120 == 0 {
+                println!("120 frames took: {:?}", start.elapsed());
+                start = Instant::now();
+            }
+        } else {
+            loop_helper.loop_sleep();
         }
     }
 }
@@ -435,6 +501,7 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
         if let Some(ref existing_plan) = bot.plan {
             let new_plan_cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
 
+            // XXX lag compensate? stitch up with existing plan too below?
             let closest_index = brain::play::closest_plan_index(&game.player, &existing_plan);
             let existing_plan_cost = existing_plan.iter().enumerate().filter(|(index, _val)| {
                 *index > closest_index
@@ -561,7 +628,7 @@ fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
         .expect("Sending to bot logic failed");
 }
 
-fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
+fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
@@ -576,7 +643,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let mut straight_controller = BrickControllerState::new();
     straight_controller.throttle = Throttle::Forward;
 
-    const TURN_DURATION: f32 = 2.0 * TICK;
+    const TURN_DURATION: f32 = 16.0 * TICK;
     // straighten out for zero angular velocity at end, hopefully 16 ticks is enough?
     const STRAIGHT_DURATION: f32 = 16.0 * TICK;
 
@@ -584,20 +651,20 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
     let mut last_dot = std::f32::MIN;
     let mut player = current.clone();
     loop {
-        let turn_player = brain::predict::player::next_player_state(&player, &turn_controller, TURN_DURATION).unwrap();
+        let turn_player = predict::player::next_player_state(&player, &turn_controller, TURN_DURATION)?;
         let turn_heading = turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let turn_dot = na::Matrix::dot(&turn_heading, &desired_heading);
 
         // straight duration is much longer than turn duration
-        let long_turn_player = brain::predict::player::next_player_state(&turn_player, &turn_controller, STRAIGHT_DURATION).unwrap();
+        let long_turn_player = predict::player::next_player_state(&turn_player, &turn_controller, STRAIGHT_DURATION)?;
         let long_turn_heading = long_turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let long_turn_dot = na::Matrix::dot(&long_turn_heading, &desired_heading);
 
-        let turn_then_straight_player = brain::predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION).unwrap();
+        let turn_then_straight_player = predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION)?;
         let turn_then_straight_heading = turn_then_straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let turn_then_straight_dot = na::Matrix::dot(&turn_then_straight_heading, &desired_heading);
 
-        let straight_player = brain::predict::player::next_player_state(&player, &straight_controller, STRAIGHT_DURATION).unwrap();
+        let straight_player = predict::player::next_player_state(&player, &straight_controller, STRAIGHT_DURATION)?;
         let straight_heading = straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let straight_dot = na::Matrix::dot(&straight_heading, &desired_heading);
 
@@ -620,10 +687,10 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Plan {
         }
     }
 
-    plan
+    Ok(plan)
 }
 
-fn forward_plan(current: &PlayerState, distance: f32) -> Plan {
+fn forward_plan(current: &PlayerState, distance: f32) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
 
     let mut controller = BrickControllerState::new();
@@ -631,28 +698,67 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Plan {
 
     let mut player = current.clone();
     while (player.position - current.position).norm() < distance {
-        player = brain::predict::player::next_player_state(&player, &controller, 16.0 * TICK).unwrap(); // FIXME step_duration input
+        player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?; // FIXME step_duration input
         plan.push((player, controller, 16.0 * TICK));
     }
-    plan
+
+    Ok(plan)
 }
 
-fn square_plan(current: &PlayerState) -> Plan {
+fn square_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
-    let max_throttle_speed = 1545.0; // FIXME put in common lib
-    player.velocity = max_throttle_speed * Unit::new_normalize(player.velocity).into_inner();
     plan.push((player, BrickControllerState::new(), 0.0));
     for _ in 0..4 {
-        let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0);
+        let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0)?;
         plan.append(&mut plan_part);
-        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, -PI / 2.0);
+        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, -PI / 2.0)?;
         plan.append(&mut plan_part);
     }
-    plan
+
+    Ok(plan)
 }
 
-fn offset_forward_plan(current: &PlayerState) -> Plan {
+fn snek_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
+    let mut plan = vec![];
+    let mut player = current.clone();
+    plan.push((player, BrickControllerState::new(), 0.0));
+
+    // FIXME this way of making the plan exposes many issues it seems
+    let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 500.0)?;
+    plan.append(&mut plan_part);
+    for _ in 0..2 {
+        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, PI / 6.0)?;
+        plan.append(&mut plan_part);
+        let mut plan_part = turn_plan(&plan[plan.len() - 1].0, -PI / 6.0)?;
+        plan.append(&mut plan_part);
+    }
+
+    // let mut controller = BrickControllerState::new();
+    // controller.throttle = Throttle::Forward;
+    // for _ in 0..4 {
+    //     player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+    //     plan.push((player, controller, 16.0 * TICK));
+    // }
+
+    // for _ in 0..2 {
+    //     controller.steer = Steer::Left;
+    //     for _ in 0..4 {
+    //         player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+    //         plan.push((player, controller, 16.0 * TICK));
+    //     }
+
+    //     controller.steer = Steer::Right;
+    //     for _ in 0..4 {
+    //         player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+    //         plan.push((player, controller, 16.0 * TICK));
+    //     }
+    // }
+
+    Ok(plan)
+}
+
+fn offset_forward_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut offset_player = current.clone();
     let heading = offset_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0);
@@ -668,9 +774,8 @@ fn simulate_over_time() {
     let mut bot = BotState::default();
     let mut model = brain::get_model();
 
-    let mut ratelimiter = ratelimit::Builder::new()
-        .interval(Duration::from_millis(1000 / 120)) // simulation limited to 120 fps
-        .build();
+    let mut loop_helper = LoopHelper::builder()
+        .build_with_target_rate(120.0); // bot io limited to 240 FPS
 
     {
         let mut game_state = GAME_STATE.write().unwrap();
@@ -691,6 +796,7 @@ fn simulate_over_time() {
     }
 
     loop {
+        loop_helper.loop_start();
         {
             let game_state = GAME_STATE.read().unwrap();
             let plan_result = brain::play::play(&mut model, &game_state, &mut bot);
@@ -720,7 +826,7 @@ fn simulate_over_time() {
             game_state.player.position += Vector3::new(20.0, 20.0, 0.0);
         }
 
-        ratelimiter.wait();
+        loop_helper.loop_sleep();
     }
 }
 

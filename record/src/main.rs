@@ -55,7 +55,7 @@ struct RecordState {
 }
 
 impl RecordState {
-    pub fn record(&mut self, tick: &flat::RigidBodyTick) {
+    pub fn record(&mut self, tick: &flat::GameTickPacket) {
         let mut game_state = GameState::default();
         state::update_game_state(&mut game_state, &tick, 0);
 
@@ -192,7 +192,7 @@ impl RecordState {
     pub fn set_game_state_accurately(
         &mut self,
         rlbot: &rlbot::RLBot,
-        physicist: &mut rlbot::Physicist,
+        packeteer: &mut rlbot::Packeteer,
         index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,
         adjustment: &mut Adjustment,
     ) -> Result<(), Box<Error>> {
@@ -258,7 +258,7 @@ impl RecordState {
                     .into());
                 }
 
-                let tick = physicist.next_flat()?;
+                let tick = packeteer.next_flatbuffer()?;
                 let mut game_state = GameState::default();
                 state::update_game_state(&mut game_state, &tick, 0);
 
@@ -319,7 +319,7 @@ impl RecordState {
                     self.reset_game_state(&rlbot)?;
                     // wait till we're far, so is_initial_state works after this
                     'inner2: loop {
-                        let tick = physicist.next_flat()?;
+                        let tick = packeteer.next_flatbuffer()?;
                         let mut game_state = GameState::default();
                         state::update_game_state(&mut game_state, &tick, 0);
 
@@ -398,7 +398,7 @@ fn _record_set(
     };
 
     record_state.set_next_game_state(&rlbot)?;
-    let mut physicist = rlbot.physicist();
+    let mut packeteer = rlbot.packeteer();
     loop {
         // skip unreachable velocities
         if record_state.local_vx.pow(2) + record_state.local_vy.pow(2) > MAX_BOOST_SPEED.pow(2) {
@@ -411,7 +411,7 @@ fn _record_set(
             continue;
         }
 
-        let tick = physicist.next_flat()?;
+        let tick = packeteer.next_flatbuffer()?;
 
         record_state.record(&tick);
         if record_state.sample_complete() {
@@ -512,16 +512,16 @@ fn record_missing_record_state<'a>(
     adjustment: &mut Adjustment,
 ) -> Result<(), Box<Error>> {
     record_state.records.clear();
-    let mut physicist = rlbot.physicist();
+    let mut packeteer = rlbot.packeteer();
     rlbot.update_player_input(0, &input)?;
 
     loop {
         // waits and checks the tick to ensure it meets our conditions. and it records the first tick
-        record_state.set_game_state_accurately(&rlbot, &mut physicist, index, adjustment)?;
+        record_state.set_game_state_accurately(&rlbot, &mut packeteer, index, adjustment)?;
 
         loop {
             //rlbot.update_player_input(0, &input)?;
-            let tick = physicist.next_flat()?;
+            let tick = packeteer.next_flatbuffer()?;
             record_state.record(&tick);
 
             if record_state.sample_complete() {
