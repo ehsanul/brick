@@ -106,14 +106,19 @@ fn interpolate_transformation_halfway(transformation: driving_model::PlayerTrans
     transformation.end_yaw /= 2.0;
     transformation.end_angular_velocity_z = current.angular_velocity.z + (transformation.end_angular_velocity_z - current.angular_velocity.z) / 2.0;
 
-    // NOTE this is an inaccurate interpolation while rotation changes, as both the start and end
-    // velocities are in in relation to the starting rotation. we could improve this by inverse
+    // NOTE start local vx/vy is with car facing forwards in y direction, but end_velocity is with car
+    // facing leftwards, ie negative x direction. so we align them first before interpolation
+    let start_velocity = Vector3::new(transformation.start_local_vx as f32, transformation.start_local_vy as f32, 0.0);
+    let rotation = Rotation3::from_euler_angles(0.0, 0.0, std::f32::consts::PI / 2.0); // anti-clockwise
+    let start_velocity = rotation * start_velocity;
+
+    // NOTE this is an inaccurate interpolation while rotation changes improve this by inverse
     // rotation of the end velocities using end_yaw, then interpolating, then rotating again, but
     // it's unclear how big the problem is given we are only using this for going from 2 ticks to
     // one: this basic linear interpolation should suffice for that, as long as this is used for
     // plan explosion and other non-critical functions only
-    transformation.end_velocity_x = transformation.end_velocity_x + (transformation.end_velocity_x - transformation.start_local_vx) / 2;
-    transformation.end_velocity_y = transformation.end_velocity_y + (transformation.end_velocity_y - transformation.start_local_vy) / 2;
+    transformation.end_velocity_x = start_velocity.x as i16 + (transformation.end_velocity_x - start_velocity.x as i16) / 2;
+    transformation.end_velocity_y = start_velocity.y as i16 + (transformation.end_velocity_y - start_velocity.y as i16) / 2;
 
     transformation
 }
@@ -377,11 +382,10 @@ impl PredictPlayer for PlayerState {
     /// applies lag_frames of latest controller history to the given player. if compensation
     /// calculation fails for some steps, this failure is ignored and only printed to stderr
     fn lag_compensated_player(&self, controller_history: &VecDeque<BrickControllerState>, lag_frames: usize) -> PlayerState {
-        assert!(lag_frames % 2 == 0);
         let mut player = self.clone();
-        for offset in (0..lag_frames / 2).rev() {
-            if let Some(controller) = controller_history.get(controller_history.len() - 2 - offset * 2) {
-                match next_player_state(&player, &controller, TICK * 2.0) {
+        for offset in (0..lag_frames).rev() {
+            if let Some(controller) = controller_history.get(controller_history.len() - 1 - offset) {
+                match next_player_state(&player, &controller, TICK) {
                     Ok(next_player) => player = next_player,
                     Err(e) => eprintln!("Lag compensation error: {}", e),
                 }

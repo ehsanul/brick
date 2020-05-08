@@ -121,7 +121,7 @@ lazy_static! {
     };
 }
 
-const TICKS_PER_STEP: i32 = 2;
+const TICKS_PER_STEP: i32 = 1;
 const EXPLODED_STEP_DURATION: f32 = TICKS_PER_STEP as f32 * TICK;
 
 /// wrapper around hybrid_a_star for convenience and some extra smarts. meant to be used by the
@@ -170,6 +170,10 @@ pub fn explode_plan(plan_result: &PlanResult) -> Result<Option<Plan>, Box<dyn Er
         }
         let mut exploded_plan = Vec::with_capacity(plan.len()); // will be at least this long
         exploded_plan.push(plan[0]);
+
+        // for every plan segment, we expand within that segment. using small ticks repeated causes
+        // the errors to accumulate rapidly, so we start over with each plan segment starting with
+        // a more accurate base value
         for i in 1..plan.len() {
             let num_ticks = (plan[i].2 / TICK).round() as i32;
             let num_steps = num_ticks / TICKS_PER_STEP;
@@ -177,16 +181,31 @@ pub fn explode_plan(plan_result: &PlanResult) -> Result<Option<Plan>, Box<dyn Er
             let mut last_player = plan[i - 1].0;
             let controller = plan[i].1;
 
+            assert!(EXPLODED_STEP_DURATION == TICK); // added logic specific single ticks now
+
             for j in 1..=num_steps {
+                // when stepping by single ticks, still use 2-tick calculations when possible for better accuracy
+                let (step, last) = if EXPLODED_STEP_DURATION == TICK && j % 2 == 0 {
+                    if j == 2 {
+                        // use the more accurate value as a base to start expansion from
+                        (TICK * 2.0, &plan[i - 1].0)
+                    } else {
+                        (TICK * 2.0, &exploded_plan[exploded_plan.len() - 2].0)
+                    }
+                } else {
+                    (EXPLODED_STEP_DURATION, &last_player)
+                };
                 let next_player = predict::player::next_player_state(
-                    &last_player,
+                    last,
                     &controller,
-                    EXPLODED_STEP_DURATION,
+                    step,
                 )?;
-                exploded_plan.push((next_player, controller, EXPLODED_STEP_DURATION));
+                exploded_plan.push((next_player, controller, step));
                 last_player = next_player;
             }
 
+            // if we are exploding into 2-tick steps, if there is a leftover tick we still want to
+            // include/exlode it
             if remaining_ticks > 0 {
                 for j in 1..=remaining_ticks {
                     let next_player = predict::player::next_player_state(
