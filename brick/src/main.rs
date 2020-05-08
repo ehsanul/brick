@@ -295,12 +295,12 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
 }
 
 fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
-    // FIXME let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
-    let player = PlayerState::default(); // FIXME
+    // let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
+    let player = PlayerState::default();
 
     //if let Ok(plan) = offset_forward_plan(&player) {
     //let mut plan_result = if let Ok(plan) = square_plan(&player) {
-    let mut plan_result = if let Ok(plan) = snek_plan3(&player) {
+    let mut plan_result = if let Ok(plan) = snek_plan(&player) {
         //for (i, (_next_player, controller, cost)) in plan.iter().enumerate() {
         //    println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
         //}
@@ -787,7 +787,6 @@ fn snek_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut player = current.clone();
     plan.push((player, BrickControllerState::new(), 0.0));
 
-    // FIXME this way of making the plan exposes many issues it seems
     let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 500.0)?;
     plan.append(&mut plan_part);
     for _ in 0..2 {
