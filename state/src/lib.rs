@@ -15,7 +15,7 @@ use std::f32::consts::PI;
 // general constants
 pub const FPS: f32 = 120.0;
 pub const TICK: f32 = 1.0 / FPS; // matches RL's internal fixed physics tick rate
-pub const LAG_FRAMES: usize = 2; // FIXME tune
+pub const LAG_FRAMES: usize = 0; // turns out there isn't actually much lag
 
 // arena constants
 pub const SIDE_WALL_DISTANCE: f32 = 4096.0;

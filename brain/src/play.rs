@@ -210,12 +210,12 @@ pub extern "C" fn next_input(
             if closest_distance == 0.0 {
                 bot.turn_errors.push_back(0.0);
             } else {
-                let direction = na::Matrix::dot(
+                let projection = na::Matrix::dot(
                     &Unit::new_normalize(closest_delta.clone()).into_inner(),
                     &relative_right,
                 ); // positive for right, negative for left
-                //println!("direction: {}, distance: {}", direction, closest_distance);
-                let error = if direction > 0.0 { closest_distance } else { -closest_distance };
+                //println!("projection: {}, distance: {}", projection, closest_distance);
+                let error = projection * closest_distance;
                 bot.turn_errors.push_back(error);
             }
 
@@ -227,7 +227,7 @@ pub extern "C" fn next_input(
             //println!("controller: {:?}", controller);
             let mut input = convert_controller_to_rlbot_input(&controller);
             //println!("input before: {:?}", input);
-            // FIXME // pd_adjust(&mut input, &bot.turn_errors);
+            pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
 
             return input;
@@ -245,9 +245,10 @@ pub extern "C" fn next_input(
     input
 }
 
+const THROTTLE_FACTOR: f32 = 0.2;
 const PROPORTIONAL_DIST_GAIN: f32 = 0.004;
 const DIFFERENTIAL_GAIN: f32 = 0.35;
-const DIFFERENTIAL_STEPS: usize = 2;
+const DIFFERENTIAL_STEPS: usize = 4; // NOTE 2 also works ok it seems
 fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
     // build up some errors before we do anything
     if errors.len() <= DIFFERENTIAL_STEPS {
@@ -270,9 +271,15 @@ fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
     input.steer += signal;
 
     if input.steer > 1.0 {
+        let diff = (input.steer - 1.0).min(1.0 / THROTTLE_FACTOR);
         input.steer = 1.0;
+        // slow down if we want to go in a tighter circle than we already are going
+        input.throttle -= THROTTLE_FACTOR * diff;
     } else if input.steer < -1.0 {
+        let diff = (-(input.steer + 1.0)).min(1.0 / THROTTLE_FACTOR);
         input.steer = -1.0;
+        // slow down if we want to go in a tighter circle than we already are going
+        input.throttle -= THROTTLE_FACTOR * diff;
     }
 }
 
