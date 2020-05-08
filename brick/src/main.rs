@@ -51,7 +51,7 @@ pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
 #[derive(Default)]
 struct BotIoConfig<'a> {
-    manipulator: Option<fn(&rlbot::RLBot, &GameState, &BotState)>,
+    manipulator: Option<fn(&rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>>>,
     print_turn_errors: bool,
     start_match: bool,
     match_settings: Option<rlbot::MatchSettings<'a>>,
@@ -222,8 +222,58 @@ fn run_bot_test() {
     bot_logic_loop_test(plan_sender, state_receiver);
 }
 
-fn bot_test_manipulator(rlbot: &rlbot::RLBot, game_state: &GameState, bot: &BotState) {
-    // TODO implement
+fn zero_out_car(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
+    let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
+    let velocity = rlbot::Vector3Partial::new()
+        .x(0.0)
+        .y(0.0)
+        .z(0.0);
+    let angular_velocity = rlbot::Vector3Partial::new()
+        .x(0.0)
+        .y(0.0)
+        .z(0.0);
+    let rotation = rlbot::RotatorPartial::new()
+        .pitch(0.0)
+        .yaw(PI / 2.0)
+        .roll(0.0);
+    let physics = rlbot::DesiredPhysics::new()
+        .location(position)
+        .rotation(rotation)
+        .velocity(velocity)
+        .angular_velocity(angular_velocity);
+    let car_state = rlbot::DesiredCarState::new().physics(physics);
+    let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state);
+    rlbot.set_game_state(&desired_game_state)?;
+    Ok(())
+}
+
+fn bot_test_manipulator(rlbot: &rlbot::RLBot, game_state: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>> {
+    if game_state.player.position.y < 0.0 || game_state.player.position.y > 3000.0 {
+        println!("pos: {:?}", game_state.player.position);
+        println!("vel: {:?}", game_state.player.velocity);
+        zero_out_car(&rlbot)?;
+        input.throttle = 0.0;
+        //bot.plan = None;
+        bot.turn_errors.clear();
+        std::thread::sleep(Duration::from_millis(100))
+    }
+
+    // // a basic snek
+    // if game_state.player.position.y < 400.0 {
+    //     input.steer = 0.0;
+    // } else if game_state.player.position.y < 800.0 {
+    //     input.steer = -1.0;
+    // } else if game_state.player.position.y < 1200.0 {
+    //     input.steer = 1.0;
+    // } else if game_state.player.position.y < 1600.0 {
+    //     input.steer = -1.0;
+    // } else if game_state.player.position.y < 2000.0 {
+    //     input.steer = 1.0;
+    // } else if game_state.player.position.y < 3000.0 {
+    //     input.steer = 0.0;
+    // }
+
+    Ok(())
 }
 
 fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
@@ -245,13 +295,15 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
 }
 
 fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
-    let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
+    // FIXME let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
+    let player = PlayerState::default(); // FIXME
+
     //if let Ok(plan) = offset_forward_plan(&player) {
-    //let mut plan_result = if let Ok(plan) = snek_plan(&player) {
-    let mut plan_result = if let Ok(plan) = square_plan(&player) {
-        for (i, (_next_player, controller, cost)) in plan.iter().enumerate() {
-            println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
-        }
+    //let mut plan_result = if let Ok(plan) = square_plan(&player) {
+    let mut plan_result = if let Ok(plan) = snek_plan3(&player) {
+        //for (i, (_next_player, controller, cost)) in plan.iter().enumerate() {
+        //    println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
+        //}
         PlanResult {
             plan: Some(plan),
             cost_diff: 0.0,
@@ -269,13 +321,13 @@ fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot:
     match brain::plan::explode_plan(&plan_result) {
         Ok(exploded) => {
             plan_result.plan = exploded;
-            println!("============= EXPLODED =============");
-            if let Some(x) = plan_result.plan.as_ref() {
-                for (i, (_next_player, controller, cost)) in x.iter().enumerate() {
-                    println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
-                }
-            }
-            println!("============= DONE =============");
+            //println!("============= EXPLODED =============");
+            //if let Some(x) = plan_result.plan.as_ref() {
+            //    for (i, (_next_player, controller, cost)) in x.iter().enumerate() {
+            //        println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
+            //    }
+            //}
+            //println!("============= DONE =============");
         },
         Err(e) => {
             eprintln!("Exploding plan failed: {}", e);
@@ -371,6 +423,16 @@ pub fn try_next_flat<'fb>(rlbot: &rlbot::RLBot, last_time: f32) -> Option<rlbot:
     None
 }
 
+fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+    let position = rlbot::Vector3Partial::new().x(3800.0).y(4800.0).z(98.0);
+    let physics = rlbot::DesiredPhysics::new().location(position);
+    let ball_state = rlbot::DesiredBallState::new().physics(physics);
+    let desired_game_state = rlbot::DesiredGameState::new().ball_state(ball_state);
+    rlbot.set_game_state(&desired_game_state)?;
+    Ok(())
+}
+
+
 fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>, bot_io_config: BotIoConfig) {
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
@@ -378,12 +440,13 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
     let rlbot = rlbot::init().expect("rlbot init failed");
 
     let mut loop_helper = LoopHelper::builder()
-        .build_with_target_rate(240.0); // bot io limited to 240 FPS
+        .build_with_target_rate(1000.0); // bot io limited to 1000 FPS
 
     if bot_io_config.start_match {
         if let Some(match_settings) = bot_io_config.match_settings {
             rlbot.start_match(&match_settings).expect("Failed to start match");
             rlbot.wait_for_match_start().expect("Failed waiting for match start");
+            move_ball_out_of_the_way(&rlbot).expect("Failed to move ball out of the way");
             println!("Started Match!");
         } else {
             eprintln!("WARNING: Trying to start a match, but no match settings given. Ignoring start_match option.");
@@ -405,7 +468,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
 
             send_to_bot_logic(&sender, &bot);
-            loop_helper.loop_sleep();
+            loop_helper.loop_sleep(); // TODO try moving to bottom to check if fps is better
 
             // make sure we have the latest results in case there are multiple, though note we may save
             // the plan from an earlier run if it happens to be the best one
@@ -445,12 +508,6 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 set_frame_metadata(game.frame, &mut input);
             }
 
-            bot.controller_history.push_back((&input).into());
-            if bot.controller_history.len() > 1000 {
-                // keep last 100
-                bot.controller_history = bot.controller_history.split_off(900);
-            }
-
             if bot_io_config.print_turn_errors {
                 if bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
                     // last 20
@@ -467,17 +524,23 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 }
             }
 
+            // let's some kind of testing mode update the game state
+            if let Some(manipulator) = bot_io_config.manipulator {
+                manipulator(&rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input);
+            }
+
+            bot.controller_history.push_back((&input).into());
+            if bot.controller_history.len() > 1000 {
+                // keep last 100
+                bot.controller_history = bot.controller_history.split_off(900);
+            }
+
             rlbot
                 .update_player_input(player_index as i32, &input)
                 .expect("update_player_input failed");
-
-            // let's some kind of testing mode update the game state
-            if let Some(manipulator) = bot_io_config.manipulator {
-                manipulator(&rlbot, &GAME_STATE.read().unwrap(), &bot);
-            }
             count += 1;
             if count % 120 == 0 {
-                println!("120 frames took: {:?}", start.elapsed());
+                //println!("120 frames took: {:?}", start.elapsed());
                 start = Instant::now();
             }
         } else {
@@ -734,29 +797,88 @@ fn snek_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
         plan.append(&mut plan_part);
     }
 
-    // let mut controller = BrickControllerState::new();
-    // controller.throttle = Throttle::Forward;
-    // for _ in 0..4 {
-    //     player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-    //     plan.push((player, controller, 16.0 * TICK));
-    // }
+    Ok(plan)
+}
 
-    // for _ in 0..2 {
-    //     controller.steer = Steer::Left;
-    //     for _ in 0..4 {
-    //         player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-    //         plan.push((player, controller, 16.0 * TICK));
-    //     }
+fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
+    let mut plan = vec![];
+    let mut player = current.clone();
+    plan.push((player, BrickControllerState::new(), 0.0));
 
-    //     controller.steer = Steer::Right;
-    //     for _ in 0..4 {
-    //         player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-    //         plan.push((player, controller, 16.0 * TICK));
-    //     }
-    // }
+    let mut controller = BrickControllerState::new();
+    controller.throttle = Throttle::Forward;
+    for _ in 0..4 {
+        player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+        plan.push((player, controller, 16.0 * TICK));
+    }
+
+    for _ in 0..2 {
+        controller.steer = Steer::Left;
+        for _ in 0..4 {
+            player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+            plan.push((player, controller, 16.0 * TICK));
+        }
+
+        controller.steer = Steer::Right;
+        for _ in 0..4 {
+            player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+            plan.push((player, controller, 16.0 * TICK));
+        }
+    }
 
     Ok(plan)
 }
+
+fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
+    let mut plan = vec![];
+    let mut player = current.clone();
+    plan.push((player, BrickControllerState::new(), 0.0));
+
+    let mut controller = BrickControllerState::new();
+    controller.throttle = Throttle::Forward;
+
+    while player.position.y < 3000.0 {
+        let get_steer = |y| -> Steer {
+            if y < 400.0 {
+                Steer::Straight
+            } else if y < 800.0 {
+                Steer::Left
+            } else if y < 1200.0 {
+                Steer::Right
+            } else if y < 1600.0 {
+                Steer::Left
+            } else if y < 2000.0 {
+                Steer::Right
+            } else if y < 3000.0 {
+                Steer::Straight
+            } else {
+                Steer::Straight
+            }
+        };
+
+        controller.steer = get_steer(player.position.y);
+
+        let mut next_player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
+
+        if get_steer(next_player.position.y) == controller.steer {
+            plan.push((next_player, controller, 16.0 * TICK));
+        } else {
+            // simulate till the point steer is supposed to change
+            next_player = player.clone();
+            loop {
+                // TODO 1-tick if we can?
+                next_player = predict::player::next_player_state(&next_player, &controller, 2.0 * TICK)?;
+                plan.push((next_player, controller, 2.0 * TICK));
+                if get_steer(next_player.position.y) != controller.steer { break }
+            }
+        }
+
+        player = next_player
+    }
+
+    Ok(plan)
+}
+
 
 fn offset_forward_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut offset_player = current.clone();
