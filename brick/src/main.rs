@@ -248,15 +248,16 @@ fn zero_out_car(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
 }
 
 fn bot_test_manipulator(rlbot: &rlbot::RLBot, game_state: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>> {
-    if game_state.player.position.y < 0.0 || game_state.player.position.y > 3000.0 {
-        println!("pos: {:?}", game_state.player.position);
-        println!("vel: {:?}", game_state.player.velocity);
-        zero_out_car(&rlbot)?;
-        input.throttle = 0.0;
-        //bot.plan = None;
-        bot.turn_errors.clear();
-        std::thread::sleep(Duration::from_millis(100))
-    }
+    // reset player and ball
+    //if game_state.player.position.y < 0.0 || game_state.player.position.y > 3000.0 {
+    //    println!("pos: {:?}", game_state.player.position);
+    //    println!("vel: {:?}", game_state.player.velocity);
+    //    zero_out_car(&rlbot)?;
+    //    input.throttle = 0.0;
+    //    //bot.plan = None;
+    //    bot.turn_errors.clear();
+    //    std::thread::sleep(Duration::from_millis(100))
+    //}
 
     // // a basic snek
     // if game_state.player.position.y < 400.0 {
@@ -295,48 +296,49 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
 }
 
 fn bot_test_plan<H: brain::HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
-    // let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
-    let player = PlayerState::default();
+    // canned plans
+    //
+    // // let player = &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES);
+    // let player = PlayerState::default();
+    //
+    // let mut plan_result = if let Ok(plan) = snek_plan(&player) {
+    //     //for (i, (_next_player, controller, cost)) in plan.iter().enumerate() {
+    //     //    println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
+    //     //}
+    //     PlanResult {
+    //         plan: Some(plan),
+    //         cost_diff: 0.0,
+    //         visualization_lines: vec![],
+    //         visualization_points: vec![],
+    //     }
+    // } else {
+    //     PlanResult {
+    //         plan: None,
+    //         cost_diff: 0.0,
+    //         visualization_lines: vec![],
+    //         visualization_points: vec![],
+    //     }
+    // };
+    // match brain::plan::explode_plan(&plan_result) {
+    //     Ok(exploded) => {
+    //         plan_result.plan = exploded;
+    //         //println!("============= EXPLODED =============");
+    //         //if let Some(x) = plan_result.plan.as_ref() {
+    //         //    for (i, (_next_player, controller, cost)) in x.iter().enumerate() {
+    //         //        println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
+    //         //    }
+    //         //}
+    //         //println!("============= DONE =============");
+    //     },
+    //     Err(e) => {
+    //         eprintln!("Exploding plan failed: {}", e);
+    //         plan_result.plan = None;
+    //     }
+    // };
+    // plan_result
 
-    //if let Ok(plan) = offset_forward_plan(&player) {
-    //let mut plan_result = if let Ok(plan) = square_plan(&player) {
-    let mut plan_result = if let Ok(plan) = snek_plan(&player) {
-        //for (i, (_next_player, controller, cost)) in plan.iter().enumerate() {
-        //    println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
-        //}
-        PlanResult {
-            plan: Some(plan),
-            cost_diff: 0.0,
-            visualization_lines: vec![],
-            visualization_points: vec![],
-        }
-    } else {
-        PlanResult {
-            plan: None,
-            cost_diff: 0.0,
-            visualization_lines: vec![],
-            visualization_points: vec![],
-        }
-    };
-    match brain::plan::explode_plan(&plan_result) {
-        Ok(exploded) => {
-            plan_result.plan = exploded;
-            //println!("============= EXPLODED =============");
-            //if let Some(x) = plan_result.plan.as_ref() {
-            //    for (i, (_next_player, controller, cost)) in x.iter().enumerate() {
-            //        println!("i: {}, steer: {:?}, steps: {}", i, controller.steer, (cost / TICK).round() as i32);
-            //    }
-            //}
-            //println!("============= DONE =============");
-        },
-        Err(e) => {
-            eprintln!("Exploding plan failed: {}", e);
-            plan_result.plan = None;
-        }
-    };
-    plan_result
-
-    //brain::play::play(model, &game, bot)
+    // just play
+    brain::play::play(model, &game, bot)
 }
 
 fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState, BotState)>) {
@@ -345,8 +347,8 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
     let mut model = brain::get_model();
 
     let mut loop_helper = LoopHelper::builder()
-        //.build_with_target_rate(120.0); // limit to 120 FPS
-        .build_with_target_rate(0.2); // limit to 0.2 FPS
+        .build_with_target_rate(1000.0); // limit to 1000 FPS
+        //.build_with_target_rate(0.2); // limit to 0.2 FPS
 
     loop {
         loop_helper.loop_start();
@@ -446,7 +448,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         if let Some(match_settings) = bot_io_config.match_settings {
             rlbot.start_match(&match_settings).expect("Failed to start match");
             rlbot.wait_for_match_start().expect("Failed waiting for match start");
-            move_ball_out_of_the_way(&rlbot).expect("Failed to move ball out of the way");
+            //move_ball_out_of_the_way(&rlbot).expect("Failed to move ball out of the way");
             println!("Started Match!");
         } else {
             eprintln!("WARNING: Trying to start a match, but no match settings given. Ignoring start_match option.");
