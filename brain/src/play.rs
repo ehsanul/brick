@@ -261,7 +261,7 @@ pub extern "C" fn next_input(
     input
 }
 
-const THROTTLE_FACTOR: f32 = 0.2;
+const THROTTLE_FACTOR: f32 = 0.0; // set to zero: this turns out to be a bad idea now that we plan with a moving ball in mind
 const PROPORTIONAL_DIST_GAIN: f32 = 0.004;
 const DIFFERENTIAL_GAIN: f32 = 0.35;
 const DIFFERENTIAL_STEPS: usize = 4; // NOTE 2 also works ok it seems
