@@ -49,12 +49,12 @@ pub extern "C" fn simple_desired_contact(
 //    time by which we can hit the ball into the goal
 // 2. compare that to the time in the ball trajectory
 // 3. choose the point in trajectory with smallest diff
-fn reachable_contact_and_time<H: HeuristicModel>(
+fn reachable_contact_ball_and_time<H: HeuristicModel>(
     model: &mut H,
     player: &PlayerState,
     ball_trajectory: &[BallState],
     desired_ball_position: &Vector3<f32>,
-) -> (DesiredContact, f32) {
+) -> (DesiredContact, BallState, f32) {
     let mut estimates = ball_trajectory
         .iter()
         .enumerate()
@@ -83,7 +83,7 @@ fn reachable_contact_and_time<H: HeuristicModel>(
     let reachable_time = estimates[0].1;
     let desired_contact = simple_desired_contact(&ball_trajectory[reachable_ball_index], &desired_ball_position);
 
-    (desired_contact, reachable_time)
+    (desired_contact, ball_trajectory[reachable_ball_index].clone(), reachable_time)
 }
 
 fn shoot<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
@@ -116,7 +116,7 @@ fn hit_ball<H: HeuristicModel>(
     //let start = Instant::now();
 
     // FIXME additional lag should be added for brick's planning calculation lag
-    let (desired_contact, time) = reachable_contact_and_time(
+    let (desired_contact, ball, time) = reachable_contact_ball_and_time(
         model,
         &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES),
         &ball_trajectory,
@@ -124,7 +124,7 @@ fn hit_ball<H: HeuristicModel>(
     );
     let start = Instant::now();
     // FIXME additional lag should be added for brick's planning calculation lag
-    let result = plan::plan(model, &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES), &game.ball, &desired_contact, time, last_plan);
+    let result = plan::plan(model, &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES), &ball, &desired_contact, time, last_plan);
     // println!("PLAN DURATION: {:?}", start.elapsed());
     result
 }
