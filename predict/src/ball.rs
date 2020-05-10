@@ -36,10 +36,11 @@ pub extern "C" fn ball_trajectory(ball: &BallState, duration: f32) -> Vec<BallSt
     let mut t = 0.0;
     let mut trajectory = Vec::with_capacity((duration / TICK).ceil() as usize);
     let mut ball_now = ball.clone();
+    trajectory.push(ball_now);
     while t < duration {
-        trajectory.push(ball_now);
         t += TICK;
         ball_now = next_ball_state(trajectory.last().unwrap(), TICK);
+        trajectory.push(ball_now);
     }
     trajectory
 }

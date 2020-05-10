@@ -614,8 +614,13 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 fn plan_is_valid(game: &GameState, plan: &Plan) -> bool {
     let closest_index = brain::play::closest_plan_index(&game.player, &plan);
     if let Some((player, _, _)) = plan.get(closest_index) {
-        // TODO tune
-        (player.position - game.player.position).norm() < 30.0 && (player.velocity - game.player.velocity).norm() < 200.0
+        let ball_trajectory = predict::ball::ball_trajectory(&game.ball, (plan.len() - 1 - closest_index) as f32 * TICK);
+        let is_player_accurate = (player.position - game.player.position).norm() < 30.0 && (player.velocity - game.player.velocity).norm() < 200.0;
+
+        let last_player = &plan.last().unwrap().0;
+        let last_ball = ball_trajectory.last().unwrap();
+        let is_ball_colliding = (predict::player::closest_point_for_collision(last_ball, last_player) - last_ball.position).norm() < (BALL_COLLISION_RADIUS + 20.0); // 20.0 fudge factor added
+        is_player_accurate && is_ball_colliding
     } else {
         false
     }
