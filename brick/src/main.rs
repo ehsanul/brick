@@ -43,7 +43,7 @@ use state::*;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
 use kiss3d::window::Window;
-use na::{Point3, Rotation3, Translation3, UnitQuaternion, Vector3};
+use na::{Point3, Rotation3, Translation3, UnitQuaternion, Quaternion, Vector3};
 use brain::predict::{self, player::PredictPlayer};
 use spin_sleep::LoopHelper;
 
@@ -51,7 +51,7 @@ pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
 #[derive(Default)]
 struct BotIoConfig<'a> {
-    manipulator: Option<fn(&rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>>>,
+    manipulator: Option<fn(u32, &rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>>>,
     print_turn_errors: bool,
     start_match: bool,
     match_settings: Option<rlbot::MatchSettings<'a>>,
@@ -222,32 +222,96 @@ fn run_bot_test() {
     bot_logic_loop_test(plan_sender, state_receiver);
 }
 
-fn zero_out_car(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
-    let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
+fn get_desired_car_state(player: &PlayerState) -> rlbot::DesiredCarState {
+    let pos = player.position;
+    let vel = player.velocity;
+    let avel = player.angular_velocity;
+
+    let uq = player.rotation;
+    let q = uq.quaternion();
+    // converting from left handed to left right coordinate system (goes with the x axis flip)
+    // see state::update_game_state
+    // https://stackoverflow.com/a/34366144/127219
+    let (roll, pitch, yaw) = UnitQuaternion::from_quaternion(
+        Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2])
+    ).euler_angles();
+
+    let position = rlbot::Vector3Partial::new().x(-pos.x).y(pos.y).z(pos.z);
     let velocity = rlbot::Vector3Partial::new()
-        .x(0.0)
-        .y(0.0)
-        .z(0.0);
+        .x(-vel.x)
+        .y(vel.y)
+        .z(vel.z);
     let angular_velocity = rlbot::Vector3Partial::new()
-        .x(0.0)
-        .y(0.0)
-        .z(0.0);
+        .x(-avel.x)
+        .y(avel.y)
+        .z(avel.z);
     let rotation = rlbot::RotatorPartial::new()
-        .pitch(0.0)
-        .yaw(PI / 2.0)
-        .roll(0.0);
+        .pitch(pitch)
+        .yaw(yaw)
+        .roll(roll);
     let physics = rlbot::DesiredPhysics::new()
         .location(position)
         .rotation(rotation)
         .velocity(velocity)
         .angular_velocity(angular_velocity);
-    let car_state = rlbot::DesiredCarState::new().physics(physics);
+
+    rlbot::DesiredCarState::new().physics(physics)
+}
+
+fn get_desired_ball_state(ball: &BallState) -> rlbot::DesiredBallState {
+    let pos = ball.position;
+    let vel = ball.velocity;
+    let avel = ball.angular_velocity;
+
+    let position = rlbot::Vector3Partial::new().x(-pos.x).y(pos.y).z(pos.z);
+    let velocity = rlbot::Vector3Partial::new()
+        .x(-vel.x)
+        .y(vel.y)
+        .z(vel.z);
+    let angular_velocity = rlbot::Vector3Partial::new()
+        .x(-avel.x)
+        .y(avel.y)
+        .z(avel.z);
+    let physics = rlbot::DesiredPhysics::new()
+        .location(position)
+        .velocity(velocity)
+        .angular_velocity(angular_velocity);
+
+    rlbot::DesiredBallState::new().physics(physics)
+}
+
+fn zero_out_car(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
+    let player = PlayerState::default();
+    let car_state = get_desired_car_state(&player);
     let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state);
     rlbot.set_game_state(&desired_game_state)?;
     Ok(())
 }
 
-fn bot_test_manipulator(rlbot: &rlbot::RLBot, game_state: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>> {
+fn bot_test_manipulator(frame: u32, rlbot: &rlbot::RLBot, game_state: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>> {
+    if frame % 360 == 0 {
+        let mut player = PlayerState::default();
+        let mut ball = BallState::default();
+        player.position.y = -3000.0;
+        // up
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+        // down
+        //player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
+        ball.position.x = -400.0;
+        ball.velocity.y = 100.0;
+        ball.velocity.x = 600.0;
+        player.velocity.y = 100.0;
+
+        let car_state = get_desired_car_state(&player);
+        let ball_state = get_desired_ball_state(&ball);
+        let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state).ball_state(ball_state);
+        rlbot.set_game_state(&desired_game_state)?;
+
+        bot.turn_errors.clear();
+        input.throttle = 0.0;
+        bot.plan = None;
+        std::thread::sleep(Duration::from_millis(100))
+    }
     // reset player and ball
     //if game_state.player.position.y < 0.0 || game_state.player.position.y > 3000.0 {
     //    println!("pos: {:?}", game_state.player.position);
@@ -460,7 +524,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
     let player_index = 0;
 
     let mut start = Instant::now();
-    let mut count = 0;
+    let mut frame = 0u32;
 
     let mut last_time = 0.0;
     loop {
@@ -490,10 +554,6 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             // } else {
             //     //println!("no plan");
             // }
-
-            // the difference between these is the frame lag
-            let input_frame = GAME_STATE.read().unwrap().input_frame;
-            let frame = GAME_STATE.read().unwrap().frame;
 
             update_gamepad(&mut gilrs, &mut gamepad);
             let mut input = if gamepad.select_toggled {
@@ -528,7 +588,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
             // let's some kind of testing mode update the game state
             if let Some(manipulator) = bot_io_config.manipulator {
-                manipulator(&rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input);
+                manipulator(frame, &rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input);
             }
 
             bot.controller_history.push_back((&input).into());
@@ -540,8 +600,8 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             rlbot
                 .update_player_input(player_index as i32, &input)
                 .expect("update_player_input failed");
-            count += 1;
-            if count % 120 == 0 {
+            frame = frame.wrapping_add(1);
+            if frame % 120 == 0 {
                 //println!("120 frames took: {:?}", start.elapsed());
                 start = Instant::now();
             }
