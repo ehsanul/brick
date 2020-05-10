@@ -898,12 +898,13 @@ fn simulate_over_time() {
     let mut model = brain::get_model();
 
     let mut loop_helper = LoopHelper::builder()
-        .build_with_target_rate(120.0); // bot io limited to 240 FPS
+        .build_with_target_rate(120.0); // simulation limited to 120 FPS
 
     {
         let mut game_state = GAME_STATE.write().unwrap();
         game_state.ball.position = Vector3::new(0.0, 0.0, BALL_COLLISION_RADIUS);
-        game_state.player.position = Vector3::new(0.0, 4000.0, 0.0);
+        game_state.ball.velocity = Vector3::new(400.0, 400.0, 0.0);
+        game_state.player.position = Vector3::new(0.0, -1000.0, 0.0);
         game_state.player.velocity = Vector3::new(0.0, 0.0, 0.0);
 
         // left
@@ -934,10 +935,10 @@ fn simulate_over_time() {
 
         if let Some(plan) = bot.plan.clone() {
             let mut game_state = GAME_STATE.write().unwrap();
+            game_state.ball = predict::ball::next_ball_state(&game_state.ball, TICK);
             let i = brain::play::closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
                 game_state.player = plan[i + 1].0;
-                // TODO move the ball too. ball velocity is zero for now
             } else {
                 // we're at the goal, so start over
                 *game_state = initial_game_state.clone();

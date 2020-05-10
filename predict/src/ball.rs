@@ -39,7 +39,7 @@ pub extern "C" fn ball_trajectory(ball: &BallState, duration: f32) -> Vec<BallSt
     while t < duration {
         trajectory.push(ball_now);
         t += TICK;
-        ball_now = next_ball_state_dt(trajectory.last().unwrap(), TICK);
+        ball_now = next_ball_state(trajectory.last().unwrap(), TICK);
     }
     trajectory
 }
@@ -57,7 +57,7 @@ pub fn trajectory_enters_soccar_goal(ball: &BallState) -> bool {
     (goal - pos).normalize().dot(&v.normalize()) > 0.95
 }
 
-fn next_ball_state_dt(ball: &BallState, time_step: f32) -> BallState {
+pub fn next_ball_state(ball: &BallState, time_step: f32) -> BallState {
     match find_prediction_category(&ball) {
         PredictionCategory::Soaring => next_ball_state_soaring_dt(&ball, time_step),
         //PredictionCategory::Rolling => next_ball_state_rolling_dt(&ball, time_step),
