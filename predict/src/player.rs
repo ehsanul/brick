@@ -344,7 +344,7 @@ pub extern "C" fn next_player_state(
     Ok(next_player)
 }
 
-pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickControllerState, time_step: f32) -> Option<(PlayerState, Vector3<f32>, f32)> {
+pub fn get_collision(ball_trajectory: &[BallState], player: &PlayerState, controller: &BrickControllerState, time_step: f32) -> Option<(PlayerState, BallState, Vector3<f32>, f32)> {
     let num_ticks: usize = (time_step / TICK).round() as usize;
     assert!(num_ticks % 2 == 0);
 
@@ -352,19 +352,24 @@ pub fn get_collision(ball: &BallState, player: &PlayerState, controller: &BrickC
     let mut last = *player;
     for step in 1..=(num_ticks/2) {
         if let Ok(next) = next_player_state(&last, controller, TICK * 2.0) {
-            if ball_collides(ball, &next) {
-                // check if one tick earlier collides, since we are using 2-tick steps
-                if let Ok(next_single_tick) = next_player_state(&last, controller, TICK) {
-                    if ball_collides(ball, &next_single_tick) {
-                        let collision_time = (2 * step - 1) as f32 * TICK;
-                        return Some((next_single_tick, closest_point_for_collision(ball, &next_single_tick), collision_time))
+            if let Some(ball) = ball_trajectory.get(step * 2) {
+                if ball_collides(ball, &next) {
+                    // check if one tick earlier collides, since we are using 2-tick steps
+                    if let Ok(next_single_tick) = next_player_state(&last, controller, TICK) {
+                        let single_tick_ball = ball_trajectory[step * 2 - 1];
+                        if ball_collides(&single_tick_ball, &next_single_tick) {
+                            let collision_time = (2 * step - 1) as f32 * TICK;
+                            return Some((next_single_tick, single_tick_ball.clone(), closest_point_for_collision(&single_tick_ball, &next_single_tick), collision_time))
+                        }
                     }
-                }
 
-                let collision_time = (2 * step) as f32 * TICK;
-                return Some((next, closest_point_for_collision(ball, &next), collision_time))
+                    let collision_time = (2 * step) as f32 * TICK;
+                    return Some((next, ball.clone(), closest_point_for_collision(ball, &next), collision_time))
+                }
+                last = next;
+            } else {
+                return None
             }
-            last = next;
         } else {
             return None
         }

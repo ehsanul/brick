@@ -291,7 +291,7 @@ impl Default for PlanResult {
     fn default() -> PlanResult {
         PlanResult {
             plan: None,
-            cost_diff: 0.0,
+            cost_diff: std::f32::MAX,
             visualization_lines: vec![],
             visualization_points: vec![],
         }

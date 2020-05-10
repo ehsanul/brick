@@ -1,5 +1,5 @@
 use na::{Unit, Vector3};
-use state::{DesiredContact, PlayerState, CAR_DIMENSIONS};
+use state::*;
 use std::error::Error;
 
 use crate::HeuristicModel;
@@ -96,5 +96,10 @@ impl HeuristicModel for BasicHeuristic {
         self.desired_heading = Unit::new_normalize(desired.heading.clone()).into_inner();
         self.goal_center = desired.position - (CAR_DIMENSIONS.x / 2.0) * self.desired_heading;
         self.scale = scale;
+    }
+
+    fn ball_configure(&mut self, ball: &BallState, ball_goal: &Vector3<f32>) {
+        self.desired_heading = Unit::new_normalize(ball_goal - ball.position).into_inner();
+        self.goal_center = ball.position - (BALL_COLLISION_RADIUS + (CAR_DIMENSIONS.x / 2.0) + CAR_OFFSET.x.abs()) * self.desired_heading;
     }
 }

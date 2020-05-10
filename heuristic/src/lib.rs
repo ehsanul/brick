@@ -4,7 +4,7 @@ extern crate ord_subset;
 extern crate state;
 
 use na::{Rotation3, Vector3};
-use state::{DesiredContact, PlayerState, BALL_COLLISION_RADIUS};
+use state::*;
 use std::error::Error;
 
 mod basic;
@@ -44,18 +44,20 @@ pub trait HeuristicModel {
 
     fn scale(&self) -> f32;
 
+    fn ball_configure(&mut self, ball: &BallState, goal: &Vector3<f32>);
+
     // NOTE scale is a fudge factor to make the heuristic over-estimate, which gives up
     // accuracy/optimality in exchange for speed
     fn configure(&mut self, desired: &DesiredContact, scale: f32);
 }
 
-pub(crate) fn get_normalization_rotation(desired: &DesiredContact) -> Rotation3<f32> {
+pub(crate) fn get_normalization_rotation(heading: &Vector3<f32>) -> Rotation3<f32> {
     // the training data is based on the ball positioned at 0, 0, and the desired heading being
     // directly in the positive y axis. given the current heading, we want to find
     // a transformation matrix that would tranform it into the standard heading, which we can
     // apply to the car in order to align with how we trained.
     let standard_heading = Vector3::new(0.0, 1.0, 0.0);
-    let heading = desired.heading / desired.heading.norm();
+    let heading = heading / heading.norm();
 
     let mut angle = na::Matrix::dot(&standard_heading, &heading).acos();
 

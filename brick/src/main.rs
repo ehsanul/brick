@@ -572,21 +572,21 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
                 *index > closest_index
             }).map(|(_index, (_, _, cost))| cost).sum::<f32>();
 
-            // // bail, we got a worse plan!
-            // if new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
-            //     println!("bailing longer plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
-            //     return;
-            // }
-
-            let existing_diff = bot.cost_diff.abs();
-            let new_diff = plan_result.cost_diff.abs();
-            if new_diff > existing_diff && plan_is_valid(&game, &existing_plan) {
-                //println!("bailing less accurate plan! existing_diff: {}, new_diff: {}", existing_diff, new_diff);
-                return;
-            } else if new_diff == existing_diff && new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
+            // bail, we got a worse plan!
+            if new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
                 //println!("bailing longer plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
                 return;
             }
+
+            //let existing_diff = bot.cost_diff.abs();
+            //let new_diff = plan_result.cost_diff.abs();
+            //if new_diff > existing_diff && plan_is_valid(&game, &existing_plan) {
+            //    //println!("bailing less accurate plan! existing_diff: {}, new_diff: {}", existing_diff, new_diff);
+            //    return;
+            //} else if new_diff == existing_diff && new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
+            //    //println!("bailing longer plan! existing_plan_cost: {}, new_plan_cost: {}", existing_plan_cost, new_plan_cost);
+            //    return;
+            //}
         }
 
         //let cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();

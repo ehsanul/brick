@@ -4,7 +4,7 @@ use self::kdtree::KdTree;
 use crate::{get_ball_position, get_normalization_rotation, HeuristicModel};
 use na::{Rotation3, Vector3};
 use ord_subset::OrdSubsetIterExt;
-use state::{DesiredContact, PlayerState};
+use state::{DesiredContact, PlayerState, BallState};
 use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -127,8 +127,17 @@ impl HeuristicModel for KnnHeuristic {
     fn scale(&self) -> f32 { self.scale }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
-        self.normalization_rotation = get_normalization_rotation(desired);
+        self.normalization_rotation = get_normalization_rotation(&desired.heading);
         self.ball_position = get_ball_position(desired);
         self.scale = scale;
+    }
+
+    fn ball_configure(&mut self, ball: &BallState, goal: &Vector3<f32>) {
+        // FIXME see simple_desired_contact where the ball's velocity adjusts the heading we aim
+        // for. alternatively, we could adjust the heuristic's ball position value to counteract
+        // the velocity of the ball
+        let heading = goal - ball.position;
+        self.normalization_rotation = get_normalization_rotation(&heading);
+        self.ball_position = ball.position;
     }
 }

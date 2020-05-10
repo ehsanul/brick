@@ -1,7 +1,8 @@
 use knn;
 use basic;
 
-use state::{DesiredContact, PlayerState};
+use state::{DesiredContact, PlayerState, BallState};
+use na::Vector3;
 use std::error::Error;
 use crate::HeuristicModel;
 
@@ -57,5 +58,10 @@ impl HeuristicModel for HybridKnnHeuristic {
         self.scale = scale;
         self.knn_heuristic.configure(desired, 1.0);
         self.basic_heuristic.configure(desired, 1.0);
+    }
+
+    fn ball_configure(&mut self, ball: &BallState, goal: &Vector3<f32>) {
+        self.knn_heuristic.ball_configure(ball, goal);
+        self.basic_heuristic.ball_configure(ball, goal);
     }
 }
