@@ -14,7 +14,10 @@ const MU: f32 = 0.285; // parallel bounce friction constant
 const A: f32 = 0.0003; // friction -> angular velocity factor
 
 const GRAVITY: f32 = 650.0; // uu/s2
+const SLIDING_SPEED: f32 = 565.0; // uu/s
+const SLIDING_DECELERATION: f32 = 230.0; // uu/s2
 const AIR_RESISTANCE: f32 = 0.0305; // % loss per second
+const ROLLING_RESISTANCE: f32 = 0.022; // % loss per second
 const BALL_MAX_SPEED: f32 = 6000.0; // uu/s
 const BALL_MAX_ROTATION_SPEED: f32 = 6.0; // rad/s
 
@@ -23,12 +26,15 @@ const BALL_INERTIA: f32 = 0.4 * BALL_MASS * BALL_INERTIAL_RADIUS * BALL_INERTIAL
 
 enum PredictionCategory {
     Soaring,
-    //Rolling,
+    Rolling,
 }
 
-fn find_prediction_category(_current: &BallState) -> PredictionCategory {
-    // hard-coded the only thing we can handle right now
-    PredictionCategory::Soaring
+fn find_prediction_category(ball: &BallState) -> PredictionCategory {
+    if ball.position.z > BALL_COLLISION_RADIUS || ball.velocity.z.abs() < 1.0 {
+        PredictionCategory::Soaring
+    } else {
+        PredictionCategory::Rolling
+    }
 }
 
 #[no_mangle]
@@ -60,12 +66,12 @@ pub fn trajectory_enters_soccar_goal(ball: &BallState) -> bool {
 
 pub fn next_ball_state(ball: &BallState, time_step: f32) -> BallState {
     match find_prediction_category(&ball) {
-        PredictionCategory::Soaring => next_ball_state_soaring_dt(&ball, time_step),
-        //PredictionCategory::Rolling => next_ball_state_rolling_dt(&ball, time_step),
+        PredictionCategory::Soaring => next_ball_state_soaring(&ball, time_step),
+        PredictionCategory::Rolling => next_ball_state_rolling(&ball, time_step),
     }
 }
 
-fn next_ball_state_soaring_dt(ball: &BallState, time_step: f32) -> BallState {
+fn next_ball_state_soaring(ball: &BallState, time_step: f32) -> BallState {
     let mut next;
 
     if let Some(normal) = arena_contact_normal(&ball) {
@@ -89,6 +95,24 @@ fn next_ball_state_soaring_dt(ball: &BallState, time_step: f32) -> BallState {
 
     if next.angular_velocity.norm() > BALL_MAX_ROTATION_SPEED {
         next.angular_velocity = next.angular_velocity.normalize() * BALL_MAX_ROTATION_SPEED;
+    }
+
+    next.position += time_step * next.velocity;
+    next.velocity += time_step * acceleration;
+
+    next
+}
+
+// source: https://www.youtube.com/watch?v=9uh8-nBlufM
+fn next_ball_state_rolling(ball: &BallState, time_step: f32) -> BallState {
+    let mut next = ball.clone();
+
+    let acceleration;
+    if ball.velocity.norm() > SLIDING_SPEED {
+        let heading = ball.velocity / ball.velocity.norm();
+        acceleration = -SLIDING_DECELERATION * heading - AIR_RESISTANCE * next.velocity;
+    } else {
+        acceleration = -ROLLING_RESISTANCE * next.velocity
     }
 
     next.position += time_step * next.velocity;
