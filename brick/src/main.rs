@@ -763,6 +763,35 @@ fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<
     }
     lines
 }
+fn hitbox_lines(player: &PlayerState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+    let mut vertices = [
+      Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+      Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+      Vector3::new(CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+      Vector3::new(-CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+      Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+      Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+      Vector3::new(CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+      Vector3::new(-CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+    ].iter().map(|v| {
+        player.hitbox_center() + player.rotation.to_rotation_matrix() * (0.5 * v)
+    }).collect::<Vec<_>>();
+    let mut lines = vec![];
+    for vertex in vertices.clone().iter() {
+        vertices.sort_by(|v1, v2| (vertex - v1).norm().partial_cmp(&(vertex - v2).norm()).unwrap());
+        let closest = vertices.iter().skip(1).take(4);
+        for v in closest {
+            lines.push(
+                (
+                    Point3::new(vertex.x, vertex.y, vertex.z),
+                    Point3::new(v.x, v.y, v.z),
+                    Point3::new(1.0, 1.0, 1.0),
+                )
+            );
+        }
+    }
+    lines
+}
 
 fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_result: &PlanResult) -> Result<(), Box<dyn Error>> {
     let PlanResult { plan, visualization_lines, ..  } = plan_result;
@@ -773,6 +802,9 @@ fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_resul
         draw_lines(&rlbot, &plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)), &mut chunk_num)?;
         if let Some(ref planned_ball) = bot.planned_ball {
             draw_lines(&rlbot, &icosahedron_lines(planned_ball), &mut chunk_num)?;
+        }
+        if let Some((player, _, _)) = plan.last() {
+            draw_lines(&rlbot, &hitbox_lines(player), &mut chunk_num)?;
         }
     }
 
