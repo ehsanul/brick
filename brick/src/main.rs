@@ -14,8 +14,10 @@ Options:
   --simulate    Run bot in a simulation of RL with visualization.
 ";
 
+extern crate bincode;
 extern crate brain;
 extern crate docopt;
+extern crate flate2;
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate passthrough;
@@ -36,6 +38,12 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::RwLock;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::collections::VecDeque;
+use std::cell::RefCell;
+use std::fs::{create_dir_all, File};
+use std::io::{BufWriter, BufReader};
+
+use flate2::{Compression, write::GzEncoder, read::GzDecoder};
 
 use passthrough::{human_input, update_gamepad, Gamepad, Gilrs};
 use state::*;
@@ -51,8 +59,10 @@ pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
 
 #[derive(Default)]
 struct BotIoConfig<'a> {
-    manipulator: Option<fn(u32, &rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>>>,
+    manipulator: Option<fn(u32, &rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState, &VecDeque<(GameState, BotState)>, &mut Gamepad) -> Result<(), Box<dyn Error>>>,
     print_turn_errors: bool,
+    render_debug_info: bool,
+    record_history: bool,
     start_match: bool,
     match_settings: Option<rlbot::MatchSettings<'a>>,
 }
@@ -206,13 +216,16 @@ fn run_bot_test() {
 
         match_settings.mutator_settings =
             rlbot::MutatorSettings::new().
-            //game_speed_option(rlbot::GameSpeedOption::Slo_Mo). // XXX this doesn't work wtf
+            //game_speed_option(rlbot::GameSpeedOption::Slo_Mo). // NOTE this mutator doesn't work with bakkesmod
+            respawn_time_option(rlbot::RespawnTimeOption::Disable_Goal_Reset).
             match_length(rlbot::MatchLength::Unlimited).
             boost_option(rlbot::BoostOption::Unlimited_Boost);
 
         let bot_io_config = BotIoConfig {
             manipulator: Some(bot_test_manipulator),
+            record_history: true,
             print_turn_errors: true,
+            render_debug_info: true,
             start_match: true,
             match_settings: Some(match_settings),
         };
@@ -288,53 +301,125 @@ fn zero_out_car(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn bot_test_manipulator(frame: u32, rlbot: &rlbot::RLBot, game_state: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState) -> Result<(), Box<dyn Error>> {
-    if frame % 360 == 0 {
-        let mut player = PlayerState::default();
-        let mut ball = BallState::default();
-        player.position.y = -3000.0;
-        // up
-        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
-        // down
-        //player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
-        ball.position.x = -400.0;
-        ball.velocity.y = 100.0;
-        ball.velocity.x = 600.0;
-        player.velocity.y = 100.0;
+thread_local! {
+    pub static SNAPSHOT_NUMBER: RefCell<u32> = RefCell::new(1);
+}
 
-        let car_state = get_desired_car_state(&player);
-        let ball_state = get_desired_ball_state(&ball);
-        let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state).ball_state(ball_state);
-        rlbot.set_game_state(&desired_game_state)?;
+fn record_snapshot(game: &GameState, bot: &BotState) -> Result<(), Box<dyn Error>> {
+    let dir ="data/snapshots";
+    create_dir_all(dir)?;
 
-        bot.turn_errors.clear();
-        input.throttle = 0.0;
-        bot.plan = None;
-        std::thread::sleep(Duration::from_millis(100))
+    let file_path = SNAPSHOT_NUMBER.with(|num| {
+        let mut path;
+        loop {
+            path = Path::new(dir).join(format!("snapshot{}.bincode.gz", *num.borrow()));
+            if !path.exists() { break }
+            (*num.borrow_mut()) += 1;
+        }
+        path
+    });
+    let f = BufWriter::new(File::create(file_path)?);
+    let mut e = GzEncoder::new(f, Compression::default());
+    Ok(bincode::serialize_into(&mut e, &(game, bot))?)
+}
+
+fn restore_snapshot(rlbot: &rlbot::RLBot, bot: &mut BotState, name: &str) -> Result<(), Box<dyn Error>> {
+    let dir ="data/snapshots";
+    let path = Path::new(dir).join(name.to_owned() + ".bincode.gz");
+    let f = BufReader::new(File::open(path)?);
+    let mut decoder = GzDecoder::new(f);
+    let (historical_game, historical_bot): (GameState, BotState) = bincode::deserialize_from(&mut decoder)?;
+
+    // replace our bot data with the historical bot
+    *bot = historical_bot;
+
+    // update RL game state with historical game state
+    let player = historical_game.player;
+    let ball = historical_game.ball;
+    let car_state = get_desired_car_state(&player);
+    let ball_state = get_desired_ball_state(&ball);
+    let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state).ball_state(ball_state);
+    Ok(rlbot.set_game_state(&desired_game_state)?)
+}
+
+fn bot_test_manipulator(frame: u32, rlbot: &rlbot::RLBot, game: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState, history: &VecDeque<(GameState, BotState)>, gamepad: &mut Gamepad) -> Result<(), Box<dyn Error>> {
+    if gamepad.select_toggled {
+        if gamepad.south {
+            // 0.2 seconds ago
+            if let Some((game, bot)) = history.get(history.len() - 3) {
+                record_snapshot(game, bot);
+                gamepad.south = false;
+            }
+        }
+        if gamepad.west {
+            // 1 second ago
+            if let Some((game, bot)) = history.get(history.len() - 11) {
+                record_snapshot(game, bot);
+                gamepad.west = false;
+            }
+        }
+        if gamepad.north {
+            // 2 seconds ago
+            if let Some((game, bot)) = history.get(history.len() - 21) {
+                record_snapshot(game, bot);
+                gamepad.north = false;
+            }
+        }
+        if gamepad.east {
+            // 3 seconds ago
+            if let Some((game, bot)) = history.get(history.len() - 31) {
+                record_snapshot(game, bot);
+                gamepad.east = false;
+            }
+        }
     }
-    // reset player and ball
-    //if game_state.player.position.y < 0.0 || game_state.player.position.y > 3000.0 {
-    //    println!("pos: {:?}", game_state.player.position);
-    //    println!("vel: {:?}", game_state.player.velocity);
-    //    zero_out_car(&rlbot)?;
-    //    input.throttle = 0.0;
-    //    //bot.plan = None;
+
+    // loop recorded snapshot
+    if frame % 120 == 0 {
+        restore_snapshot(rlbot, bot, "snapshot1");
+        input.throttle = 0.0;
+        input.steer = 0.0;
+        bot.turn_errors.clear();
+        std::thread::sleep(Duration::from_millis(10));
+    }
+
+    // loop constructed scenario
+    //if frame % 360 == 0 {
+    //    let mut player = PlayerState::default();
+    //    let mut ball = BallState::default();
+    //    player.position.y = -3000.0;
+    //    // up
+    //    player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0);
+    //    // down
+    //    //player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
+    //    ball.position.x = -400.0;
+    //    ball.velocity.y = 100.0;
+    //    ball.velocity.x = 600.0;
+    //    player.velocity.y = 100.0;
+
+    //    let car_state = get_desired_car_state(&player);
+    //    let ball_state = get_desired_ball_state(&ball);
+    //    let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state).ball_state(ball_state);
+    //    rlbot.set_game_state(&desired_game_state)?;
+
     //    bot.turn_errors.clear();
+    //    input.throttle = 0.0;
+    //    bot.plan = None;
     //    std::thread::sleep(Duration::from_millis(100))
     //}
 
     // // a basic snek
-    // if game_state.player.position.y < 400.0 {
+    // if game.player.position.y < 400.0 {
     //     input.steer = 0.0;
-    // } else if game_state.player.position.y < 800.0 {
+    // } else if game.player.position.y < 800.0 {
     //     input.steer = -1.0;
-    // } else if game_state.player.position.y < 1200.0 {
+    // } else if game.player.position.y < 1200.0 {
     //     input.steer = 1.0;
-    // } else if game_state.player.position.y < 1600.0 {
+    // } else if game.player.position.y < 1600.0 {
     //     input.steer = -1.0;
-    // } else if game_state.player.position.y < 2000.0 {
+    // } else if game.player.position.y < 2000.0 {
     //     input.steer = 1.0;
-    // } else if game_state.player.position.y < 3000.0 {
+    // } else if game.player.position.y < 3000.0 {
     //     input.steer = 0.0;
     // }
 
@@ -525,6 +610,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
     let mut start = Instant::now();
     let mut frame = 0u32;
+    let mut history = VecDeque::new();
 
     let mut last_time = 0.0;
     loop {
@@ -588,13 +674,40 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
             // let's some kind of testing mode update the game state
             if let Some(manipulator) = bot_io_config.manipulator {
-                manipulator(frame, &rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input);
+                manipulator(frame, &rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input, &history, &mut gamepad);
             }
 
             bot.controller_history.push_back((&input).into());
             if bot.controller_history.len() > 1000 {
                 // keep last 100
                 bot.controller_history = bot.controller_history.split_off(900);
+            }
+
+            if bot_io_config.record_history {
+                // 10 times per second at 120fps
+                if frame % 12 == 0 {
+                    history.push_back((GAME_STATE.read().unwrap().clone(), bot.clone()))
+                }
+                if history.len() > 100 {
+                    // keep last 50
+                    history = history.split_off(50);
+                }
+            }
+
+            if bot_io_config.render_debug_info {
+                let mut group = rlbot.begin_render_group(VISUALIZATION_GROUP_ID + 1000);
+                let white = group.color_rgb(255, 255, 255);
+                group.draw_string_2d((10.0, 5.0), (1, 1), format!("Steer: {}", input.steer), white);
+                group.draw_string_2d((10.0, 20.0), (1, 1), format!("Boost: {}", input.boost), white);
+                group.draw_string_2d((10.0, 35.0), (1, 1), format!("Throttle: {}", input.throttle), white);
+                if bot.turn_errors.len() > 0 {
+                    group.draw_string_2d((10.0, 50.0), (1, 1), format!("Error: {:?}", bot.turn_errors.get(bot.turn_errors.len() - 1).unwrap()), white);
+                } else {
+                    group.draw_string_2d((10.0, 50.0), (1, 1), "Error: -", white);
+                }
+                let pos = GAME_STATE.read().unwrap().player.position;
+                group.draw_string_2d((10.0, 65.0), (1, 1), format!("Position: ({}, {})", pos.x, pos.y), white);
+                group.render();
             }
 
             rlbot

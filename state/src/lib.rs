@@ -61,7 +61,7 @@ lazy_static! {
     pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-13.87566, 0.0, 20.75499);
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub enum Action {
     Shoot,
     //Shadow,
@@ -129,7 +129,7 @@ impl From<&rlbot::ControllerState> for BrickControllerState {
     }
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
     pub planned_ball: Option<BallState>,
@@ -139,7 +139,7 @@ pub struct BotState {
     pub last_action: Option<Action>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,
@@ -198,7 +198,7 @@ impl PlayerState {
     }
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
 pub struct BallState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
