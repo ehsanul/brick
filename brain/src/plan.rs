@@ -985,10 +985,8 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
 const BOUNDS_MARGIN: f32 = 200.0;
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
-    pos.x > SIDE_WALL_DISTANCE + BOUNDS_MARGIN
-        || pos.x < -SIDE_WALL_DISTANCE - BOUNDS_MARGIN
-        || pos.y > BACK_WALL_DISTANCE + BOUNDS_MARGIN
-        || pos.y < -BACK_WALL_DISTANCE - BOUNDS_MARGIN
+    pos.x.abs() > SIDE_CURVE_DISTANCE + BOUNDS_MARGIN
+        || pos.y.abs() > BACK_CURVE_DISTANCE + BOUNDS_MARGIN
 }
 
 fn expand_vertex(

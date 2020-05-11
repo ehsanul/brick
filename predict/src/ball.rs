@@ -30,7 +30,13 @@ enum PredictionCategory {
 }
 
 fn find_prediction_category(ball: &BallState) -> PredictionCategory {
-    if ball.position.z > BALL_COLLISION_RADIUS || ball.velocity.z.abs() < 1.0 {
+    // NOTE using the "soaring" calculations when interacting with wall/curves, even when rolling,
+    // since we at least have arena collision for that and will get a better prediction even if not
+    // 100% accurate
+    let in_air = ball.position.z > BALL_COLLISION_RADIUS || ball.velocity.z.abs() < 1.0;
+    let on_side_curve = ball.position.x.abs() > SIDE_CURVE_DISTANCE;
+    let on_back_curve = ball.position.y.abs() > BACK_CURVE_DISTANCE;
+    if in_air || on_side_curve || on_back_curve {
         PredictionCategory::Soaring
     } else {
         PredictionCategory::Rolling
@@ -117,6 +123,10 @@ fn next_ball_state_rolling(ball: &BallState, time_step: f32) -> BallState {
 
     next.position += time_step * next.velocity;
     next.velocity += time_step * acceleration;
+
+    // hard-coding certain values
+    next.velocity.z = 0.0;
+    next.position.z = BALL_COLLISION_RADIUS;
 
     next
 }

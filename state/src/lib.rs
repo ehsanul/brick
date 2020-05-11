@@ -19,7 +19,9 @@ pub const LAG_FRAMES: usize = 0; // turns out there isn't actually much lag
 
 // arena constants
 pub const SIDE_WALL_DISTANCE: f32 = 4096.0;
+pub const SIDE_CURVE_DISTANCE: f32 = 3838.0;
 pub const BACK_WALL_DISTANCE: f32 = 5140.0;
+pub const BACK_CURVE_DISTANCE: f32 = 4960.0;
 pub const CEILING_DISTANCE: f32 = 2044.0;
 pub const GOAL_X: f32 = 892.75;
 pub const GOAL_Z: f32 = 640.0;
@@ -130,6 +132,7 @@ impl From<&rlbot::ControllerState> for BrickControllerState {
 #[derive(Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
+    pub planned_ball: Option<BallState>,
     pub cost_diff: f32,
     pub controller_history: VecDeque<BrickControllerState>,
     pub turn_errors: VecDeque<f32>,
@@ -282,6 +285,7 @@ pub struct SerializablePlan(pub Plan);
 #[derive(Clone)]
 pub struct PlanResult {
     pub plan: Option<Plan>,
+    pub planned_ball: Option<BallState>,
     pub cost_diff: f32,
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
     pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,
@@ -291,6 +295,7 @@ impl Default for PlanResult {
     fn default() -> PlanResult {
         PlanResult {
             plan: None,
+            planned_ball: None,
             cost_diff: std::f32::MAX,
             visualization_lines: vec![],
             visualization_points: vec![],
