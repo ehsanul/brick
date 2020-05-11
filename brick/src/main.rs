@@ -657,6 +657,7 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
         //let cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
         //println!("new best plan! cost: {}", cost);
         bot.plan = Some(new_plan.clone());
+        bot.planned_ball = plan_result.planned_ball.clone();
         bot.cost_diff = plan_result.cost_diff;
         bot.turn_errors.clear();
     }
@@ -729,6 +730,40 @@ fn draw_lines(rlbot: &rlbot::RLBot, lines: &Vec<(Point3<f32>, Point3<f32>, Point
     Ok(())
 }
 
+fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+    let mut vertices = [
+      Vector3::new(-0.262865, 0.00000, 0.42532500),
+      Vector3::new(0.262865, 0.00000, 0.42532500),
+      Vector3::new(-0.262865, 0.00000, -0.42532500),
+      Vector3::new(0.262865, 0.00000, -0.42532500),
+      Vector3::new(0.00000, 0.425325, 0.26286500),
+      Vector3::new(0.00000, 0.425325, -0.26286500),
+      Vector3::new(0.00000, -0.425325, 0.26286500),
+      Vector3::new(0.00000, -0.425325, -0.26286500),
+      Vector3::new(0.425325, 0.262865, 0.0000000),
+      Vector3::new(-0.425325, 0.262865, 0.0000000),
+      Vector3::new(0.425325, -0.262865, 0.0000000),
+      Vector3::new(-0.425325, -0.262865, 0.0000000),
+    ].iter().map(|v| {
+        ball.position + (BALL_COLLISION_RADIUS / 0.45) * v
+    }).collect::<Vec<_>>();
+    let mut lines = vec![];
+    for vertex in vertices.clone().iter() {
+        vertices.sort_by(|v1, v2| (vertex - v1).norm().partial_cmp(&(vertex - v2).norm()).unwrap());
+        let closest = vertices.iter().skip(1).take(5);
+        for v in closest {
+            lines.push(
+                (
+                    Point3::new(vertex.x, vertex.y, vertex.z),
+                    Point3::new(v.x, v.y, v.z),
+                    Point3::new(1.0, 1.0, 1.0),
+                )
+            );
+        }
+    }
+    lines
+}
+
 fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_result: &PlanResult) -> Result<(), Box<dyn Error>> {
     let PlanResult { plan, visualization_lines, ..  } = plan_result;
     let mut chunk_num = 0;
@@ -736,6 +771,9 @@ fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_resul
     // white line showing best planned path
     if let Some(ref plan) = bot.plan {
         draw_lines(&rlbot, &plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)), &mut chunk_num)?;
+        if let Some(ref planned_ball) = bot.planned_ball {
+            draw_lines(&rlbot, &icosahedron_lines(planned_ball), &mut chunk_num)?;
+        }
     }
 
     if let Some(plan) = plan {

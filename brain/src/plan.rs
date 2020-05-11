@@ -308,14 +308,14 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     config: &SearchConfig,
 ) -> PlanResult {
     // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
-    let is_ball_hit_towards_goal = |ball_trajectory: &[BallState], player: &PlayerState, next_vertex: &PlayerVertex, controller: &BrickControllerState, time_step: f32| -> Option<(PlayerState, f32)> {
+    let is_ball_hit_towards_goal = |ball_trajectory: &[BallState], player: &PlayerState, next_vertex: &PlayerVertex, controller: &BrickControllerState, time_step: f32| -> Option<(PlayerState, BallState, f32)> {
         let index = ((next_vertex.cost_so_far - next_vertex.step_duration) / TICK).round() as usize;
         if let Some((colliding_player, colliding_ball, collision_point, collision_time)) = predict::player::get_collision(&ball_trajectory[index..], player, controller, time_step) {
             match predict::ball::calculate_hit(&colliding_ball, &colliding_player, &collision_point) {
                 Ok(next_ball) => {
                     if predict::ball::trajectory_enters_soccar_goal(&next_ball) {
                         // println!("collision point: {:?}, ball velocity: {:?}", collision_point, next_ball.velocity);
-                        Some((colliding_player, collision_time))
+                        Some((colliding_player, colliding_ball, collision_time))
                     } else {
                         None
                     }
@@ -444,7 +444,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 parent_player.position.z += 0.1;
             }
 
-            if let Some((player, cost)) = player_goal_reached(&vertex, &parent_player, ball_trajectory, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
+            if let Some((player, ball, cost)) = player_goal_reached(&vertex, &parent_player, ball_trajectory, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
                 let plan = reverse_path(&parents, index, is_secondary, &player, cost);
 
                 let total_cost = plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
@@ -456,6 +456,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 // );
                 return PlanResult {
                     plan: Some(plan),
+                    planned_ball: Some(ball),
                     cost_diff: total_cost - cost_to_strive_for,
                     visualization_lines,
                     visualization_points,
@@ -675,10 +676,9 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     // );
 
     PlanResult {
-        plan: None,
-        cost_diff: std::f32::MAX,
         visualization_lines,
         visualization_points,
+        ..PlanResult::default()
     }
 }
 
@@ -720,8 +720,8 @@ fn player_goal_reached(
     ball_trajectory: &[BallState],
     controller: &BrickControllerState,
     time_step: f32,
-    evaluator: fn(&[BallState], &PlayerState, &PlayerVertex, &BrickControllerState, f32) -> Option<(PlayerState, f32)>, // consider using Fn trait + generics to make this inlinable
-) -> Option<(PlayerState, f32)> {
+    evaluator: fn(&[BallState], &PlayerState, &PlayerVertex, &BrickControllerState, f32) -> Option<(PlayerState, BallState, f32)>, // consider using Fn trait + generics to make this inlinable
+) -> Option<(PlayerState, BallState, f32)> {
     let coarse_collision = coarse_collision(candidate_vertex, previous_player, &ball_trajectory[candidate_vertex.ball_trajectory_index]);
     if !coarse_collision {
         return None;
