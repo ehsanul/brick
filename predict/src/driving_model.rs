@@ -58,7 +58,7 @@ pub struct DrivingModel {
 }
 
 impl DrivingModel {
-    pub fn load(path: &str) -> Result<DrivingModel, Box<Error>> {
+    pub fn load(path: &str) -> Result<DrivingModel, Box<dyn Error>> {
         let f = BufReader::new(File::open(path)?);
         let mut decoder = GzDecoder::new(f);
         Ok(deserialize_from(&mut decoder)?)

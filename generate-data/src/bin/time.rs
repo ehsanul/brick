@@ -19,7 +19,7 @@ use std::fs::File;
 use std::io::BufReader;
 use std::path::PathBuf;
 
-fn load_plan(path: &PathBuf) -> Result<Plan, Box<Error>> {
+fn load_plan(path: &PathBuf) -> Result<Plan, Box<dyn Error>> {
     let f = BufReader::new(File::open(path)?);
     let mut decoder = GzDecoder::new(f);
     Ok(deserialize_from(&mut decoder)?)
@@ -65,7 +65,7 @@ fn is_hidden(entry: &DirEntry) -> bool {
         .unwrap_or(false)
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().collect();
     let dir = &args[1];
     let output_path = &args[2];
@@ -85,7 +85,7 @@ fn main() -> Result<(), Box<Error>> {
             plan: Some(plan),
             ..Default::default()
         };
-        brain::plan::explode_plan(&mut plan_result);
+        brain::plan::explode_plan(&mut plan_result)?;
         let plan = plan_result.plan.unwrap();
 
         // choose randomly out of the last 2% of the exploded plan, since we are doing bad on that bit

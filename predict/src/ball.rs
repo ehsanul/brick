@@ -179,6 +179,7 @@ fn psyonix_scale_impulse(val: f32) -> f32 {
 /// calculates ball state after collision with player. caller of this function must ensure there
 /// actually *is* a collision between the ball and player, otherwise the result of this is
 /// unpredictable
+#[allow(non_snake_case)]
 pub fn calculate_hit(ball: &BallState, player: &PlayerState, collision: &Vector3<f32>) -> Result<BallState, Box<dyn Error>> {
     let n1 = (collision - ball.position).normalize();
 

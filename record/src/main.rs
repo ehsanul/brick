@@ -11,7 +11,6 @@ use std::collections::HashMap;
 use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::create_dir_all;
-use std::path::PathBuf;
 use rand::{thread_rng, Rng};
 
 const MAX_BOOST_SPEED: i16 = 2300;
@@ -39,7 +38,7 @@ impl std::fmt::Display for MaxAttempts {
 }
 
 impl Error for MaxAttempts {
-    fn cause(&self) -> Option<&Error> {
+    fn cause(&self) -> Option<&dyn Error> {
         // Generic error, underlying cause isn't tracked.
         None
     }
@@ -50,14 +49,14 @@ struct RecordState {
     local_vy: i16,
     angular_speed: i16,
     started: bool,
-    records: Vec<(i32, PlayerState)>,
+    records: Vec<(u32, PlayerState)>,
     name: &'static str,
 }
 
 impl RecordState {
     pub fn record(&mut self, tick: &flat::GameTickPacket) {
         let mut game_state = GameState::default();
-        state::update_game_state(&mut game_state, &tick, 0);
+        state::update_game_state(&mut game_state, &tick, 0, 0);
 
         if !self.started {
             if self.is_initial_state(&game_state) {
@@ -108,20 +107,7 @@ impl RecordState {
         }
     }
 
-    pub fn advance(&mut self) {
-        self.records.clear();
-        self.local_vx += 100;
-        if self.local_vx > MAX_BOOST_SPEED {
-            self.local_vx = -MAX_BOOST_SPEED;
-            self.local_vy += 100;
-            if self.local_vy > MAX_BOOST_SPEED {
-                self.local_vy = -MAX_BOOST_SPEED;
-                self.angular_speed += 1;
-            }
-        }
-    }
-
-    pub fn set_next_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+    pub fn set_next_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
         self.started = false;
 
         let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
@@ -156,7 +142,7 @@ impl RecordState {
         Ok(())
     }
 
-    pub fn reset_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+    pub fn reset_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
         let position = rlbot::Vector3Partial::new().x(-2000.0).y(2000.0).z(18.65); // batmobile resting z
 
         let velocity = rlbot::Vector3Partial::new()
@@ -195,7 +181,7 @@ impl RecordState {
         packeteer: &mut rlbot::Packeteer,
         index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,
         adjustment: &mut Adjustment,
-    ) -> Result<(), Box<Error>> {
+    ) -> Result<(), Box<dyn Error>> {
         let original_local_vx = self.local_vx;
         let original_local_vy = self.local_vy;
         let original_angular_speed = self.angular_speed;
@@ -260,7 +246,7 @@ impl RecordState {
 
                 let tick = packeteer.next_flatbuffer()?;
                 let mut game_state = GameState::default();
-                state::update_game_state(&mut game_state, &tick, 0);
+                state::update_game_state(&mut game_state, &tick, 0, 0);
 
                 if !self.is_initial_state(&game_state) {
                     // there's a delay between setting state and it become available in the tick
@@ -321,7 +307,7 @@ impl RecordState {
                     'inner2: loop {
                         let tick = packeteer.next_flatbuffer()?;
                         let mut game_state = GameState::default();
-                        state::update_game_state(&mut game_state, &tick, 0);
+                        state::update_game_state(&mut game_state, &tick, 0, 0);
 
                         if (game_state.player.position.x - 2000.0).abs() < 200.0 {
                             break 'inner2;
@@ -355,11 +341,6 @@ impl RecordState {
             physics_ticks == 2 || d < 2.0
         })
     }
-
-    // angular speed is the outer loop, so we're done when that's done
-    pub fn all_samples_complete(&self) -> bool {
-        self.angular_speed > (1.0 / ANGULAR_GRID).round() as i16 * MAX_ANGULAR_SPEED
-    }
 }
 
 #[derive(Default)]
@@ -369,7 +350,7 @@ struct Adjustment {
     angular_speed: HashMap<i16, f32>,
 }
 
-fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
     let position = rlbot::Vector3Partial::new().x(3800.0).y(4800.0).z(98.0);
 
     let physics = rlbot::DesiredPhysics::new().location(position);
@@ -383,59 +364,12 @@ fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
     Ok(())
 }
 
-fn _record_set(
-    rlbot: &rlbot::RLBot,
-    name: &'static str,
-    input: ControllerState,
-) -> Result<(), Box<Error>> {
-    let mut record_state = RecordState {
-        local_vx: -MAX_BOOST_SPEED,
-        local_vy: -MAX_BOOST_SPEED,
-        angular_speed: (1.0 / ANGULAR_GRID).round() as i16 * -MAX_ANGULAR_SPEED,
-        started: false,
-        records: vec![],
-        name: name,
-    };
-
-    record_state.set_next_game_state(&rlbot)?;
-    let mut packeteer = rlbot.packeteer();
-    loop {
-        // skip unreachable velocities
-        if record_state.local_vx.pow(2) + record_state.local_vy.pow(2) > MAX_BOOST_SPEED.pow(2) {
-            record_state.advance();
-            continue;
-        }
-
-        while PathBuf::from(&record_state.path()).exists() {
-            record_state.advance();
-            continue;
-        }
-
-        let tick = packeteer.next_flatbuffer()?;
-
-        record_state.record(&tick);
-        if record_state.sample_complete() {
-            record_state.save();
-            record_state.advance();
-            if record_state.all_samples_complete() {
-                break;
-            } else {
-                record_state.set_next_game_state(&rlbot)?;
-            }
-        }
-
-        rlbot.update_player_input(0, &input)?;
-    }
-
-    Ok(())
-}
-
 fn record_all_missing(
     rlbot: &rlbot::RLBot,
     name: &'static str,
     input: ControllerState,
     sample_index: &predict::sample::SampleMap<'static>,
-) -> Result<(), Box<Error>> {
+) -> Result<(), Box<dyn Error>> {
     let mut record_state = RecordState {
         local_vx: 0,
         local_vy: 0,
@@ -510,7 +444,7 @@ fn record_missing_record_state<'a>(
     index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,
     record_state: &mut RecordState,
     adjustment: &mut Adjustment,
-) -> Result<(), Box<Error>> {
+) -> Result<(), Box<dyn Error>> {
     record_state.records.clear();
     let mut packeteer = rlbot.packeteer();
     rlbot.update_player_input(0, &input)?;
@@ -718,7 +652,7 @@ fn idle_right_drift() -> ControllerState {
     input
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let rlbot = rlbot::init()?;
 
     let _batmobile = rlbot::PlayerLoadout::new().car_id(803);

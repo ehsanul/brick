@@ -16,6 +16,7 @@ Options:
 
 extern crate bincode;
 extern crate brain;
+extern crate csv;
 extern crate docopt;
 extern crate flate2;
 extern crate kiss3d;
@@ -37,7 +38,7 @@ use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::RwLock;
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::collections::VecDeque;
 use std::cell::RefCell;
 use std::fs::{create_dir_all, File};
@@ -52,7 +53,7 @@ use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
 use kiss3d::window::Window;
 use na::{Point3, Rotation3, Translation3, UnitQuaternion, Quaternion, Vector3};
-use brain::predict::{self, player::PredictPlayer};
+use brain::predict;
 use spin_sleep::LoopHelper;
 
 pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
@@ -62,6 +63,7 @@ struct BotIoConfig<'a> {
     manipulator: Option<fn(u32, &rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState, &VecDeque<(GameState, BotState)>, &mut Gamepad) -> Result<(), Box<dyn Error>>>,
     print_turn_errors: bool,
     render_debug_info: bool,
+    save_debug_info: bool,
     record_history: bool,
     start_match: bool,
     match_settings: Option<rlbot::MatchSettings<'a>>,
@@ -226,6 +228,7 @@ fn run_bot_test() {
             record_history: true,
             print_turn_errors: true,
             render_debug_info: true,
+            save_debug_info: true,
             start_match: true,
             match_settings: Some(match_settings),
         };
@@ -235,6 +238,7 @@ fn run_bot_test() {
     bot_logic_loop_test(plan_sender, state_receiver);
 }
 
+#[allow(dead_code)]
 fn get_desired_car_state(player: &PlayerState) -> rlbot::DesiredCarState {
     let pos = player.position;
     let vel = player.velocity;
@@ -271,6 +275,7 @@ fn get_desired_car_state(player: &PlayerState) -> rlbot::DesiredCarState {
     rlbot::DesiredCarState::new().physics(physics)
 }
 
+#[allow(dead_code)]
 fn get_desired_ball_state(ball: &BallState) -> rlbot::DesiredBallState {
     let pos = ball.position;
     let vel = ball.velocity;
@@ -293,18 +298,11 @@ fn get_desired_ball_state(ball: &BallState) -> rlbot::DesiredBallState {
     rlbot::DesiredBallState::new().physics(physics)
 }
 
-fn zero_out_car(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
-    let player = PlayerState::default();
-    let car_state = get_desired_car_state(&player);
-    let desired_game_state = rlbot::DesiredGameState::new().car_state(0, car_state);
-    rlbot.set_game_state(&desired_game_state)?;
-    Ok(())
-}
-
 thread_local! {
     pub static SNAPSHOT_NUMBER: RefCell<u32> = RefCell::new(1);
 }
 
+#[allow(dead_code)]
 fn record_snapshot(game: &GameState, bot: &BotState) -> Result<(), Box<dyn Error>> {
     let dir ="data/snapshots";
     create_dir_all(dir)?;
@@ -323,6 +321,7 @@ fn record_snapshot(game: &GameState, bot: &BotState) -> Result<(), Box<dyn Error
     Ok(bincode::serialize_into(&mut e, &(game, bot))?)
 }
 
+#[allow(dead_code)]
 fn restore_snapshot(rlbot: &rlbot::RLBot, bot: &mut BotState, name: &str) -> Result<(), Box<dyn Error>> {
     let dir ="data/snapshots";
     let path = Path::new(dir).join(name.to_owned() + ".bincode.gz");
@@ -342,46 +341,47 @@ fn restore_snapshot(rlbot: &rlbot::RLBot, bot: &mut BotState, name: &str) -> Res
     Ok(rlbot.set_game_state(&desired_game_state)?)
 }
 
+#[allow(unused)]
 fn bot_test_manipulator(frame: u32, rlbot: &rlbot::RLBot, game: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState, history: &VecDeque<(GameState, BotState)>, gamepad: &mut Gamepad) -> Result<(), Box<dyn Error>> {
     if gamepad.select_toggled {
         if gamepad.south {
             // 0.2 seconds ago
             if let Some((game, bot)) = history.get(history.len() - 3) {
-                record_snapshot(game, bot);
+                record_snapshot(game, bot)?;
                 gamepad.south = false;
             }
         }
         if gamepad.west {
             // 1 second ago
             if let Some((game, bot)) = history.get(history.len() - 11) {
-                record_snapshot(game, bot);
+                record_snapshot(game, bot)?;
                 gamepad.west = false;
             }
         }
         if gamepad.north {
             // 2 seconds ago
             if let Some((game, bot)) = history.get(history.len() - 21) {
-                record_snapshot(game, bot);
+                record_snapshot(game, bot)?;
                 gamepad.north = false;
             }
         }
         if gamepad.east {
             // 3 seconds ago
             if let Some((game, bot)) = history.get(history.len() - 31) {
-                record_snapshot(game, bot);
+                record_snapshot(game, bot)?;
                 gamepad.east = false;
             }
         }
     }
 
     // loop recorded snapshot
-    if frame % 120 == 0 {
-        restore_snapshot(rlbot, bot, "snapshot1");
-        input.throttle = 0.0;
-        input.steer = 0.0;
-        bot.turn_errors.clear();
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    //if frame % 120 == 0 {
+    //    restore_snapshot(rlbot, bot, "sometimes-misses3");
+    //    input.throttle = 0.0;
+    //    input.steer = 0.0;
+    //    bot.turn_errors.clear();
+    //    std::thread::sleep(Duration::from_millis(10));
+    //}
 
     // loop constructed scenario
     //if frame % 360 == 0 {
@@ -574,7 +574,8 @@ pub fn try_next_flat<'fb>(rlbot: &rlbot::RLBot, last_time: f32) -> Option<rlbot:
     None
 }
 
-fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<Error>> {
+#[allow(dead_code)]
+fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
     let position = rlbot::Vector3Partial::new().x(3800.0).y(4800.0).z(98.0);
     let physics = rlbot::DesiredPhysics::new().location(position);
     let ball_state = rlbot::DesiredBallState::new().physics(physics);
@@ -608,16 +609,19 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
     // thing is gone afaik. just a command line argument now perhaps?
     let player_index = 0;
 
-    let mut start = Instant::now();
+    //let mut start = std::time::Instant::now();
     let mut frame = 0u32;
+    let mut source_frame = 0u32;
     let mut history = VecDeque::new();
+
+    let mut csv_writer = csv::Writer::from_path("debug.csv").expect("csv writer construction failed");
 
     let mut last_time = 0.0;
     loop {
         loop_helper.loop_start();
         if let Some(tick) = try_next_flat(&rlbot, last_time) {
             last_time = tick.gameInfo().expect("Missing gameinfo").secondsElapsed();
-            update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index);
+            update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index, frame);
 
             send_to_bot_logic(&sender, &bot);
             loop_helper.loop_sleep(); // TODO try moving to bottom to check if fps is better
@@ -625,7 +629,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             // make sure we have the latest results in case there are multiple, though note we may save
             // the plan from an earlier run if it happens to be the best one
             while let Ok(plan_result) = receiver.try_recv() {
-                update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
+                update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result, &mut source_frame);
                 match update_in_game_visualization(&rlbot, &bot, &plan_result) {
                     Ok(_) => {},
                     Err(e) => eprintln!("Failed rendering to rlbot: {}", e),
@@ -650,12 +654,6 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 human_input(&gamepad)
             };
 
-            // allows tracking the frame lag using a side-channel in the player inputs
-            {
-                let game = GAME_STATE.read().unwrap();
-                set_frame_metadata(game.frame, &mut input);
-            }
-
             if bot_io_config.print_turn_errors {
                 if bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
                     // last 20
@@ -674,7 +672,8 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
             // let's some kind of testing mode update the game state
             if let Some(manipulator) = bot_io_config.manipulator {
-                manipulator(frame, &rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input, &history, &mut gamepad);
+                manipulator(frame, &rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input, &history, &mut gamepad).
+                    unwrap_or_else(|e| println!("manipulator error: {}", e));
             }
 
             bot.controller_history.push_back((&input).into());
@@ -707,17 +706,53 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 }
                 let pos = GAME_STATE.read().unwrap().player.position;
                 group.draw_string_2d((10.0, 65.0), (1, 1), format!("Position: ({}, {})", pos.x, pos.y), white);
-                group.render();
+                group.render().unwrap_or_else(|e| println!("render error: {}", e));
+            }
+
+            if bot_io_config.save_debug_info {
+                if let Some(plan) = bot.plan.as_ref() {
+                    if let Some((planned_player, planned_controller, _)) = plan.get((frame - source_frame) as usize) {
+                        if let Some(planned_ball) = bot.planned_ball.as_ref() {
+                            let game = GAME_STATE.read().unwrap();
+                            let player = game.player;
+                            let ball = game.ball;
+                            //bot.clone())
+                            let (roll, pitch, yaw) = player.rotation.euler_angles();
+                            let (planned_roll, planned_pitch, planned_yaw) = planned_player.rotation.euler_angles();
+                            let planned_input: rlbot::ControllerState = (*planned_controller).into();
+                            let row: Vec<String> = [
+                                frame as f32, source_frame as f32,
+                                player.position.x, player.position.y, player.position.z,
+                                planned_player.position.x, planned_player.position.y, planned_player.position.z,
+                                player.velocity.x, player.velocity.y, player.velocity.z,
+                                planned_player.velocity.x, planned_player.velocity.y, planned_player.velocity.z,
+                                player.angular_velocity.x, player.angular_velocity.y, player.angular_velocity.z,
+                                planned_player.angular_velocity.x, planned_player.angular_velocity.y, planned_player.angular_velocity.z,
+                                roll, pitch, yaw,
+                                planned_roll, planned_pitch, planned_yaw,
+                                input.throttle, input.steer, (if input.boost { 1.0 } else { 0.0 }),
+                                planned_input.throttle, planned_input.steer, (if planned_input.boost { 1.0 } else { 0.0 }),
+                                ball.position.x, ball.position.y, ball.position.z,
+                                planned_ball.position.x, planned_ball.position.y, planned_ball.position.z,
+                                ball.velocity.x, ball.velocity.y, ball.velocity.z,
+                                planned_ball.velocity.x, planned_ball.velocity.y, planned_ball.velocity.z,
+                                ball.angular_velocity.x, ball.angular_velocity.y, ball.angular_velocity.z,
+                                planned_ball.angular_velocity.x, planned_ball.angular_velocity.y, planned_ball.angular_velocity.z,
+                            ].iter().map(|x| x.to_string()).collect::<Vec<_>>();
+                            csv_writer.write_record(&row).expect("Writing debug csv failed");
+                        }
+                    }
+                }
             }
 
             rlbot
                 .update_player_input(player_index as i32, &input)
                 .expect("update_player_input failed");
             frame = frame.wrapping_add(1);
-            if frame % 120 == 0 {
-                //println!("120 frames took: {:?}", start.elapsed());
-                start = Instant::now();
-            }
+            //if frame % 120 == 0 {
+            //    println!("120 frames took: {:?}", start.elapsed());
+            //    start = std::time::Instant::now();
+            //}
         } else {
             loop_helper.loop_sleep();
         }
@@ -739,7 +774,7 @@ fn plan_is_valid(game: &GameState, plan: &Plan) -> bool {
     }
 }
 
-fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResult) {
+fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResult, source_frame: &mut u32) {
     if let Some(ref new_plan) = plan_result.plan {
         if let Some(ref existing_plan) = bot.plan {
             let new_plan_cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
@@ -773,6 +808,7 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
         bot.planned_ball = plan_result.planned_ball.clone();
         bot.cost_diff = plan_result.cost_diff;
         bot.turn_errors.clear();
+        *source_frame = plan_result.source_frame; // TODO track on bot, after done with current snapshots
     }
 }
 
@@ -876,6 +912,7 @@ fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<
     }
     lines
 }
+
 fn hitbox_lines(player: &PlayerState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
     let mut vertices = [
       Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
@@ -907,15 +944,19 @@ fn hitbox_lines(player: &PlayerState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f
 }
 
 fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_result: &PlanResult) -> Result<(), Box<dyn Error>> {
-    let PlanResult { plan, visualization_lines, ..  } = plan_result;
+    let plan = &plan_result.plan;
     let mut chunk_num = 0;
 
-    // white line showing best planned path
     if let Some(ref plan) = bot.plan {
+        // white line showing best planned path
         draw_lines(&rlbot, &plan_lines(&plan, Point3::new(1.0, 1.0, 1.0)), &mut chunk_num)?;
+
+        // visualization of ball at end of planned path
         if let Some(ref planned_ball) = bot.planned_ball {
             draw_lines(&rlbot, &icosahedron_lines(planned_ball), &mut chunk_num)?;
         }
+
+        // visualization of car at end of planned path
         if let Some((player, _, _)) = plan.last() {
             draw_lines(&rlbot, &hitbox_lines(player), &mut chunk_num)?;
         }
@@ -924,10 +965,6 @@ fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_resul
     if let Some(plan) = plan {
         // turquoise line showing most recently calculated path
         draw_lines(&rlbot, &plan_lines(&plan, Point3::new(0.0, 1.0, 1.0)), &mut chunk_num)?;
-
-        // visualization of work done to find this path
-        // XXX maybe this is too many lines, cos it doesn't render much of this
-        // draw_lines(&rlbot, &visualization_lines, &mut chunk_num)?;
     }
 
     Ok(())
@@ -941,6 +978,7 @@ fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
         .expect("Sending to bot logic failed");
 }
 
+#[allow(dead_code)]
 fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
@@ -1003,6 +1041,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
     Ok(plan)
 }
 
+#[allow(dead_code)]
 fn forward_plan(current: &PlayerState, distance: f32) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
 
@@ -1018,10 +1057,10 @@ fn forward_plan(current: &PlayerState, distance: f32) -> Result<Plan, Box<dyn Er
     Ok(plan)
 }
 
-fn square_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
+#[allow(dead_code)]
+fn square_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
-    let mut player = current.clone();
-    plan.push((player, BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::new(), 0.0));
     for _ in 0..4 {
         let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0)?;
         plan.append(&mut plan_part);
@@ -1032,10 +1071,10 @@ fn square_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     Ok(plan)
 }
 
-fn snek_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
+#[allow(dead_code)]
+fn snek_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
-    let mut player = current.clone();
-    plan.push((player, BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::new(), 0.0));
 
     let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 500.0)?;
     plan.append(&mut plan_part);
@@ -1049,6 +1088,7 @@ fn snek_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     Ok(plan)
 }
 
+#[allow(dead_code)]
 fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
@@ -1078,6 +1118,7 @@ fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     Ok(plan)
 }
 
+#[allow(dead_code)]
 fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
@@ -1129,6 +1170,7 @@ fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 }
 
 
+#[allow(dead_code)]
 fn offset_forward_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut offset_player = current.clone();
     let heading = offset_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
@@ -1172,7 +1214,7 @@ fn simulate_over_time() {
         {
             let game_state = GAME_STATE.read().unwrap();
             let plan_result = brain::play::play(&mut model, &game_state, &mut bot);
-            update_bot_state(&game_state, &mut bot, &plan_result);
+            update_bot_state(&game_state, &mut bot, &plan_result, &mut 0u32);
             update_simulation_visualization(&bot, &plan_result);
             // this pauses the simulation forever when no plan is found
             // if plan_result.plan.is_none() {

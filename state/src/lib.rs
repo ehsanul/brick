@@ -54,11 +54,12 @@ lazy_static! {
     pub static ref CAR_INVERSE_INERTIA: na::Matrix3<f32> = CAR_INERTIA.try_inverse().expect("Inverse car inertia failed");
 
     // batmobile
-    //pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.8198, 84.67036, 29.3944);
-    //pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-9.008572, 0.0, 12.0942);
+    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.8198, 84.67036, 29.3944);
+    pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-9.008572, 0.0, 12.0942);
+    // TODO switch to octane after building new driving model
     // octane
-    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(118.0074, 84.19941, 36.15907);
-    pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-13.87566, 0.0, 20.75499);
+    //pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(118.0074, 84.19941, 36.15907);
+    //pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-13.87566, 0.0, 20.75499);
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -129,6 +130,29 @@ impl From<&rlbot::ControllerState> for BrickControllerState {
     }
 }
 
+impl From<BrickControllerState> for rlbot::ControllerState {
+    fn from(controller: BrickControllerState) -> Self {
+        rlbot::ControllerState {
+            throttle: match controller.throttle {
+                Throttle::Idle => 0.0,
+                Throttle::Forward => 1.0,
+                Throttle::Reverse => -1.0,
+            },
+            steer: match controller.steer {
+                Steer::Straight => 0.0,
+                Steer::Left => -1.0,
+                Steer::Right => 1.0,
+            },
+            pitch: controller.pitch,
+            yaw: controller.yaw,
+            roll: controller.roll,
+            jump: controller.jump,
+            boost: controller.boost,
+            handbrake: controller.handbrake,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Debug, Default, Clone)]
 pub struct BotState {
     pub plan: Option<Plan>,
@@ -143,8 +167,7 @@ pub struct BotState {
 pub struct GameState {
     pub ball: BallState,
     pub player: PlayerState,
-    pub frame: i32,
-    pub input_frame: i32,
+    pub frame: u32,
 }
 
 // FIXME check if this order matches up with team integers we get from rlbot interface
@@ -193,7 +216,7 @@ impl PlayerState {
         // additional rotation to convert to local coords with car pointing towards positive
         // y instead of negative x, since that's a lot more intuitive
         Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0)
-            * na::inverse(&self.rotation.to_rotation_matrix())
+            * self.rotation.to_rotation_matrix().inverse()
             * self.velocity
     }
 }
@@ -286,7 +309,9 @@ pub struct SerializablePlan(pub Plan);
 pub struct PlanResult {
     pub plan: Option<Plan>,
     pub planned_ball: Option<BallState>,
+    pub source_frame: u32,
     pub cost_diff: f32,
+    pub ball_trajectory: Vec<BallState>,
     pub visualization_lines: Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
     pub visualization_points: Vec<(Point3<f32>, Point3<f32>)>,
 }
@@ -296,7 +321,9 @@ impl Default for PlanResult {
         PlanResult {
             plan: None,
             planned_ball: None,
+            source_frame: 0,
             cost_diff: std::f32::MAX,
+            ball_trajectory: vec![],
             visualization_lines: vec![],
             visualization_points: vec![],
         }
@@ -350,15 +377,13 @@ impl Default for DesiredContact {
     }
 }
 
-const MAX_FRAMES: i32 = 32;
-const FRAME_MASK: i32 = MAX_FRAMES - 1;
-
 /// updates our game state, which is a representation of the packet/ticket, but with our own data
 /// types etc
 pub fn update_game_state(
     game_state: &mut GameState,
     tick: &rlbot::flat::GameTickPacket,
     player_index: usize,
+    frame: u32,
 ) {
     let ball = tick.ball().expect("Missing ball");
     let players = tick.players().expect("Missing players");
@@ -389,64 +414,13 @@ pub fn update_game_state(
         Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2])
     );
 
-    // i guess we no longer get input back, nor current game frame
-    //game_state.input_frame = calculate_input_frame(game_state.frame, input.roll());
+    game_state.frame = frame;
 
     game_state.player.team = match player.team() {
         0 => Team::Blue,
         1 => Team::Orange,
         _ => unimplemented!(),
     };
-}
-
-/// we use the least significant bits of the roll input to encode the frame used when determining
-/// the input. this lets us measure lag in frames later
-pub fn set_frame_metadata(frame: i32, controller: &mut rlbot::ControllerState) {
-    controller.roll = calculate_frame_metadata(frame, controller.roll);
-}
-
-fn calculate_frame_metadata(frame: i32, container: f32) -> f32 {
-    // checks that MAX_FRAMES is a power of two, and thus ensures that the FRAME_MASK is correct,
-    // since FRAME_MASK is defined as MAX_FRAMES - 1
-    assert!(MAX_FRAMES & FRAME_MASK == 0);
-
-    // ensure our manipulation doesn't result in a an out of range value for the input.
-    // NOTE this won't work if many bits are being used for the frame metadata, but why would we?
-    let mut container = container;
-    if container >= 0.999 {
-        container -= 0.001;
-    } else if container <= -0.999 {
-        container += 0.001;
-    }
-
-    let frame_remainder = frame % MAX_FRAMES;
-    unsafe {
-        // ensure least significant bits are zeroed out
-        let masked = std::mem::transmute::<f32, i32>(container) & !FRAME_MASK;
-
-        // set least significate bits
-        std::mem::transmute::<i32, f32>(masked | frame_remainder)
-    }
-}
-
-// extract frame metadata
-// NOTE will produce an incorrect result if actual lag exceeds MAX_FRAMES
-fn calculate_input_frame(current_frame: i32, container: f32) -> i32 {
-    // checks that MAX_FRAMES is a power of two, and thus ensures that the FRAME_MASK is correct,
-    // since FRAME_MASK is defined as MAX_FRAMES - 1
-    assert!(MAX_FRAMES & FRAME_MASK == 0);
-
-    let input_frame_remainder = unsafe { std::mem::transmute::<f32, i32>(container) } & FRAME_MASK;
-    let current_frame_remainder = current_frame % MAX_FRAMES;
-    let current_frame_base = current_frame - current_frame_remainder;
-
-    let mut input_frame = current_frame_base + input_frame_remainder;
-    if current_frame_remainder < input_frame_remainder {
-        // rolled over, so let's adjust appropriately
-        input_frame -= MAX_FRAMES;
-    }
-
-    input_frame
 }
 
 #[cfg(test)]

@@ -1,8 +1,7 @@
 use heuristic::HeuristicModel;
-use na::{self, Point3, Rotation3, Unit, Vector3};
+use na::{Point3, Unit, Vector3};
 use predict;
 use state::*;
-use std;
 use std::cmp::Ordering;
 use std::error::Error;
 use std::f32::consts::PI;
@@ -135,7 +134,7 @@ pub extern "C" fn plan<H: HeuristicModel>(
     initial_ball_trajectory_index: usize,
     desired: &DesiredContact,
     cost_to_strive_for: f32,
-    last_plan: Option<&Plan>,
+    _last_plan: Option<&Plan>,
 ) -> PlanResult {
     let mut config = SearchConfig::default();
 
@@ -208,7 +207,7 @@ pub fn explode_plan(plan_result: &PlanResult) -> Result<Option<Plan>, Box<dyn Er
             // if we are exploding into 2-tick steps, if there is a leftover tick we still want to
             // include/exlode it
             if remaining_ticks > 0 {
-                for j in 1..=remaining_ticks {
+                for _j in 1..=remaining_ticks {
                     let next_player = predict::player::next_player_state(
                         &last_player,
                         &controller,
@@ -457,7 +456,9 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 return PlanResult {
                     plan: Some(plan),
                     planned_ball: Some(ball),
+                    source_frame: 0, // caller sets it
                     cost_diff: total_cost - cost_to_strive_for,
+                    ball_trajectory: ball_trajectory.iter().cloned().collect::<Vec<_>>(),
                     visualization_lines,
                     visualization_points,
                 };
@@ -785,83 +786,6 @@ impl BoundingBox {
             bb.min_z = (bb.min_z + bb.max_z) / 2.0 - BALL_COLLISION_RADIUS
         }
         bb
-    }
-
-    fn from_boxes(boxes: &Vec<BoundingBox>) -> BoundingBox {
-        let mut min_x = std::f32::MAX;
-        let mut min_y = std::f32::MAX;
-        let mut min_z = std::f32::MAX;
-        let mut max_x = std::f32::MIN;
-        let mut max_y = std::f32::MIN;
-        let mut max_z = std::f32::MIN;
-        for b in boxes {
-            if b.min_x < min_x {
-                min_x = b.min_x
-            }
-            if b.min_y < min_y {
-                min_y = b.min_y
-            }
-            if b.min_z < min_z {
-                min_z = b.min_z
-            }
-            if b.max_x > max_x {
-                max_x = b.max_x
-            }
-            if b.max_y > max_y {
-                max_y = b.max_y
-            }
-            if b.max_z > max_z {
-                max_z = b.max_z
-            }
-        }
-        // FIXME hack to extend bounds down to the ground, where the car can reach them
-        if max_z - min_z < BALL_COLLISION_RADIUS * 2.0 {
-            min_z = (min_z + max_z) / 2.0 - BALL_COLLISION_RADIUS
-        }
-        BoundingBox {
-            min_x,
-            max_x,
-            min_y,
-            max_y,
-            min_z,
-            max_z,
-        }
-    }
-
-    fn center(&self) -> Vector3<f32> {
-        Vector3::new(
-            (self.min_x + self.max_x) / 2.0,
-            (self.min_y + self.max_y) / 2.0,
-            (self.min_z + self.max_z) / 2.0,
-        )
-    }
-
-    fn lines(&self) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
-        let mut corners = vec![];
-        for &x in [self.min_x, self.max_x].iter() {
-            for &y in [self.min_y, self.max_y].iter() {
-                for &z in [self.min_z, self.max_z].iter() {
-                    corners.push(Point3::new(x, y, z));
-                }
-            }
-        }
-
-        corners
-            .clone()
-            .iter()
-            .flat_map(|c1: &Point3<f32>| {
-                corners
-                    .iter()
-                    .map(|c2: &Point3<f32>| {
-                        (
-                            Point3::new(c1.x, c1.y, c1.z),
-                            Point3::new(c2.x, c2.y, c2.z),
-                            Point3::new(0.0f32, 1.0f32, 0.3f32),
-                        )
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect::<Vec<_>>()
     }
 }
 

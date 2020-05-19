@@ -4,7 +4,6 @@ use plan;
 use predict::{self, player::PredictPlayer};
 use rlbot;
 use state::*;
-use std;
 use std::collections::VecDeque;
 use std::f32::consts::PI;
 use std::time::Instant;
@@ -130,8 +129,9 @@ fn hit_ball<H: HeuristicModel>(
         return PlanResult::default();
     }
 
+    #[allow(unused)]
     let start = Instant::now();
-    let result = plan::plan(
+    let mut result = plan::plan(
         model,
         // FIXME additional lag should be added for brick's planning calculation lag
         &game.player.lag_compensated_player(&bot.controller_history, LAG_FRAMES),
@@ -141,6 +141,7 @@ fn hit_ball<H: HeuristicModel>(
         time,
         last_plan,
     );
+    result.source_frame = game.frame;
     // println!("PLAN DURATION: {:?}", start.elapsed());
     result
 }
@@ -170,12 +171,9 @@ fn non_admissable_estimated_time<H: HeuristicModel>(
 // TODO we need to also include our current (ie previously used) strategy state as an input here,
 // and logic for expiring it if it's no longer applicable.
 pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotState) -> PlanResult {
-    let start = Instant::now();
-    let plan_result = match what_do(game) {
+    match what_do(game) {
         Action::Shoot => shoot(model, game, bot),
-    };
-    let duration = start.elapsed();
-    plan_result
+    }
 }
 
 #[no_mangle]
@@ -241,7 +239,7 @@ pub extern "C" fn next_input(
             }
 
             //println!("controller: {:?}", controller);
-            let mut input = convert_controller_to_rlbot_input(&controller);
+            let mut input = controller.into();
             //println!("input before: {:?}", input);
             pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
@@ -299,23 +297,3 @@ fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
     }
 }
 
-fn convert_controller_to_rlbot_input(controller: &BrickControllerState) -> rlbot::ControllerState {
-    rlbot::ControllerState {
-        throttle: match controller.throttle {
-            Throttle::Idle => 0.0,
-            Throttle::Forward => 1.0,
-            Throttle::Reverse => -1.0,
-        },
-        steer: match controller.steer {
-            Steer::Straight => 0.0,
-            Steer::Left => -1.0,
-            Steer::Right => 1.0,
-        },
-        pitch: controller.pitch,
-        yaw: controller.yaw,
-        roll: controller.roll,
-        jump: controller.jump,
-        boost: controller.boost,
-        handbrake: controller.handbrake,
-    }
-}

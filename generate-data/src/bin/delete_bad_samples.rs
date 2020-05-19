@@ -4,14 +4,14 @@ use std::error::Error;
 use brain::predict::sample;
 use std::fs;
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let mut count_good = 0;
     let mut count_bad = 0;
 
     for f in sample::csv_files("./data/samples/flat_ground") {
         let sample = sample::load_sample_file(&f);
 
-        let mut last_player = &sample[0];
+        //let mut last_player = &sample[0];
         //let bad = sample[1..].iter().any(|player| {
         //    let v = 0.5 * (player.velocity + last_player.velocity);
         //    let d = (player.position - last_player.position).norm();

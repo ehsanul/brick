@@ -9,7 +9,7 @@ use std::fs::create_dir_all;
 use std::path::Path;
 use na::{Quaternion, UnitQuaternion};
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     for f in sample::csv_files("./data/samples/flat_ground") {
         let sample = sample::load_sample_file(&f);
 

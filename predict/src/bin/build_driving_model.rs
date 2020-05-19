@@ -24,7 +24,7 @@ fn build_model_for(control_branch: &str) -> DrivingModel {
     model
 }
 
-fn write_model(path: &Path, model: DrivingModel) -> Result<(), Box<Error>> {
+fn write_model(path: &Path, model: DrivingModel) -> Result<(), Box<dyn Error>> {
     let f = BufWriter::new(File::create(path)?);
     let mut e = GzEncoder::new(f, Compression::default());
     Ok(serialize_into(&mut e, &model)?)
@@ -84,7 +84,7 @@ fn index_all_samples(indexed: &mut TransformationMap, all_samples: &Vec<Vec<Play
 }
 
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     let control_branches = [
         "throttle_straight",
         "throttle_right",

@@ -7,7 +7,6 @@ extern crate rayon;
 
 use bincode::serialize_into;
 use brain::plan;
-use brain::HeuristicModel; // TODO as _;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use na::{UnitQuaternion, Vector3};
@@ -26,7 +25,7 @@ const YAW_FACTOR: f32 = 8.0;
 const MAX_X: i32 = 8000;
 const MAX_Y: i32 = 10000;
 
-fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
+fn write_data(path: &str, plan: Plan) -> Result<(), Box<dyn Error>> {
     let serializable_plan = SerializablePlan(plan);
     create_dir_all(&path)?;
     let file_path = Path::new(path).join("plan.bincode");
@@ -35,7 +34,7 @@ fn write_data(path: &str, plan: Plan) -> Result<(), Box<Error>> {
     Ok(serialize_into(&mut e, &serializable_plan)?)
 }
 
-fn main() -> Result<(), Box<Error>> {
+fn main() -> Result<(), Box<dyn Error>> {
     // fewer than normal  threads, so some cores are left free for the computer user...
     rayon::ThreadPoolBuilder::new().num_threads(10).build_global().unwrap();
 
