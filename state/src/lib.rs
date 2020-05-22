@@ -157,6 +157,7 @@ impl From<BrickControllerState> for rlbot::ControllerState {
 pub struct BotState {
     pub plan: Option<Plan>,
     pub planned_ball: Option<BallState>,
+    pub plan_source_frame: u32,
     pub cost_diff: f32,
     pub controller_history: VecDeque<BrickControllerState>,
     pub turn_errors: VecDeque<f32>,
