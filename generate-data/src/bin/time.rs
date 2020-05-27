@@ -85,7 +85,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             plan: Some(plan),
             ..Default::default()
         };
-        brain::plan::explode_plan(&mut plan_result)?;
+        match brain::plan::explode_plan(&plan_result.plan) {
+            Ok(exploded) => plan_result.plan = exploded,
+            Err(e) => {
+                eprintln!("Exploding plan failed: {}", e);
+                plan_result.plan = None;
+                continue;
+            }
+        };
         let plan = plan_result.plan.unwrap();
 
         // choose randomly out of the last 2% of the exploded plan, since we are doing bad on that bit

@@ -56,8 +56,6 @@ use na::{Point3, Rotation3, Translation3, UnitQuaternion, Quaternion, Vector3};
 use brain::predict;
 use spin_sleep::LoopHelper;
 
-pub const TICK: f32 = 1.0 / 120.0; // FIXME import from predict
-
 #[derive(Default)]
 struct BotIoConfig<'a> {
     manipulator: Option<fn(&mut u32, &rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState, &VecDeque<(GameState, BotState)>, &mut Gamepad) -> Result<(), Box<dyn Error>>>,
@@ -228,7 +226,7 @@ fn run_bot_test() {
             record_history: true,
             print_turn_errors: true,
             render_debug_info: true,
-            save_debug_info: false,
+            save_debug_info: true,
             start_match: false,
             match_settings: Some(match_settings),
         };
@@ -376,8 +374,8 @@ fn bot_test_manipulator(frame: &mut u32, rlbot: &rlbot::RLBot, game: &GameState,
     }
 
     //// loop recorded snapshot
-    if game.frame % 333 == 0 {
-        restore_snapshot(rlbot, bot, frame, "snapshot16")?;
+    if (game.frame.saturating_sub(220)) % 400 == 0 {
+        restore_snapshot(rlbot, bot, frame, "misses6")?;
         input.throttle = 0.0;
         input.steer = 0.0;
         bot.turn_errors.clear();
@@ -612,6 +610,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
     //let mut start = std::time::Instant::now();
     let mut frame = 0u32;
+    let mut logic_lag = 0u32; // measured in frames
     let mut history = VecDeque::new();
 
     let mut csv_writer = csv::Writer::from_path("debug.csv").expect("csv writer construction failed");
@@ -622,13 +621,32 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
         if let Some(tick) = try_next_flat(&rlbot, last_time) {
             last_time = tick.gameInfo().expect("Missing gameinfo").secondsElapsed();
             update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index, frame);
-
-            send_to_bot_logic(&sender, &bot);
-            loop_helper.loop_sleep(); // TODO try moving to bottom to check if fps is better
+            send_to_bot_logic(&sender, &bot, logic_lag);
 
             // make sure we have the latest results in case there are multiple, though note we may save
             // the plan from an earlier run if it happens to be the best one
-            while let Ok(plan_result) = receiver.try_recv() {
+            while let Ok(mut plan_result) = receiver.try_recv() {
+                // track lag in our bot logic, which can vary considerably depending on the exact
+                // game state. we use this to try to start our calculations from a future predicted
+                // state, so that by the time the calculations are done they are not all completely
+                // invalid due to the game state not proceeding according to that calculation's
+                // plan. we simulate what will happen for logic_lag frames, then start our planning
+                // from that point forward
+                let latest_logic_lag = frame.saturating_sub(plan_result.source_frame);
+                if latest_logic_lag > logic_lag {
+                    // bump up immediately if higher, with an added margin
+                    logic_lag = latest_logic_lag + 5;
+                } else {
+                    // lower slowly, moving average
+                    logic_lag = (9 * logic_lag + latest_logic_lag) / 10;
+                }
+
+                // since the plan given is potentially starting in the future, if we
+                // overcompensated, we need to stitch our current plan with the old plan
+                // NOTE must be after tracking planning lag but before updating bot state, for
+                // accurate debug logging of the planned player values
+                stitch_with_current_plan(&GAME_STATE.read().unwrap(), &bot, &mut plan_result);
+
                 update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
                 match update_in_game_visualization(&rlbot, &bot, &plan_result) {
                     Ok(_) => {},
@@ -711,7 +729,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
             if bot_io_config.save_debug_info {
                 if let Some(plan) = bot.plan.as_ref() {
-                    if let Some((planned_player, planned_controller, _)) = plan.get((frame - bot.plan_source_frame) as usize) {
+                    if let Some((planned_player, planned_controller, _)) = plan.get((frame.wrapping_sub(bot.plan_source_frame)) as usize) {
                         if let Some(planned_ball) = bot.planned_ball.as_ref() {
                             let game = GAME_STATE.read().unwrap();
                             let player = game.player;
@@ -721,7 +739,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                             let (planned_roll, planned_pitch, planned_yaw) = planned_player.rotation.euler_angles();
                             let planned_input: rlbot::ControllerState = (*planned_controller).into();
                             let row: Vec<String> = [
-                                frame as f32, bot.plan_source_frame as f32,
+                                frame as f32, bot.plan_source_frame as f32, logic_lag as f32,
                                 player.position.x, player.position.y, player.position.z,
                                 planned_player.position.x, planned_player.position.y, planned_player.position.z,
                                 player.velocity.x, player.velocity.y, player.velocity.z,
@@ -753,8 +771,35 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             //    println!("120 frames took: {:?}", start.elapsed());
             //    start = std::time::Instant::now();
             //}
-        } else {
-            loop_helper.loop_sleep();
+        }
+        loop_helper.loop_sleep();
+    }
+}
+
+fn stitch_with_current_plan(game: &GameState, bot: &BotState, plan_result: &mut PlanResult) {
+    if let Some(last_plan) = adjusted_plan_or_fallback(&game, bot) {
+        if let Some(plan) = &plan_result.plan {
+            let closest_index_now = brain::play::closest_plan_index(&game.player, &last_plan);
+            let closest_index_plan = brain::play::closest_plan_index(&plan[0].0, &last_plan);
+
+            if closest_index_plan < closest_index_now {
+                // we had NOT compensated enough for the logic lag
+                eprintln!("Aborting plan stitching due to inadequate logic lag compensation");
+                return;
+            }
+
+            // we had compensated enough for the logic lag, now adjust the plan
+            let mut stitched_plan = last_plan.iter().cloned().skip(closest_index_now).take(closest_index_plan - closest_index_now).collect::<Vec<_>>();
+            stitched_plan.extend(plan);
+
+            plan_result.plan = Some(stitched_plan);
+
+            // adjust the source frame to be the one now, given our plan has been adjusted to
+            // start *right now*. this is required for debug logging to get the right intended
+            // index in the new plan. XXX must be done after we calculate logic lag, but before
+            // updating bot state
+            plan_result.source_frame = game.frame;
+            println!("Plan stitched successfully");
         }
     }
 }
@@ -779,7 +824,6 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
         if let Some(ref existing_plan) = bot.plan {
             let new_plan_cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
 
-            // XXX lag compensate? stitch up with existing plan too below?
             let closest_index = brain::play::closest_plan_index(&game.player, &existing_plan);
             let existing_plan_cost = existing_plan.iter().enumerate().filter(|(index, _val)| {
                 *index > closest_index
@@ -970,11 +1014,68 @@ fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_resul
     Ok(())
 }
 
-fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState) {
-    let game = (*GAME_STATE.read().unwrap()).clone();
-    let bot = bot.clone();
+// using the current player state as a starting point, apply the plan
+// FIXME unexplode plan first and calculate using those longer durations for more accurate
+// values, then explode again
+// TODO for even more accuracy:
+// - simulate following the plan while not exactly on it
+// - simulate turn error correction
+fn adjusted_plan(player: &PlayerState, plan: Plan) -> Result<Plan, Box<dyn Error>> {
+    let mut adjusted = Vec::with_capacity(plan.len());
+    adjusted.push((player.clone(), BrickControllerState::new(), 0.0));
+    let mut last_player: PlayerState = player.clone();
+    plan.iter().filter(|(_, _, cost)| *cost > 0.0).map(|(_, controller, cost): &(PlayerState, BrickControllerState, f32)| -> Result<(PlayerState, BrickControllerState, f32), Box<dyn Error>> {
+        let next_player = predict::player::next_player_state(&last_player, &controller, *cost);
+        if next_player.is_err() {
+            // print to stderr now since we're swallowing these errors right after this
+            eprintln!("Warning: failed to adjust plan: {}", next_player.as_ref().unwrap_err());
+        }
+        last_player = next_player?;
+        Ok((last_player.clone(), controller.clone(), *cost))
+    }).filter_map(Result::ok).for_each(|plan_val| {
+        adjusted.push(plan_val);
+    });
+
+    Ok(adjusted)
+}
+
+fn adjusted_plan_or_fallback(game: &GameState, bot: &BotState) -> Option<Plan> {
+    if let Some(bot_plan) = &bot.plan {
+        if let Ok(adjusted) = adjusted_plan(&game.player, bot_plan.clone()) {
+            Some(adjusted)
+        } else {
+            eprintln!("Failed to adjust plan for logic lag compensation");
+            None
+        }
+    } else if let Ok(fallback_plan) = forward_plan(&game.player, 1000.0) { // NOTE hard-coded 1 second, if we take longer in bot logic, we have bigger problems
+        // handles fallback case where there isn't a plan and we just throttle forward
+        if let Ok(exploded) = brain::plan::explode_plan(&Some(fallback_plan)) {
+            exploded.clone()
+        } else {
+            eprintln!("Failed to explode fallback plan for logic lag compensation");
+            None
+        }
+    } else {
+        eprintln!("Failed to calculate fallback plan for logic lag compensation");
+        None
+    }
+}
+
+fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState, logic_lag: u32) {
+    let mut game = (*GAME_STATE.read().unwrap()).clone();
+
+    // logic lag compensation: send player and ball in the future, since our calculation might take
+    // a while and we don't want a slow calculation's result to be invalid immediately
+    if let Some(plan) = adjusted_plan_or_fallback(&game, bot) {
+        let index = brain::play::closest_plan_index(&game.player, &plan) + logic_lag as usize;
+        if let Some((player, _, _)) = plan.get(index) {
+            game.player = player.clone();
+        }
+        game.ball = predict::ball::ball_trajectory(&game.ball, logic_lag as f32 * TICK).pop().expect("Missing ball trajectory");
+    }
+
     sender
-        .send((game, bot))
+        .send((game, bot.clone()))
         .expect("Sending to bot logic failed");
 }
 
@@ -1042,16 +1143,19 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
 }
 
 #[allow(dead_code)]
-fn forward_plan(current: &PlayerState, distance: f32) -> Result<Plan, Box<dyn Error>> {
+fn forward_plan(current: &PlayerState, time: f32) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
 
     let mut controller = BrickControllerState::new();
     controller.throttle = Throttle::Forward;
 
     let mut player = current.clone();
-    while (player.position - current.position).norm() < distance {
-        player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?; // FIXME step_duration input
-        plan.push((player, controller, 16.0 * TICK));
+    let mut time_so_far = 0.0;
+    while time_so_far < time {
+        let step_duration = 16.0 * TICK;
+        player = predict::player::next_player_state(&player, &controller, step_duration)?;
+        plan.push((player, controller, step_duration));
+        time_so_far += step_duration;
     }
 
     Ok(plan)

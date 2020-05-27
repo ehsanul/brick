@@ -153,7 +153,7 @@ pub extern "C" fn plan<H: HeuristicModel>(
 
     let mut plan_result = hybrid_a_star(model, player, ball_trajectory, initial_ball_trajectory_index, desired, cost_to_strive_for, &config);
 
-    match explode_plan(&plan_result) {
+    match explode_plan(&plan_result.plan) {
         Ok(exploded) => plan_result.plan = exploded,
         Err(e) => {
             eprintln!("Exploding plan failed: {}", e);
@@ -165,8 +165,8 @@ pub extern "C" fn plan<H: HeuristicModel>(
 }
 
 /// modifies the plan to use finer-grained steps
-pub fn explode_plan(plan_result: &PlanResult) -> Result<Option<Plan>, Box<dyn Error>> {
-    if let Some(ref plan) = plan_result.plan {
+pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>> {
+    if let Some(ref plan) = plan {
         if plan.get(0).is_none() {
             return Ok(None)
         }
