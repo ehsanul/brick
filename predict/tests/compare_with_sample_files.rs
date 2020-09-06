@@ -4,6 +4,8 @@ extern crate state;
 use state::*;
 use std::cmp::Ordering;
 
+const NUM_TICKS: usize = 16;
+
 fn percentile_value(numbers: &mut Vec<f32>, percentile: f32) -> f32 {
     numbers.sort_by(|a, b| a.partial_cmp(b).unwrap_or(Ordering::Less));
     let i = (percentile * numbers.len() as f32) as usize / 100;
@@ -26,20 +28,20 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
     for full_sample in all_samples {
         let mut i = 0;
         // offset by 32 frames to ensure minimum 32 frames of simulation ahead in the slice
-        while full_sample[i..].len() >= predict::sample::MIN_SAMPLE_LENGTH {
+        while full_sample[i..].len() >= NUM_TICKS + 1 {
             let sample = &full_sample[i..];
             i += 1;
 
             let player_start = sample[0];
-            let player_end = sample[16 / 2];
+            let player_end = sample[NUM_TICKS];
 
-            // we can miss data at the edges, or not be able to extrapolate at the dges. ignore for now
+            // we can miss data at the edges, or not be able to extrapolate at the edges. ignore for now
             // TODO remove all these checks
-            if (player_start.angular_velocity.z.abs() / 0.2) >= 20.0 || player_start.local_velocity().y < -100.0 || player_start.local_velocity().x.abs() > 1000.0 {
+            if (player_start.angular_velocity.z.abs() / 0.2) >= 20.0 || player_start.local_velocity().y < 50.0 || player_start.local_velocity().x.abs() > 1000.0 {
                 continue;
             }
 
-            let predicted_player_end = predict::player::next_player_state(&player_start, &controller, 16.0 * TICK);
+            let predicted_player_end = predict::player::next_player_state(&player_start, &controller, NUM_TICKS as f32 * TICK).expect("failed prediction");
             let position_error = (predicted_player_end.position - player_end.position).norm();
             let velocity_error = (predicted_player_end.velocity - player_end.velocity).norm();
             let avz_error = (predicted_player_end.angular_velocity.z - player_end.angular_velocity.z).abs();
@@ -60,10 +62,14 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
 
             //println!("position error: {}", position_error);
             //if position_error > 20.0 {
-            if velocity_error > 250.0 {
+            if velocity_error > 40.0 {
+                let normalized = predict::sample::normalized_player_rounded(&player_start);
                 println!("");
                 println!("---------------------------------------------------------");
-                println!("position error: {}, velocity_error: {}, avz_error: {}, frame: {}, x: {}", position_error, velocity_error, avz_error, player_start.angular_velocity.x, player_start.position.x);
+                println!("position error: {}, velocity_error: {}, avz_error: {}", position_error, velocity_error, avz_error);
+                let v = player_start.velocity;
+                println!("rg '{},{},{}' -- *.csv", v.x, v.y, v.z);
+                println!("player_start normalized: {:?}", normalized);
                 println!("player_start: {:?}", player_start);
                 println!("expected player_end: {:?}", player_end);
                 println!("predicted player_end: {:?}", predicted_player_end);

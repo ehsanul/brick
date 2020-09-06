@@ -203,8 +203,8 @@ fn run_bot_test() {
     ) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
-        let batmobile = rlbot::PlayerLoadout::new().car_id(803);
-        let _fennec = rlbot::PlayerLoadout::new().car_id(4284); // TODO get recordings of driving fennec for model
+        let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
+        let fennec = rlbot::PlayerLoadout::new().car_id(4284); // TODO get recordings of driving fennec for model
 
         let mut match_settings =
             rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
@@ -212,7 +212,7 @@ fn run_bot_test() {
                 "Brick Test",
                 0,
             )
-            .loadout(batmobile)]);
+            .loadout(fennec)]);
 
         match_settings.mutator_settings =
             rlbot::MutatorSettings::new().
@@ -374,13 +374,13 @@ fn bot_test_manipulator(frame: &mut u32, rlbot: &rlbot::RLBot, game: &GameState,
     }
 
     //// loop recorded snapshot
-    if (game.frame.saturating_sub(220)) % 400 == 0 {
-        restore_snapshot(rlbot, bot, frame, "misses6")?;
-        input.throttle = 0.0;
-        input.steer = 0.0;
-        bot.turn_errors.clear();
-        std::thread::sleep(Duration::from_millis(10));
-    }
+    // if (game.frame.saturating_sub(220)) % 400 == 0 {
+    //     restore_snapshot(rlbot, bot, frame, "misses6")?;
+    //     input.throttle = 0.0;
+    //     input.steer = 0.0;
+    //     bot.turn_errors.clear();
+    //     std::thread::sleep(Duration::from_millis(10));
+    // }
 
     // loop constructed scenario
     //if game.frame % 360 == 0 {
@@ -561,13 +561,11 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
     }
 }
 
-pub fn try_next_flat<'fb>(rlbot: &rlbot::RLBot, last_time: f32) -> Option<rlbot::flat::GameTickPacket<'fb>> {
+pub fn try_next_flat(rlbot: &rlbot::RLBot, last_time: f32) -> Option<rlbot::GameTickPacket> {
     if let Some(packet) = rlbot.interface().update_live_data_packet_flatbuffer() {
-        let game_time = packet.gameInfo().map(|gi| gi.secondsElapsed());
-        if let Some(game_time) = game_time {
-            if game_time != last_time {
-                return Some(packet);
-            }
+        let game_time = packet.game_info.seconds_elapsed;
+        if game_time != last_time {
+            return Some(packet);
         }
     }
     None
@@ -619,7 +617,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
     loop {
         loop_helper.loop_start();
         if let Some(tick) = try_next_flat(&rlbot, last_time) {
-            last_time = tick.gameInfo().expect("Missing gameinfo").secondsElapsed();
+            last_time = tick.game_info.seconds_elapsed;
             update_game_state(&mut GAME_STATE.write().unwrap(), &tick, player_index, frame);
             send_to_bot_logic(&sender, &bot, logic_lag);
 
@@ -1047,17 +1045,23 @@ fn adjusted_plan_or_fallback(game: &GameState, bot: &BotState) -> Option<Plan> {
             eprintln!("Failed to adjust plan for logic lag compensation");
             None
         }
-    } else if let Ok(fallback_plan) = forward_plan(&game.player, 1000.0) { // NOTE hard-coded 1 second, if we take longer in bot logic, we have bigger problems
-        // handles fallback case where there isn't a plan and we just throttle forward
-        if let Ok(exploded) = brain::plan::explode_plan(&Some(fallback_plan)) {
-            exploded.clone()
-        } else {
-            eprintln!("Failed to explode fallback plan for logic lag compensation");
-            None
-        }
     } else {
-        eprintln!("Failed to calculate fallback plan for logic lag compensation");
-        None
+        // NOTE hard-coded 1 second, if we take longer in bot logic, we have bigger problems
+        match forward_plan(&game.player, 1000.0) {
+            Ok(fallback_plan) => {
+                // handles fallback case where there isn't a plan and we just throttle forward
+                if let Ok(exploded) = brain::plan::explode_plan(&Some(fallback_plan)) {
+                    exploded.clone()
+                } else {
+                    eprintln!("Failed to explode fallback plan for logic lag compensation");
+                    None
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to calculate fallback plan for logic lag compensation: {}", e);
+                None
+            }
+        }
     }
 }
 

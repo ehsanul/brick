@@ -50,7 +50,7 @@ pub type TransformationMap = HashMap<sample::NormalizedPlayerState, PlayerTransf
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct DrivingModel {
-    pub tick32: TransformationMap,
+    //pub tick32: TransformationMap,
     pub tick16: TransformationMap,
     //pub tick8: TransformationMap,
     //pub tick4: TransformationMap,
@@ -150,8 +150,8 @@ pub(crate) fn get_relevant_transformation(
     // TODO use const fn + match when possible: https://github.com/rust-lang/rust/issues/57240
     if time_step == 16.0 * TICK {
         driving_model.tick16.get(&normalized)
-    } else if time_step == 32.0 * TICK {
-        driving_model.tick32.get(&normalized)
+    //} else if time_step == 32.0 * TICK {
+    //    driving_model.tick32.get(&normalized)
     } else if time_step == 2.0 * TICK {
         driving_model.tick2.get(&normalized)
     } else {

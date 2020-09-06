@@ -13,8 +13,8 @@ use std::ffi::OsStr;
 type MyHasher = BuildHasherDefault<FnvHasher>;
 
 /// the FPS at which samples were recorded
-pub const RECORD_FPS: usize = 60;
-pub const MIN_SAMPLE_LENGTH: usize = 1 + 16; // corresponds to 32 physics frames, the biggest step we simulate. we want 16 *steps* after the first measurement
+pub const RECORD_FPS: usize = 120;
+pub const MIN_SAMPLE_LENGTH: usize = 1 + 16; // we want to simulate 16-tick steps. we want 16 ticks after the first measurement
 
 lazy_static! {
     pub static ref THROTTLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
@@ -351,8 +351,8 @@ pub fn normalized_player(player: &PlayerState, ceil_vx: bool, ceil_vy: bool) -> 
     };
 
     // scale down if we're looking at something beyond the limits after a ceil or something
-    let max = ((MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i16).pow(2);
-    let sum = local_vy.pow(2) + local_vx.pow(2);
+    let max = ((MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR).round() as i32).pow(2);
+    let sum = (local_vy as i32).pow(2) + (local_vx as i32).pow(2);
     if sum > max {
         let ratio = (MAX_BOOST_SPEED / GROUND_SPEED_GRID_FACTOR) / (sum as f32).sqrt();
         local_vx = (local_vx as f32 * ratio).round() as i16;

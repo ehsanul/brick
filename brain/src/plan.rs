@@ -180,6 +180,11 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
             let num_ticks = (plan[i].2 / TICK).round() as i32;
             let num_steps = num_ticks / TICKS_PER_STEP;
             let remaining_ticks = num_ticks % TICKS_PER_STEP;
+
+            // NOTE since the controller value in each plan tuple is the controller that needs to
+            // be applied to the *previous* player state in order to reach the player state in the
+            // current tuple, we get the player from the period index and apply the controller from
+            // the current tuple
             let mut last_player = plan[i - 1].0;
             let controller = plan[i].1;
 
@@ -406,7 +411,8 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         let dur = if estimated_cost - cost_so_far > 2.0 {
             // if we're really far... yeah just make it super coarse to make it tractable, and the
             // search config has no control over this for now
-            32.0 * TICK
+            // FIXME we lost this so nah // 32.0 * TICK
+            config.step_duration
         } else {
             config.step_duration
         };
@@ -731,6 +737,10 @@ fn player_goal_reached(
     evaluator(ball_trajectory, previous_player, candidate_vertex, controller, time_step)
 }
 
+// NOTE this gets you a plan which consists of tuples of (player, prev_controller, cost). to
+// actually execute this plan, one most look at the "prev_controller" of the next tuple in the
+// plan, which will correspond to the correspond to the controller action required now in ordert
+// to reach the next player state
 fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool, initial_player: &PlayerState, initial_cost: f32) -> Plan {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;

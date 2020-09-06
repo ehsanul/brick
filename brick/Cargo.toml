@@ -9,11 +9,12 @@ nalgebra = "*"
 kiss3d = "*"
 lazy_static = "1.0"
 crossbeam = "0.4"
-rlbot = "0.5.0"
 spin_sleep = "1"
 bincode = "*"
 flate2 = "1.0"
 csv = "1"
+#rlbot = "0.7.0"
+rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee" }
 
 [dependencies.state]
 path = "../state"

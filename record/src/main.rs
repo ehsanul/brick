@@ -4,21 +4,25 @@ extern crate predict;
 extern crate rand;
 extern crate rlbot;
 extern crate state;
+extern crate spin_sleep;
 
-use rlbot::{flat, ControllerState};
+use rlbot::ControllerState;
 use state::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::create_dir_all;
 use rand::{thread_rng, Rng};
+use spin_sleep::LoopHelper;
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
 const ANGULAR_GRID: f32 = 0.2;
 const SPEED_GRID: i16 = 100;
 const VELOCITY_MARGIN: f32 = 25.0;
-const ANGULAR_SPEED_MARGIN: f32 = 0.5;
+const ANGULAR_SPEED_MARGIN: f32 = 0.5; // NOTE this is after dividing by the ANGULAR_GRID
+const MAX_ATTEMPTS: u32 = 5;
 
 #[derive(Debug, Clone)]
 struct MaxAttempts {
@@ -44,6 +48,32 @@ impl Error for MaxAttempts {
     }
 }
 
+thread_local! {
+    pub static LAST_TIME: RefCell<f32> = RefCell::new(0.0);
+}
+
+pub fn try_next_flat(rlbot: &rlbot::RLBot) -> Option<rlbot::GameTickPacket> {
+    LAST_TIME.with(|last_time| {
+        if let Some(packet) = rlbot.interface().update_live_data_packet_flatbuffer() {
+            let game_time = packet.game_info.seconds_elapsed;
+            if game_time != *last_time.borrow() {
+                (*last_time.borrow_mut()) = game_time;
+                return Some(packet);
+            }
+        }
+        None
+    })
+}
+
+pub fn next_flat(rlbot: &rlbot::RLBot) -> rlbot::GameTickPacket {
+    let mut loop_helper = LoopHelper::builder().build_with_target_rate(1000.0); // limited to 1000 FPS
+    loop {
+        loop_helper.loop_start();
+        if let Some(tick) = try_next_flat(rlbot) { return tick }
+        loop_helper.loop_sleep();
+    }
+}
+
 struct RecordState {
     local_vx: i16,
     local_vy: i16,
@@ -54,7 +84,7 @@ struct RecordState {
 }
 
 impl RecordState {
-    pub fn record(&mut self, tick: &flat::GameTickPacket) {
+    pub fn record(&mut self, tick: &rlbot::GameTickPacket) {
         let mut game_state = GameState::default();
         state::update_game_state(&mut game_state, &tick, 0, 0);
 
@@ -110,7 +140,7 @@ impl RecordState {
     pub fn set_next_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
         self.started = false;
 
-        let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(18.65); // batmobile resting z
+        let position = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(RESTING_Z);
 
         let velocity = rlbot::Vector3Partial::new()
             .x(-self.local_vx as f32)
@@ -143,7 +173,7 @@ impl RecordState {
     }
 
     pub fn reset_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
-        let position = rlbot::Vector3Partial::new().x(-2000.0).y(2000.0).z(18.65); // batmobile resting z
+        let position = rlbot::Vector3Partial::new().x(-2000.0).y(2000.0).z(RESTING_Z);
 
         let velocity = rlbot::Vector3Partial::new()
             .x(0.0)
@@ -178,7 +208,6 @@ impl RecordState {
     pub fn set_game_state_accurately(
         &mut self,
         rlbot: &rlbot::RLBot,
-        packeteer: &mut rlbot::Packeteer,
         index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,
         adjustment: &mut Adjustment,
     ) -> Result<(), Box<dyn Error>> {
@@ -216,7 +245,7 @@ impl RecordState {
 
             // check if we match the expected state now
             'inner: loop {
-                if attempts > 5 {
+                if attempts > MAX_ATTEMPTS {
                     // we tried, but now bail
                     adjustment
                         .local_vx
@@ -244,12 +273,12 @@ impl RecordState {
                     .into());
                 }
 
-                let tick = packeteer.next_flatbuffer()?;
+                let tick = next_flat(&rlbot);
                 let mut game_state = GameState::default();
                 state::update_game_state(&mut game_state, &tick, 0, 0);
 
                 if !self.is_initial_state(&game_state) {
-                    // there's a delay between setting state and it become available in the tick
+                    // there's a delay between setting state and it becoming available in the tick
                     // data. let's try again
                     continue 'inner;
                 }
@@ -265,7 +294,7 @@ impl RecordState {
                     && avz_diff.abs() < ANGULAR_SPEED_MARGIN
                 {
                     // close enough, we're good!
-                    // XXX must record now since borrowck doesn't understand that ticket is an
+                    // XXX must record now since borrowck doesn't understand that tick is an
                     // independent value that shouldn't extend the lifetime of the record_state
                     // borrow. same issue with index.insert.
                     self.record(&tick);
@@ -305,7 +334,7 @@ impl RecordState {
                     self.reset_game_state(&rlbot)?;
                     // wait till we're far, so is_initial_state works after this
                     'inner2: loop {
-                        let tick = packeteer.next_flatbuffer()?;
+                        let tick = next_flat(&rlbot);
                         let mut game_state = GameState::default();
                         state::update_game_state(&mut game_state, &tick, 0, 0);
 
@@ -327,18 +356,16 @@ impl RecordState {
     pub fn sample_valid(&self) -> bool {
         let mut last_player = &self.records[0].1;
 
-        // there must be two physics ticks between each measurement for the sample to be valid as
-        // a whole, given a 60fps record rate. it's 60fps by default apparently unless something is
-        // done. in practice, i found that sometimes records would be 1 tick or 3 ticks apart, once
-        // in a while, which messes up the sample and this this is now validated. NOTE we can't
-        // reliably measure the ticks when going very slow, so we check distance travelled too
-        assert!(predict::sample::RECORD_FPS == 60);
+        // there must be one physic tick between each measurement for the sample to be valid as
+        // a whole, given a 120fps record rate. NOTE we can't reliably measure the ticks when going
+        // very slowly, so we check distance travelled too
+        assert!(predict::sample::RECORD_FPS == 120);
         self.records[1..].iter().all(|(_frame, player)| {
             let v = 0.5 * (player.velocity + last_player.velocity);
             let d = (player.position - last_player.position).norm();
             let physics_ticks = (FPS * d / v.norm()).round() as i32;
             last_player = player;
-            physics_ticks == 2 || d < 2.0
+            physics_ticks == 1 || d < 2.0
         })
     }
 }
@@ -393,45 +420,53 @@ fn record_all_missing(
 
     let min_avz = -(MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;
     let max_avz = (MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;
-    let local_vx = 0; // TODO loop over these too
-    for local_vy in 0..(MAX_BOOST_SPEED / SPEED_GRID) {
-        // TODO negative vy
-        for avz in min_avz..max_avz {
-            let normalized = predict::sample::NormalizedPlayerState {
-                local_vy: local_vy,
-                local_vx: 0,
-                avz,
-            };
+    for local_vx in (-1300 / SPEED_GRID)..=(1300 / SPEED_GRID) { // TODO do the full range
+        for local_vy in -1..=(MAX_BOOST_SPEED / SPEED_GRID) { // TODO negative vy
+            let mut all_failed = true;
 
-            if let Some(player) = index.get(&normalized) {
-                // sample was found.
-                // check if the sample is within our acceptable margin of closeness to the
-                // actual valus we want, and if so, skip
-                let vx_diff = 100.0 * local_vx as f32 - player.local_velocity().x;
-                let vy_diff = 100.0 * local_vy as f32 - player.local_velocity().y;
-                let avz_diff = avz as f32 - (player.angular_velocity.z / ANGULAR_GRID);
+            for avz in min_avz..=max_avz {
+                let normalized = predict::sample::NormalizedPlayerState {
+                    local_vy: local_vy,
+                    local_vx: local_vx,
+                    avz,
+                };
 
-                if vx_diff.abs() <= VELOCITY_MARGIN
-                    && vy_diff.abs() <= VELOCITY_MARGIN
-                    && avz_diff.abs() < ANGULAR_SPEED_MARGIN
-                {
-                    continue;
+                if let Some(player) = index.get(&normalized) {
+                    // sample was found.
+                    // check if the sample is within our acceptable margin of closeness to the
+                    // actual values we want, and if so, skip
+                    let vx_diff = 100.0 * local_vx as f32 - player.local_velocity().x;
+                    let vy_diff = 100.0 * local_vy as f32 - player.local_velocity().y;
+                    let avz_diff = avz as f32 - (player.angular_velocity.z / ANGULAR_GRID);
+
+                    if vx_diff.abs() <= VELOCITY_MARGIN
+                        && vy_diff.abs() <= VELOCITY_MARGIN
+                        && avz_diff.abs() < ANGULAR_SPEED_MARGIN
+                    {
+                        all_failed = false;
+                        continue;
+                    }
+                }
+
+                // no sample found, or no sample within our margin, so let's get it!
+                record_state.local_vx = local_vx * 100;
+                record_state.local_vy = local_vy * 100;
+                record_state.angular_speed = avz;
+                if let Err(e) = record_missing_record_state(
+                    &rlbot,
+                    &input,
+                    &mut index,
+                    &mut record_state,
+                    &mut adjustment,
+                ) {
+                    println!("Error recording missing record state: {}", e);
+                } else {
+                    all_failed = false;
                 }
             }
 
-            // no sample found, or no sample within our margin, so let's get it!
-            record_state.local_vx = local_vx * 100;
-            record_state.local_vy = local_vy * 100;
-            record_state.angular_speed = avz;
-            if let Err(e) = record_missing_record_state(
-                &rlbot,
-                &input,
-                &mut index,
-                &mut record_state,
-                &mut adjustment,
-            ) {
-                println!("Error recording missing record state: {}", e);
-            }
+            // go to next vx to avoid doing a lot more useless work (unreachable local_vy values)
+            if all_failed { break }
         }
     }
 
@@ -446,16 +481,15 @@ fn record_missing_record_state<'a>(
     adjustment: &mut Adjustment,
 ) -> Result<(), Box<dyn Error>> {
     record_state.records.clear();
-    let mut packeteer = rlbot.packeteer();
     rlbot.update_player_input(0, &input)?;
 
     loop {
         // waits and checks the tick to ensure it meets our conditions. and it records the first tick
-        record_state.set_game_state_accurately(&rlbot, &mut packeteer, index, adjustment)?;
+        record_state.set_game_state_accurately(&rlbot, index, adjustment)?;
 
         loop {
             //rlbot.update_player_input(0, &input)?;
-            let tick = packeteer.next_flatbuffer()?;
+            let tick = next_flat(&rlbot);
             record_state.record(&tick);
 
             if record_state.sample_complete() {

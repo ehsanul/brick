@@ -31,9 +31,9 @@ pub const MAX_BOOST_SPEED: f32 = 2300.0; // TODO rename to MAX_SPEED
 pub const MAX_ANGULAR_SPEED: f32 = 5.5;
 pub const MAX_GROUND_ANGULAR_SPEED: f32 = 4.4; // NOTE this is based on the turning sample collection, though we might be able to redo a few samples to move this up
 
-// batmobile
-pub const RESTING_Z: f32 = 18.65;
-pub const RESTING_Z_VELOCITY: f32 = 8.0;
+//pub const RESTING_Z: f32 = 18.65; // batmobile
+pub const RESTING_Z: f32 = 17.01; // fennec
+pub const RESTING_Z_VELOCITY: f32 = 8.0; // TODO double check
 
 // source: https://github.com/samuelpmish/RLUtilities/blob/master/src/simulation/ball.cc#L17
 // TODO handle hoops/dropshot radii
@@ -54,12 +54,12 @@ lazy_static! {
     pub static ref CAR_INVERSE_INERTIA: na::Matrix3<f32> = CAR_INERTIA.try_inverse().expect("Inverse car inertia failed");
 
     // batmobile
-    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.8198, 84.67036, 29.3944);
-    pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-9.008572, 0.0, 12.0942);
+    //pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(128.8198, 84.67036, 29.3944);
+    //pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-9.008572, 0.0, 12.0942);
     // TODO switch to octane after building new driving model
-    // octane
-    //pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(118.0074, 84.19941, 36.15907);
-    //pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-13.87566, 0.0, 20.75499);
+    // octane/fennec
+    pub static ref CAR_DIMENSIONS: Vector3<f32> = Vector3::new(118.0074, 84.19941, 36.15907);
+    pub static ref CAR_OFFSET: Vector3<f32> = Vector3::new(-13.87566, 0.0, 20.75499);
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -149,6 +149,7 @@ impl From<BrickControllerState> for rlbot::ControllerState {
             jump: controller.jump,
             boost: controller.boost,
             handbrake: controller.handbrake,
+            use_item: false,
         }
     }
 }
@@ -289,7 +290,7 @@ pub struct BrickControllerState {
 impl BrickControllerState {
     pub fn new() -> BrickControllerState {
         BrickControllerState {
-            throttle: Throttle::Idle,
+            throttle: Throttle::Forward,
             steer: Steer::Straight,
             pitch: 0.0,
             yaw: 0.0,
@@ -382,32 +383,32 @@ impl Default for DesiredContact {
 /// types etc
 pub fn update_game_state(
     game_state: &mut GameState,
-    tick: &rlbot::flat::GameTickPacket,
+    tick: &rlbot::GameTickPacket,
     player_index: usize,
     frame: u32,
 ) {
-    let ball = tick.ball().expect("Missing ball");
-    let players = tick.players().expect("Missing players");
-    let player = players.get(player_index);
+    let ball = tick.ball.as_ref().expect("Missing ball");
+    let players = &tick.players;
+    let player = players.get(player_index).expect("Missing player");
 
-    let bp = ball.physics().expect("Missing ball physics");
-    let bl = bp.location().expect("Missing ball location");
-    let bv = bp.velocity().expect("Missing ball velocity");
-    let bav = bp.angularVelocity().expect("Missing ball angular velocity");
-    game_state.ball.position = Vector3::new(-bl.x(), bl.y(), bl.z()); // x should be positive towards right, it only makes sense
-    game_state.ball.velocity = Vector3::new(-bv.x(), bv.y(), bv.z()); // x should be positive towards right, it only makes sense
-    game_state.ball.angular_velocity = Vector3::new(-bav.x(), bav.y(), bav.z()); // x should be positive towards right, it only makes sense
+    let bp = &ball.physics;
+    let bl = &bp.location;
+    let bv = &bp.velocity;
+    let bav = &bp.angular_velocity;
+    game_state.ball.position = Vector3::new(-bl.x, bl.y, bl.z); // x should be positive towards right, it only makes sense
+    game_state.ball.velocity = Vector3::new(-bv.x, bv.y, bv.z); // x should be positive towards right, it only makes sense
+    game_state.ball.angular_velocity = Vector3::new(-bav.x, bav.y, bav.z); // x should be positive towards right, it only makes sense
 
-    let pp = player.physics().expect("Missing player physics");
-    let pl = pp.location().expect("Missing player location");
-    let pv = pp.velocity().expect("Missing player velocity");
-    let pav = pp.angularVelocity().expect("Missing player angular velocity");
-    let pr = pp.rotation().expect("Missing player rotation");
-    game_state.player.position = Vector3::new(-pl.x(), pl.y(), pl.z()); // x should be positive towards right, it only makes sense
-    game_state.player.velocity = Vector3::new(-pv.x(), pv.y(), pv.z()); // x should be positive towards right, it only makes sense
-    game_state.player.angular_velocity = Vector3::new(-pav.x(), pav.y(), pav.z()); // x should be positive towards right, it only makes sense
+    let pp = &player.physics;
+    let pl = &pp.location;
+    let pv = &pp.velocity;
+    let pav = &pp.angular_velocity;
+    let pr = &pp.rotation;
+    game_state.player.position = Vector3::new(-pl.x, pl.y, pl.z); // x should be positive towards right, it only makes sense
+    game_state.player.velocity = Vector3::new(-pv.x, pv.y, pv.z); // x should be positive towards right, it only makes sense
+    game_state.player.angular_velocity = Vector3::new(-pav.x, pav.y, pav.z); // x should be positive towards right, it only makes sense
 
-    let uq = UnitQuaternion::from_euler_angles(pr.roll(), pr.pitch(), pr.yaw());
+    let uq = UnitQuaternion::from_euler_angles(pr.roll, pr.pitch, pr.yaw);
     let q = uq.quaternion();
     // converting from right handed to left handed coordinate system (goes with the x axis flip above)
     // https://stackoverflow.com/a/34366144/127219
@@ -417,7 +418,7 @@ pub fn update_game_state(
 
     game_state.frame = frame;
 
-    game_state.player.team = match player.team() {
+    game_state.player.team = match player.team {
         0 => Team::Blue,
         1 => Team::Orange,
         _ => unimplemented!(),

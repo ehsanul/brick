@@ -20,7 +20,7 @@ fn build_model_for(control_branch: &str) -> DrivingModel {
     let mut model = DrivingModel::default();
     index_all_samples(&mut model.tick2, &all_samples, 2);
     index_all_samples(&mut model.tick16, &all_samples, 16);
-    index_all_samples(&mut model.tick32, &all_samples, 32);
+    //index_all_samples(&mut model.tick32, &all_samples, 32);
     model
 }
 
@@ -89,30 +89,30 @@ fn main() -> Result<(), Box<dyn Error>> {
         "throttle_straight",
         "throttle_right",
         "throttle_left",
-        "throttle_straight_drift",
-        "throttle_right_drift",
-        "throttle_left_drift",
+        //"throttle_straight_drift",
+        //"throttle_right_drift",
+        //"throttle_left_drift",
 
         "boost_straight",
         "boost_right",
         "boost_left",
-        "boost_straight_drift",
-        "boost_right_drift",
-        "boost_left_drift",
+        //"boost_straight_drift",
+        //"boost_right_drift",
+        //"boost_left_drift",
 
-        "idle_straight",
-        "idle_right",
-        "idle_left",
-        "idle_straight_drift",
-        "idle_right_drift",
-        "idle_left_drift",
+        //"idle_straight",
+        //"idle_right",
+        //"idle_left",
+        //"idle_straight_drift",
+        //"idle_right_drift",
+        //"idle_left_drift",
 
-        "reverse_straight",
-        "reverse_right",
-        "reverse_left",
-        "reverse_straight_drift",
-        "reverse_right_drift",
-        "reverse_left_drift",
+        //"reverse_straight",
+        //"reverse_right",
+        //"reverse_left",
+        //"reverse_straight_drift",
+        //"reverse_right_drift",
+        //"reverse_left_drift",
     ];
 
     let base_path = Path::new("./models/flat_ground");

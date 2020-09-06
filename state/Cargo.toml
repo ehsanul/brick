@@ -5,10 +5,11 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
 lazy_static = "1.0"
-rlbot = "0.5.0"
 serde = "1.0"
 serde_derive = "1.0"
 bincode = "1.0"
+#rlbot = "0.7.0"
+rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee" }
 
 [dependencies.nalgebra]
 version = "*"
