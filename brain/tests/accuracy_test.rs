@@ -51,10 +51,7 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
             ..
         } = hybrid_a_star(&player, &desired, step);
         if plan.is_none() {
-            println!(
-                "FAILED | pos: {:?} | yaw: {}",
-                desired.position, desired_yaw
-            );
+            println!("FAILED | pos: {:?} | yaw: {}", desired.position, desired_yaw);
         }
         assert!(plan.is_some());
 
@@ -110,10 +107,7 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
     }
     println!("");
     println!("----------------------------");
-    println!(
-        "avg expansions: {}",
-        (total_expansions as f32) / (num as f32)
-    );
+    println!("avg expansions: {}", (total_expansions as f32) / (num as f32));
     //println!("min expansions: {}", min_expansions);
     println!("max expansions: {}", max_expansions);
     println!("----------------------------");
@@ -121,17 +115,11 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
     //println!("min plan_len: {}", min_plan_len);
     println!("max plan_len: {}", max_plan_len);
     println!("----------------------------");
-    println!(
-        "rms position error: {}",
-        (total_position_error_squared / (num as f32)).sqrt()
-    );
+    println!("rms position error: {}", (total_position_error_squared / (num as f32)).sqrt());
     //println!("min error: {}", min_position_error);
     println!("max position error: {}", max_position_error);
     println!("----------------------------");
-    println!(
-        "rms rotation error: {}",
-        (total_rotation_error_squared / (num as f32)).sqrt()
-    );
+    println!("rms rotation error: {}", (total_rotation_error_squared / (num as f32)).sqrt());
     //println!("min error: {}", min_rotation_error);
     println!("max rotation error: {}", max_rotation_error);
     println!("----------------------------");
@@ -139,68 +127,32 @@ fn run(name: &str, x: f32, y: f32, yaw: f32, step: f32) {
 
 #[test]
 fn close_and_forward_4_step() {
-    run(
-        "close and forward, 10-step",
-        10.0,
-        80.0,
-        -PI / 2.0,
-        4.0 / 120.0,
-    );
+    run("close and forward, 10-step", 10.0, 80.0, -PI / 2.0, 4.0 / 120.0);
 }
 
 #[test]
 fn close_and_forward_10_step() {
-    run(
-        "close and forward, 10-step",
-        100.0,
-        400.0,
-        -PI / 2.0,
-        10.0 / 120.0,
-    );
+    run("close and forward, 10-step", 100.0, 400.0, -PI / 2.0, 10.0 / 120.0);
 }
 
 #[test]
 fn close_and_forward_20_step() {
-    run(
-        "close and forward, 20-step",
-        100.0,
-        400.0,
-        -PI / 2.0,
-        20.0 / 120.0,
-    );
+    run("close and forward, 20-step", 100.0, 400.0, -PI / 2.0, 20.0 / 120.0);
 }
 
 #[test]
 fn medium_and_forward_20_step() {
-    run(
-        "medium and forward, 20-step",
-        500.0,
-        800.0,
-        -PI / 2.0,
-        20.0 / 120.0,
-    );
+    run("medium and forward, 20-step", 500.0, 800.0, -PI / 2.0, 20.0 / 120.0);
 }
 
 #[test]
 fn medium_180_and_forward_20_step() {
-    run(
-        "medium and forward, 20-step",
-        500.0,
-        800.0,
-        PI / 2.0,
-        20.0 / 120.0,
-    );
+    run("medium and forward, 20-step", 500.0, 800.0, PI / 2.0, 20.0 / 120.0);
 }
 
 #[test]
 fn medium_90_and_forward_20_step() {
-    run(
-        "medium and forward, 20-step",
-        500.0,
-        800.0,
-        0.0,
-        20.0 / 120.0,
-    );
+    run("medium and forward, 20-step", 500.0, 800.0, 0.0, 20.0 / 120.0);
 }
 
 /* LAST RESULT */

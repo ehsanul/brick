@@ -1,19 +1,19 @@
-extern crate state;
 extern crate bincode;
 extern crate flate2;
 extern crate predict;
+extern crate state;
 
 use bincode::serialize_into;
-use predict::driving_model::{DrivingModel, PlayerTransformation, TransformationMap};
-use predict::sample;
-use std::io::BufWriter;
-use std::path::Path;
-use std::fs::{create_dir_all, File};
-use state::*;
 use flate2::write::GzEncoder;
 use flate2::Compression;
+use predict::driving_model::{DrivingModel, PlayerTransformation, TransformationMap};
+use predict::sample;
+use state::*;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::error::Error;
+use std::fs::{create_dir_all, File};
+use std::io::BufWriter;
+use std::path::Path;
 
 fn build_model_for(control_branch: &str) -> DrivingModel {
     let all_samples = sample::load_all_samples(&format!("./data/samples/flat_ground/{}/", control_branch));
@@ -60,14 +60,11 @@ fn index_all_samples(indexed: &mut TransformationMap, all_samples: &Vec<Vec<Play
                         let existing_delta_y = (existing_transformation.start_local_vy as f32
                             - sample::GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32)
                             .abs();
-                        let existing_delta =
-                            (existing_delta_x.powf(2.0) + existing_delta_y.powf(2.0)).sqrt();
+                        let existing_delta = (existing_delta_x.powf(2.0) + existing_delta_y.powf(2.0)).sqrt();
 
                         let new_lv = sample[j].local_velocity();
-                        let new_delta_x =
-                            (new_lv.x - sample::GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32).abs();
-                        let new_delta_y =
-                            (new_lv.y - sample::GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
+                        let new_delta_x = (new_lv.x - sample::GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32).abs();
+                        let new_delta_y = (new_lv.y - sample::GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
                         let new_delta = (new_delta_x.powf(2.0) + new_delta_y.powf(2.0)).sqrt();
 
                         new_delta < existing_delta
@@ -83,7 +80,6 @@ fn index_all_samples(indexed: &mut TransformationMap, all_samples: &Vec<Vec<Play
     }
 }
 
-
 fn main() -> Result<(), Box<dyn Error>> {
     let control_branches = [
         "throttle_straight",
@@ -92,7 +88,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         //"throttle_straight_drift",
         //"throttle_right_drift",
         //"throttle_left_drift",
-
         "boost_straight",
         "boost_right",
         "boost_left",
@@ -124,5 +119,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-
 }

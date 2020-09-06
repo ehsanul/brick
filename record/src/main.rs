@@ -3,18 +3,18 @@ extern crate flatbuffers;
 extern crate predict;
 extern crate rand;
 extern crate rlbot;
-extern crate state;
 extern crate spin_sleep;
+extern crate state;
 
+use rand::{thread_rng, Rng};
 use rlbot::ControllerState;
+use spin_sleep::LoopHelper;
 use state::*;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::create_dir_all;
-use rand::{thread_rng, Rng};
-use spin_sleep::LoopHelper;
 
 const MAX_BOOST_SPEED: i16 = 2300;
 const MAX_ANGULAR_SPEED: i16 = 6; // TODO check
@@ -69,7 +69,9 @@ pub fn next_flat(rlbot: &rlbot::RLBot) -> rlbot::GameTickPacket {
     let mut loop_helper = LoopHelper::builder().build_with_target_rate(1000.0); // limited to 1000 FPS
     loop {
         loop_helper.loop_start();
-        if let Some(tick) = try_next_flat(rlbot) { return tick }
+        if let Some(tick) = try_next_flat(rlbot) {
+            return tick;
+        }
         loop_helper.loop_sleep();
     }
 }
@@ -108,15 +110,11 @@ impl RecordState {
     pub fn path(&self) -> String {
         let dir = format!("./data/samples/flat_ground/{}", self.name);
         create_dir_all(&dir).unwrap();
-        format!(
-            "{}/{}_{}_{}.csv",
-            dir, self.local_vx, self.local_vy, self.angular_speed
-        )
+        format!("{}/{}_{}_{}.csv", dir, self.local_vx, self.local_vy, self.angular_speed)
     }
 
     pub fn save(&mut self) {
-        let mut wtr =
-            csv::Writer::from_path(self.path()).expect("couldn't open file for writing csv");
+        let mut wtr = csv::Writer::from_path(self.path()).expect("couldn't open file for writing csv");
 
         for (frame, player) in &self.records {
             let pos = player.position;
@@ -152,10 +150,7 @@ impl RecordState {
             .y(0.0)
             .z(self.angular_speed as f32 * ANGULAR_GRID);
 
-        let rotation = rlbot::RotatorPartial::new()
-            .pitch(0.0)
-            .yaw(PI / 2.0)
-            .roll(0.0);
+        let rotation = rlbot::RotatorPartial::new().pitch(0.0).yaw(PI / 2.0).roll(0.0);
 
         let physics = rlbot::DesiredPhysics::new()
             .location(position)
@@ -175,20 +170,11 @@ impl RecordState {
     pub fn reset_game_state(&mut self, rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> {
         let position = rlbot::Vector3Partial::new().x(-2000.0).y(2000.0).z(RESTING_Z);
 
-        let velocity = rlbot::Vector3Partial::new()
-            .x(0.0)
-            .y(0.0)
-            .z(0.0);
+        let velocity = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(0.0);
 
-        let angular_velocity = rlbot::Vector3Partial::new()
-            .x(0.0)
-            .y(0.0)
-            .z(0.0);
+        let angular_velocity = rlbot::Vector3Partial::new().x(0.0).y(0.0).z(0.0);
 
-        let rotation = rlbot::RotatorPartial::new()
-            .pitch(0.0)
-            .yaw(PI / 2.0)
-            .roll(0.0);
+        let rotation = rlbot::RotatorPartial::new().pitch(0.0).yaw(PI / 2.0).roll(0.0);
 
         let physics = rlbot::DesiredPhysics::new()
             .location(position)
@@ -247,14 +233,8 @@ impl RecordState {
             'inner: loop {
                 if attempts > MAX_ATTEMPTS {
                     // we tried, but now bail
-                    adjustment
-                        .local_vx
-                        .entry(original_angular_speed)
-                        .and_modify(|e| *e = 0f32);
-                    adjustment
-                        .local_vy
-                        .entry(original_angular_speed)
-                        .and_modify(|e| *e = 0f32);
+                    adjustment.local_vx.entry(original_angular_speed).and_modify(|e| *e = 0f32);
+                    adjustment.local_vy.entry(original_angular_speed).and_modify(|e| *e = 0f32);
                     adjustment
                         .angular_speed
                         .entry(original_angular_speed)
@@ -285,8 +265,7 @@ impl RecordState {
 
                 let vx_diff = original_local_vx as f32 - game_state.player.local_velocity().x;
                 let vy_diff = original_local_vy as f32 - game_state.player.local_velocity().y;
-                let avz_diff = original_angular_speed as f32
-                    - (game_state.player.angular_velocity.z / ANGULAR_GRID);
+                let avz_diff = original_angular_speed as f32 - (game_state.player.angular_velocity.z / ANGULAR_GRID);
                 //println!("game local vx: {}, game local vy: {}, game avz: {}", game_state.player.local_velocity().x, game_state.player.local_velocity().y, (game_state.player.angular_velocity.z / ANGULAR_GRID));
 
                 if vx_diff.abs() <= VELOCITY_MARGIN
@@ -420,8 +399,10 @@ fn record_all_missing(
 
     let min_avz = -(MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;
     let max_avz = (MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;
-    for local_vx in (-1300 / SPEED_GRID)..=(1300 / SPEED_GRID) { // TODO do the full range
-        for local_vy in -1..=(MAX_BOOST_SPEED / SPEED_GRID) { // TODO negative vy
+    for local_vx in (-1300 / SPEED_GRID)..=(1300 / SPEED_GRID) {
+        // TODO do the full range
+        for local_vy in -1..=(MAX_BOOST_SPEED / SPEED_GRID) {
+            // TODO negative vy
             let mut all_failed = true;
 
             for avz in min_avz..=max_avz {
@@ -452,13 +433,7 @@ fn record_all_missing(
                 record_state.local_vx = local_vx * 100;
                 record_state.local_vy = local_vy * 100;
                 record_state.angular_speed = avz;
-                if let Err(e) = record_missing_record_state(
-                    &rlbot,
-                    &input,
-                    &mut index,
-                    &mut record_state,
-                    &mut adjustment,
-                ) {
+                if let Err(e) = record_missing_record_state(&rlbot, &input, &mut index, &mut record_state, &mut adjustment) {
                     println!("Error recording missing record state: {}", e);
                 } else {
                     all_failed = false;
@@ -466,7 +441,9 @@ fn record_all_missing(
             }
 
             // go to next vx to avoid doing a lot more useless work (unreachable local_vy values)
-            if all_failed { break }
+            if all_failed {
+                break;
+            }
         }
     }
 
@@ -691,18 +668,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
     let fennec = rlbot::PlayerLoadout::new().car_id(4284);
-    let mut settings =
-        rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
-            rlbot::PlayerClass::RLBotPlayer,
-            "Recorder",
-            0,
-        )
-        .loadout(fennec)]);
+    let mut settings = rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
+        rlbot::PlayerClass::RLBotPlayer,
+        "Recorder",
+        0,
+    )
+    .loadout(fennec)]);
 
-    settings.mutator_settings =
-        rlbot::MutatorSettings::new().
-        match_length(rlbot::MatchLength::Unlimited).
-        boost_option(rlbot::BoostOption::Unlimited_Boost);
+    settings.mutator_settings = rlbot::MutatorSettings::new()
+        .match_length(rlbot::MatchLength::Unlimited)
+        .boost_option(rlbot::BoostOption::Unlimited_Boost);
 
     rlbot.start_match(&settings)?;
     rlbot.wait_for_match_start()?;
@@ -752,18 +727,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         boost_straight(),
         &predict::sample::BOOST_STRAIGHT_INDEXED,
     )?;
-    record_all_missing(
-        &rlbot,
-        "boost_left",
-        boost_left(),
-        &predict::sample::BOOST_LEFT_INDEXED,
-    )?;
-    record_all_missing(
-        &rlbot,
-        "boost_right",
-        boost_right(),
-        &predict::sample::BOOST_RIGHT_INDEXED,
-    )?;
+    record_all_missing(&rlbot, "boost_left", boost_left(), &predict::sample::BOOST_LEFT_INDEXED)?;
+    record_all_missing(&rlbot, "boost_right", boost_right(), &predict::sample::BOOST_RIGHT_INDEXED)?;
     record_all_missing(
         &rlbot,
         "boost_straight_drift",
@@ -788,12 +753,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         reverse_straight(),
         &predict::sample::REVERSE_STRAIGHT_INDEXED,
     )?;
-    record_all_missing(
-        &rlbot,
-        "reverse_left",
-        reverse_left(),
-        &predict::sample::REVERSE_LEFT_INDEXED,
-    )?;
+    record_all_missing(&rlbot, "reverse_left", reverse_left(), &predict::sample::REVERSE_LEFT_INDEXED)?;
     record_all_missing(
         &rlbot,
         "reverse_right",
@@ -824,18 +784,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         idle_straight(),
         &predict::sample::IDLE_STRAIGHT_INDEXED,
     )?;
-    record_all_missing(
-        &rlbot,
-        "idle_left",
-        idle_left(),
-        &predict::sample::IDLE_LEFT_INDEXED,
-    )?;
-    record_all_missing(
-        &rlbot,
-        "idle_right",
-        idle_right(),
-        &predict::sample::IDLE_RIGHT_INDEXED,
-    )?;
+    record_all_missing(&rlbot, "idle_left", idle_left(), &predict::sample::IDLE_LEFT_INDEXED)?;
+    record_all_missing(&rlbot, "idle_right", idle_right(), &predict::sample::IDLE_RIGHT_INDEXED)?;
     record_all_missing(
         &rlbot,
         "idle_straight_drift",

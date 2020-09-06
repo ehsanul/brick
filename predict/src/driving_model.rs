@@ -2,12 +2,12 @@ use bincode::deserialize_from;
 
 use fnv::FnvHasher;
 use std::collections::HashMap;
-use std::hash::BuildHasherDefault;
 use std::error::Error;
+use std::hash::BuildHasherDefault;
 
 use flate2::read::GzDecoder;
-use std::io::BufReader;
 use std::fs::File;
+use std::io::BufReader;
 
 use sample;
 use state::*;
@@ -15,35 +15,54 @@ use state::*;
 type MyHasher = BuildHasherDefault<FnvHasher>;
 
 lazy_static! {
-    static ref THROTTLE_RIGHT: DrivingModel = DrivingModel::load("models/flat_ground/throttle_right.bincode.gz").expect("Failed to load driving model");
-    static ref BOOST_RIGHT: DrivingModel = DrivingModel::load("models/flat_ground/boost_right.bincode.gz").expect("Failed to load driving model");
-    static ref IDLE_RIGHT: DrivingModel = DrivingModel::load("models/flat_ground/idle_right.bincode.gz").expect("Failed to load driving model");
-    static ref REVERSE_RIGHT: DrivingModel = DrivingModel::load("models/flat_ground/reverse_right.bincode.gz").expect("Failed to load driving model");
-
-    static ref THROTTLE_RIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/throttle_right_drift.bincode.gz").expect("Failed to load driving model");
-    static ref BOOST_RIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/boost_right_drift.bincode.gz").expect("Failed to load driving model");
-    static ref IDLE_RIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/idle_right_drift.bincode.gz").expect("Failed to load driving model");
-    static ref REVERSE_RIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/reverse_right_drift.bincode.gz").expect("Failed to load driving model");
-
-    static ref THROTTLE_LEFT: DrivingModel = DrivingModel::load("models/flat_ground/throttle_left.bincode.gz").expect("Failed to load driving model");
-    static ref BOOST_LEFT: DrivingModel = DrivingModel::load("models/flat_ground/boost_left.bincode.gz").expect("Failed to load driving model");
-    static ref IDLE_LEFT: DrivingModel = DrivingModel::load("models/flat_ground/idle_left.bincode.gz").expect("Failed to load driving model");
-    static ref REVERSE_LEFT: DrivingModel = DrivingModel::load("models/flat_ground/reverse_left.bincode.gz").expect("Failed to load driving model");
-
-    static ref THROTTLE_LEFT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/throttle_left_drift.bincode.gz").expect("Failed to load driving model");
-    static ref BOOST_LEFT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/boost_left_drift.bincode.gz").expect("Failed to load driving model");
-    static ref IDLE_LEFT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/idle_left_drift.bincode.gz").expect("Failed to load driving model");
-    static ref REVERSE_LEFT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/reverse_left_drift.bincode.gz").expect("Failed to load driving model");
-
-    static ref THROTTLE_STRAIGHT: DrivingModel = DrivingModel::load("models/flat_ground/throttle_straight.bincode.gz").expect("Failed to load driving model");
-    static ref BOOST_STRAIGHT: DrivingModel = DrivingModel::load("models/flat_ground/boost_straight.bincode.gz").expect("Failed to load driving model");
-    static ref IDLE_STRAIGHT: DrivingModel = DrivingModel::load("models/flat_ground/idle_straight.bincode.gz").expect("Failed to load driving model");
-    static ref REVERSE_STRAIGHT: DrivingModel = DrivingModel::load("models/flat_ground/reverse_straight.bincode.gz").expect("Failed to load driving model");
-
-    static ref THROTTLE_STRAIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/throttle_straight_drift.bincode.gz").expect("Failed to load driving model");
-    static ref BOOST_STRAIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/boost_straight_drift.bincode.gz").expect("Failed to load driving model");
-    static ref IDLE_STRAIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/idle_straight_drift.bincode.gz").expect("Failed to load driving model");
-    static ref REVERSE_STRAIGHT_DRIFT: DrivingModel = DrivingModel::load("models/flat_ground/reverse_straight_drift.bincode.gz").expect("Failed to load driving model");
+    static ref THROTTLE_RIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/throttle_right.bincode.gz").expect("Failed to load driving model");
+    static ref BOOST_RIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/boost_right.bincode.gz").expect("Failed to load driving model");
+    static ref IDLE_RIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/idle_right.bincode.gz").expect("Failed to load driving model");
+    static ref REVERSE_RIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/reverse_right.bincode.gz").expect("Failed to load driving model");
+    static ref THROTTLE_RIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/throttle_right_drift.bincode.gz").expect("Failed to load driving model");
+    static ref BOOST_RIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/boost_right_drift.bincode.gz").expect("Failed to load driving model");
+    static ref IDLE_RIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/idle_right_drift.bincode.gz").expect("Failed to load driving model");
+    static ref REVERSE_RIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/reverse_right_drift.bincode.gz").expect("Failed to load driving model");
+    static ref THROTTLE_LEFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/throttle_left.bincode.gz").expect("Failed to load driving model");
+    static ref BOOST_LEFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/boost_left.bincode.gz").expect("Failed to load driving model");
+    static ref IDLE_LEFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/idle_left.bincode.gz").expect("Failed to load driving model");
+    static ref REVERSE_LEFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/reverse_left.bincode.gz").expect("Failed to load driving model");
+    static ref THROTTLE_LEFT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/throttle_left_drift.bincode.gz").expect("Failed to load driving model");
+    static ref BOOST_LEFT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/boost_left_drift.bincode.gz").expect("Failed to load driving model");
+    static ref IDLE_LEFT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/idle_left_drift.bincode.gz").expect("Failed to load driving model");
+    static ref REVERSE_LEFT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/reverse_left_drift.bincode.gz").expect("Failed to load driving model");
+    static ref THROTTLE_STRAIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/throttle_straight.bincode.gz").expect("Failed to load driving model");
+    static ref BOOST_STRAIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/boost_straight.bincode.gz").expect("Failed to load driving model");
+    static ref IDLE_STRAIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/idle_straight.bincode.gz").expect("Failed to load driving model");
+    static ref REVERSE_STRAIGHT: DrivingModel =
+        DrivingModel::load("models/flat_ground/reverse_straight.bincode.gz").expect("Failed to load driving model");
+    static ref THROTTLE_STRAIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/throttle_straight_drift.bincode.gz").expect("Failed to load driving model");
+    static ref BOOST_STRAIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/boost_straight_drift.bincode.gz").expect("Failed to load driving model");
+    static ref IDLE_STRAIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/idle_straight_drift.bincode.gz").expect("Failed to load driving model");
+    static ref REVERSE_STRAIGHT_DRIFT: DrivingModel =
+        DrivingModel::load("models/flat_ground/reverse_straight_drift.bincode.gz").expect("Failed to load driving model");
 }
 
 pub type TransformationMap = HashMap<sample::NormalizedPlayerState, PlayerTransformation, MyHasher>;
@@ -69,11 +88,11 @@ impl DrivingModel {
 pub struct PlayerTransformation {
     pub start_local_vx: i16,
     pub start_local_vy: i16,
-    pub translation_x: i16, // normalized
-    pub translation_y: i16, // normalized
+    pub translation_x: i16,  // normalized
+    pub translation_y: i16,  // normalized
     pub end_velocity_x: i16, // normalized
     pub end_velocity_y: i16, // normalized
-    pub end_yaw: f32, // normalized
+    pub end_yaw: f32,        // normalized
     pub end_angular_velocity_z: f32,
 }
 
@@ -114,7 +133,6 @@ pub(crate) fn get_relevant_transformation(
     controller: &BrickControllerState,
     time_step: f32,
 ) -> Option<&'static PlayerTransformation> {
-
     #[rustfmt::skip]
     let driving_model: &DrivingModel = match (
         &controller.steer,

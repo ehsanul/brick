@@ -25,10 +25,7 @@ pub fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
 
 /// guess best point on ball to hit, get the heading at that point
 #[no_mangle]
-pub extern "C" fn simple_desired_contact(
-    ball: &BallState,
-    desired_ball_position: &Vector3<f32>,
-) -> DesiredContact {
+pub extern "C" fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact {
     let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
     let desired_velocity = 3000.0 * desired_vector.into_inner();
     let velocity_delta = desired_velocity - ball.velocity;
@@ -146,11 +143,7 @@ fn hit_ball<H: HeuristicModel>(
     result
 }
 
-fn non_admissable_estimated_time<H: HeuristicModel>(
-    model: &mut H,
-    current: &PlayerState,
-    ball: &BallState,
-) -> f32 {
+fn non_admissable_estimated_time<H: HeuristicModel>(model: &mut H, current: &PlayerState, ball: &BallState) -> f32 {
     // unreachable, we can't fly
     if ball.position.z - BALL_COLLISION_RADIUS > CAR_DIMENSIONS.z + CAR_OFFSET.z {
         return std::f32::MAX;
@@ -195,10 +188,7 @@ pub extern "C" fn closest_plan_index(given_player: &PlayerState, plan: &Plan) ->
 }
 
 #[no_mangle]
-pub extern "C" fn next_input(
-    player: &PlayerState,
-    bot: &mut BotState,
-) -> rlbot::ControllerState {
+pub extern "C" fn next_input(player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
     if let Some(ref plan) = bot.plan {
         // we need to take into account the inputs previously sent that will be processed
         // prior to finding where we are. instead of passing the current player, apply
@@ -208,8 +198,7 @@ pub extern "C" fn next_input(
 
         // we need to look one past closest index to see the controller to reach next position
         if index < plan.len() - 1 {
-            let current_heading =
-                player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+            let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
             let (closest_player, _, _) = &plan[index];
             let (_next_player, controller, _) = &plan[index + 1];
             //println!("index: {}, controller.steer: {:?}", index, controller.steer);
@@ -224,10 +213,8 @@ pub extern "C" fn next_input(
             if closest_distance == 0.0 {
                 bot.turn_errors.push_back(0.0);
             } else {
-                let projection = na::Matrix::dot(
-                    &Unit::new_normalize(closest_delta.clone()).into_inner(),
-                    &relative_right,
-                ); // positive for right, negative for left
+                // NOTE positive for right, negative for left
+                let projection = na::Matrix::dot(&Unit::new_normalize(closest_delta.clone()).into_inner(), &relative_right);
                 //println!("projection: {}, distance: {}", projection, closest_distance);
                 let error = projection * closest_distance;
                 bot.turn_errors.push_back(error);
@@ -269,8 +256,7 @@ fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
         return;
     }
     let last_error = errors[errors.len() - 1];
-    let error_slope =
-        (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
+    let error_slope = (last_error - errors[errors.len() - 1 - DIFFERENTIAL_STEPS]) / DIFFERENTIAL_STEPS as f32;
     //println!(
     //    "last_error: {:?}, error_slope: {:?}",
     //    last_error, error_slope
@@ -296,4 +282,3 @@ fn pd_adjust(input: &mut rlbot::ControllerState, errors: &VecDeque<f32>) {
         input.throttle -= THROTTLE_FACTOR * diff;
     }
 }
-

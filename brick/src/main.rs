@@ -22,43 +22,53 @@ extern crate flate2;
 extern crate kiss3d;
 extern crate nalgebra as na;
 extern crate passthrough;
-extern crate spin_sleep;
 extern crate rlbot;
+extern crate spin_sleep;
 extern crate state;
 
 #[macro_use]
 extern crate lazy_static;
 
 use docopt::Docopt;
+use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::error::Error;
 use std::f32;
 use std::f32::consts::PI;
+use std::fs::{create_dir_all, File};
+use std::io::{BufReader, BufWriter};
 use std::panic;
 use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::RwLock;
 use std::thread;
 use std::time::Duration;
-use std::collections::VecDeque;
-use std::cell::RefCell;
-use std::fs::{create_dir_all, File};
-use std::io::{BufWriter, BufReader};
 
-use flate2::{Compression, write::GzEncoder, read::GzDecoder};
+use flate2::{read::GzDecoder, write::GzEncoder, Compression};
 
 use passthrough::{human_input, update_gamepad, Gamepad, Gilrs};
 use state::*;
 
+use brain::predict;
 use kiss3d::light::Light;
 use kiss3d::resource::MeshManager;
 use kiss3d::window::Window;
-use na::{Point3, Rotation3, Translation3, UnitQuaternion, Quaternion, Vector3};
-use brain::predict;
+use na::{Point3, Quaternion, Rotation3, Translation3, UnitQuaternion, Vector3};
 use spin_sleep::LoopHelper;
 
 #[derive(Default)]
 struct BotIoConfig<'a> {
-    manipulator: Option<fn(&mut u32, &rlbot::RLBot, &GameState, &mut BotState, &mut rlbot::ControllerState, &VecDeque<(GameState, BotState)>, &mut Gamepad) -> Result<(), Box<dyn Error>>>,
+    manipulator: Option<
+        fn(
+            &mut u32,
+            &rlbot::RLBot,
+            &GameState,
+            &mut BotState,
+            &mut rlbot::ControllerState,
+            &VecDeque<(GameState, BotState)>,
+            &mut Gamepad,
+        ) -> Result<(), Box<dyn Error>>,
+    >,
     print_turn_errors: bool,
     render_debug_info: bool,
     save_debug_info: bool,
@@ -68,20 +78,12 @@ struct BotIoConfig<'a> {
 }
 
 lazy_static! {
-    static ref GAME_STATE: RwLock<GameState> = {
-        RwLock::new(GameState::default())
-    };
-
-    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = {
-        RwLock::new(vec![])
-    };
-
-    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = {
-        RwLock::new(vec![])
-    };
+    static ref GAME_STATE: RwLock<GameState> = { RwLock::new(GameState::default()) };
+    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = { RwLock::new(vec![]) };
+    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = { RwLock::new(vec![]) };
 }
 
-fn run_visualization(){
+fn run_visualization() {
     let mut window = Window::new("Rocket League Visualization");
 
     // we're dividing everything by 1000 until we can set the camera up to be more zoomed out
@@ -92,16 +94,12 @@ fn run_visualization(){
         CAR_DIMENSIONS.z / 1000.0,
     );
 
-    let arena_mesh = MeshManager::load_obj(
-        Path::new("./assets/arena.obj"),
-        Path::new("./assets/"),
-        "arena",
-    )
-    .expect("Can't load arena obj file")
-    .pop()
-    .expect("Missing arena mesh")
-    .1
-    .clone();
+    let arena_mesh = MeshManager::load_obj(Path::new("./assets/arena.obj"), Path::new("./assets/"), "arena")
+        .expect("Can't load arena obj file")
+        .pop()
+        .expect("Missing arena mesh")
+        .1
+        .clone();
     let mut arena = window.add_mesh(arena_mesh, Vector3::new(0.0, 0.0, 0.0));
     arena.set_surface_rendering_activation(false);
     arena.set_points_size(0.1);
@@ -113,8 +111,7 @@ fn run_visualization(){
 
     window.set_light(Light::StickToCamera);
 
-    let mut loop_helper = LoopHelper::builder()
-        .build_with_target_rate(60.0); // limit to 240 FPS
+    let mut loop_helper = LoopHelper::builder().build_with_target_rate(60.0); // limit to 240 FPS
 
     while window.render() {
         loop_helper.loop_start();
@@ -124,9 +121,7 @@ fn run_visualization(){
         let points = &POINTS.read().unwrap();
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
-        sphere.set_local_translation(Translation3::from(
-            game_state.ball.position.map(|c| c / 1000.0),
-        ));
+        sphere.set_local_translation(Translation3::from(game_state.ball.position.map(|c| c / 1000.0)));
 
         // we're dividing position by 1000 until we can set the camera up to be more zoomed out
         let hitbox_position = game_state.player.hitbox_center().map(|c| c / 1000.0);
@@ -172,10 +167,7 @@ fn run_visualization(){
         }
 
         for p in points.iter() {
-            window.draw_point(
-                &Point3::new(p.0.x / 1000.0, p.0.y / 1000.0, p.0.z / 1000.0),
-                &p.1,
-            );
+            window.draw_point(&Point3::new(p.0.x / 1000.0, p.0.y / 1000.0, p.0.z / 1000.0), &p.1);
         }
 
         loop_helper.loop_sleep();
@@ -185,10 +177,7 @@ fn run_visualization(){
 /// main bot playing loop
 /// this is the entry point for custom logic for this specific bot
 fn run_bot() {
-    let (state_sender, state_receiver): (
-        Sender<(GameState, BotState)>,
-        Receiver<(GameState, BotState)>,
-    ) = mpsc::channel();
+    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver, BotIoConfig::default());
@@ -197,25 +186,20 @@ fn run_bot() {
 }
 
 fn run_bot_test() {
-    let (state_sender, state_receiver): (
-        Sender<(GameState, BotState)>,
-        Receiver<(GameState, BotState)>,
-    ) = mpsc::channel();
+    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
     let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
     thread::spawn(move || {
         let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
         let fennec = rlbot::PlayerLoadout::new().car_id(4284); // TODO get recordings of driving fennec for model
 
-        let mut match_settings =
-            rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
-                rlbot::PlayerClass::RLBotPlayer,
-                "Brick Test",
-                0,
-            )
-            .loadout(fennec)]);
+        let mut match_settings = rlbot::MatchSettings::new().player_configurations(vec![rlbot::PlayerConfiguration::new(
+            rlbot::PlayerClass::RLBotPlayer,
+            "Brick Test",
+            0,
+        )
+        .loadout(fennec)]);
 
-        match_settings.mutator_settings =
-            rlbot::MutatorSettings::new().
+        match_settings.mutator_settings = rlbot::MutatorSettings::new().
             //game_speed_option(rlbot::GameSpeedOption::Slo_Mo). // NOTE this mutator doesn't work with bakkesmod
             respawn_time_option(rlbot::RespawnTimeOption::Disable_Goal_Reset).
             match_length(rlbot::MatchLength::Unlimited).
@@ -247,23 +231,14 @@ fn get_desired_car_state(player: &PlayerState) -> rlbot::DesiredCarState {
     // converting from left handed to left right coordinate system (goes with the x axis flip)
     // see state::update_game_state
     // https://stackoverflow.com/a/34366144/127219
-    let (roll, pitch, yaw) = UnitQuaternion::from_quaternion(
-        Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2])
-    ).euler_angles();
+    let (roll, pitch, yaw) =
+        UnitQuaternion::from_quaternion(Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2]))
+            .euler_angles();
 
     let position = rlbot::Vector3Partial::new().x(-pos.x).y(pos.y).z(pos.z);
-    let velocity = rlbot::Vector3Partial::new()
-        .x(-vel.x)
-        .y(vel.y)
-        .z(vel.z);
-    let angular_velocity = rlbot::Vector3Partial::new()
-        .x(-avel.x)
-        .y(avel.y)
-        .z(avel.z);
-    let rotation = rlbot::RotatorPartial::new()
-        .pitch(pitch)
-        .yaw(yaw)
-        .roll(roll);
+    let velocity = rlbot::Vector3Partial::new().x(-vel.x).y(vel.y).z(vel.z);
+    let angular_velocity = rlbot::Vector3Partial::new().x(-avel.x).y(avel.y).z(avel.z);
+    let rotation = rlbot::RotatorPartial::new().pitch(pitch).yaw(yaw).roll(roll);
     let physics = rlbot::DesiredPhysics::new()
         .location(position)
         .rotation(rotation)
@@ -280,14 +255,8 @@ fn get_desired_ball_state(ball: &BallState) -> rlbot::DesiredBallState {
     let avel = ball.angular_velocity;
 
     let position = rlbot::Vector3Partial::new().x(-pos.x).y(pos.y).z(pos.z);
-    let velocity = rlbot::Vector3Partial::new()
-        .x(-vel.x)
-        .y(vel.y)
-        .z(vel.z);
-    let angular_velocity = rlbot::Vector3Partial::new()
-        .x(-avel.x)
-        .y(avel.y)
-        .z(avel.z);
+    let velocity = rlbot::Vector3Partial::new().x(-vel.x).y(vel.y).z(vel.z);
+    let angular_velocity = rlbot::Vector3Partial::new().x(-avel.x).y(avel.y).z(avel.z);
     let physics = rlbot::DesiredPhysics::new()
         .location(position)
         .velocity(velocity)
@@ -302,14 +271,16 @@ thread_local! {
 
 #[allow(dead_code)]
 fn record_snapshot(game: &GameState, bot: &BotState) -> Result<(), Box<dyn Error>> {
-    let dir ="data/snapshots";
+    let dir = "data/snapshots";
     create_dir_all(dir)?;
 
     let file_path = SNAPSHOT_NUMBER.with(|num| {
         let mut path;
         loop {
             path = Path::new(dir).join(format!("snapshot{}.bincode.gz", *num.borrow()));
-            if !path.exists() { break }
+            if !path.exists() {
+                break;
+            }
             (*num.borrow_mut()) += 1;
         }
         path
@@ -320,8 +291,8 @@ fn record_snapshot(game: &GameState, bot: &BotState) -> Result<(), Box<dyn Error
 }
 
 #[allow(dead_code)]
-fn restore_snapshot(rlbot: &rlbot::RLBot, bot: &mut BotState, frame: &mut u32,  name: &str) -> Result<(), Box<dyn Error>> {
-    let dir ="data/snapshots";
+fn restore_snapshot(rlbot: &rlbot::RLBot, bot: &mut BotState, frame: &mut u32, name: &str) -> Result<(), Box<dyn Error>> {
+    let dir = "data/snapshots";
     let path = Path::new(dir).join(name.to_owned() + ".bincode.gz");
     let f = BufReader::new(File::open(path)?);
     let mut decoder = GzDecoder::new(f);
@@ -341,7 +312,15 @@ fn restore_snapshot(rlbot: &rlbot::RLBot, bot: &mut BotState, frame: &mut u32,  
 }
 
 #[allow(unused)]
-fn bot_test_manipulator(frame: &mut u32, rlbot: &rlbot::RLBot, game: &GameState, bot: &mut BotState, input: &mut rlbot::ControllerState, history: &VecDeque<(GameState, BotState)>, gamepad: &mut Gamepad) -> Result<(), Box<dyn Error>> {
+fn bot_test_manipulator(
+    frame: &mut u32,
+    rlbot: &rlbot::RLBot,
+    game: &GameState,
+    bot: &mut BotState,
+    input: &mut rlbot::ControllerState,
+    history: &VecDeque<(GameState, BotState)>,
+    gamepad: &mut Gamepad,
+) -> Result<(), Box<dyn Error>> {
     if gamepad.select_toggled {
         if gamepad.south {
             // 0.2 seconds ago
@@ -437,9 +416,7 @@ fn bot_logic_loop(sender: Sender<PlanResult>, receiver: Receiver<(GameState, Bot
         }
 
         let plan_result = brain::play::play(&mut model, &game, &mut bot);
-        sender
-            .send(plan_result)
-            .expect("Failed to send plan result");
+        sender.send(plan_result).expect("Failed to send plan result");
     }
 }
 
@@ -494,9 +471,8 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
     let mut gamepad = Gamepad::default();
     let mut model = brain::get_model();
 
-    let mut loop_helper = LoopHelper::builder()
-        .build_with_target_rate(1000.0); // limit to 1000 FPS
-        //.build_with_target_rate(0.2); // limit to 0.2 FPS
+    let mut loop_helper = LoopHelper::builder().build_with_target_rate(1000.0); // limit to 1000 FPS
+                                                                                //.build_with_target_rate(0.2); // limit to 0.2 FPS
 
     loop {
         loop_helper.loop_start();
@@ -581,15 +557,13 @@ fn move_ball_out_of_the_way(rlbot: &rlbot::RLBot) -> Result<(), Box<dyn Error>> 
     Ok(())
 }
 
-
 fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanResult>, bot_io_config: BotIoConfig) {
     let mut bot = BotState::default();
     let mut gilrs = Gilrs::new().unwrap();
     let mut gamepad = Gamepad::default();
     let rlbot = rlbot::init().expect("rlbot init failed");
 
-    let mut loop_helper = LoopHelper::builder()
-        .build_with_target_rate(1000.0); // bot io limited to 1000 FPS
+    let mut loop_helper = LoopHelper::builder().build_with_target_rate(1000.0); // bot io limited to 1000 FPS
 
     if bot_io_config.start_match {
         if let Some(match_settings) = bot_io_config.match_settings {
@@ -647,7 +621,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
                 update_bot_state(&GAME_STATE.read().unwrap(), &mut bot, &plan_result);
                 match update_in_game_visualization(&rlbot, &bot, &plan_result) {
-                    Ok(_) => {},
+                    Ok(_) => {}
                     Err(e) => eprintln!("Failed rendering to rlbot: {}", e),
                 };
             }
@@ -673,13 +647,18 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
             if bot_io_config.print_turn_errors {
                 if bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
                     // last 20
-                    let errors = bot.turn_errors.iter().skip(bot.turn_errors.len() - 20).cloned().collect::<Vec<_>>();
+                    let errors = bot
+                        .turn_errors
+                        .iter()
+                        .skip(bot.turn_errors.len() - 20)
+                        .cloned()
+                        .collect::<Vec<_>>();
                     //let sum = errors.iter().map(f32::abs).sum::<f32>();
                     //let avg = sum / 20.0;
                     let squared_sum = errors.iter().map(|x| x * x).sum::<f32>();
                     let rms = (squared_sum / 20.0).powf(0.5);
-                    let max = errors.iter().map(|x| x.abs()).fold(-1.0f32/0.0 /* -inf */, f32::max);
-                    let min = errors.iter().map(|x| x.abs()).fold(1.0f32/0.0 /* inf */, f32::min);
+                    let max = errors.iter().map(|x| x.abs()).fold(-1.0f32 / 0.0 /* -inf */, f32::max);
+                    let min = errors.iter().map(|x| x.abs()).fold(1.0f32 / 0.0 /* inf */, f32::min);
                     //println!("errors: {:?}", errors);
                     println!("rms: {}, min: {}, max: {}", rms, min, max);
                     //println!("first error: {}", bot.turn_errors[0]);
@@ -688,8 +667,16 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
             // let's some kind of testing mode update the game state
             if let Some(manipulator) = bot_io_config.manipulator {
-                manipulator(&mut frame, &rlbot, &GAME_STATE.read().unwrap(), &mut bot, &mut input, &history, &mut gamepad).
-                    unwrap_or_else(|e| println!("manipulator error: {}", e));
+                manipulator(
+                    &mut frame,
+                    &rlbot,
+                    &GAME_STATE.read().unwrap(),
+                    &mut bot,
+                    &mut input,
+                    &history,
+                    &mut gamepad,
+                )
+                .unwrap_or_else(|e| println!("manipulator error: {}", e));
             }
 
             bot.controller_history.push_back((&input).into());
@@ -716,7 +703,12 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 group.draw_string_2d((10.0, 20.0), (1, 1), format!("Boost: {}", input.boost), white);
                 group.draw_string_2d((10.0, 35.0), (1, 1), format!("Throttle: {}", input.throttle), white);
                 if bot.turn_errors.len() > 0 {
-                    group.draw_string_2d((10.0, 50.0), (1, 1), format!("Error: {:?}", bot.turn_errors.get(bot.turn_errors.len() - 1).unwrap()), white);
+                    group.draw_string_2d(
+                        (10.0, 50.0),
+                        (1, 1),
+                        format!("Error: {:?}", bot.turn_errors.get(bot.turn_errors.len() - 1).unwrap()),
+                        white,
+                    );
                 } else {
                     group.draw_string_2d((10.0, 50.0), (1, 1), "Error: -", white);
                 }
@@ -727,7 +719,9 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
 
             if bot_io_config.save_debug_info {
                 if let Some(plan) = bot.plan.as_ref() {
-                    if let Some((planned_player, planned_controller, _)) = plan.get((frame.wrapping_sub(bot.plan_source_frame)) as usize) {
+                    if let Some((planned_player, planned_controller, _)) =
+                        plan.get((frame.wrapping_sub(bot.plan_source_frame)) as usize)
+                    {
                         if let Some(planned_ball) = bot.planned_ball.as_ref() {
                             let game = GAME_STATE.read().unwrap();
                             let player = &game.player;
@@ -737,24 +731,61 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                             let (planned_roll, planned_pitch, planned_yaw) = planned_player.rotation.euler_angles();
                             let planned_input: rlbot::ControllerState = (*planned_controller).into();
                             let row: Vec<String> = [
-                                frame as f32, bot.plan_source_frame as f32, logic_lag as f32,
-                                player.position.x, player.position.y, player.position.z,
-                                planned_player.position.x, planned_player.position.y, planned_player.position.z,
-                                player.velocity.x, player.velocity.y, player.velocity.z,
-                                planned_player.velocity.x, planned_player.velocity.y, planned_player.velocity.z,
-                                player.angular_velocity.x, player.angular_velocity.y, player.angular_velocity.z,
-                                planned_player.angular_velocity.x, planned_player.angular_velocity.y, planned_player.angular_velocity.z,
-                                roll, pitch, yaw,
-                                planned_roll, planned_pitch, planned_yaw,
-                                input.throttle, input.steer, (if input.boost { 1.0 } else { 0.0 }),
-                                planned_input.throttle, planned_input.steer, (if planned_input.boost { 1.0 } else { 0.0 }),
-                                ball.position.x, ball.position.y, ball.position.z,
-                                planned_ball.position.x, planned_ball.position.y, planned_ball.position.z,
-                                ball.velocity.x, ball.velocity.y, ball.velocity.z,
-                                planned_ball.velocity.x, planned_ball.velocity.y, planned_ball.velocity.z,
-                                ball.angular_velocity.x, ball.angular_velocity.y, ball.angular_velocity.z,
-                                planned_ball.angular_velocity.x, planned_ball.angular_velocity.y, planned_ball.angular_velocity.z,
-                            ].iter().map(|x| x.to_string()).collect::<Vec<_>>();
+                                frame as f32,
+                                bot.plan_source_frame as f32,
+                                logic_lag as f32,
+                                player.position.x,
+                                player.position.y,
+                                player.position.z,
+                                planned_player.position.x,
+                                planned_player.position.y,
+                                planned_player.position.z,
+                                player.velocity.x,
+                                player.velocity.y,
+                                player.velocity.z,
+                                planned_player.velocity.x,
+                                planned_player.velocity.y,
+                                planned_player.velocity.z,
+                                player.angular_velocity.x,
+                                player.angular_velocity.y,
+                                player.angular_velocity.z,
+                                planned_player.angular_velocity.x,
+                                planned_player.angular_velocity.y,
+                                planned_player.angular_velocity.z,
+                                roll,
+                                pitch,
+                                yaw,
+                                planned_roll,
+                                planned_pitch,
+                                planned_yaw,
+                                input.throttle,
+                                input.steer,
+                                (if input.boost { 1.0 } else { 0.0 }),
+                                planned_input.throttle,
+                                planned_input.steer,
+                                (if planned_input.boost { 1.0 } else { 0.0 }),
+                                ball.position.x,
+                                ball.position.y,
+                                ball.position.z,
+                                planned_ball.position.x,
+                                planned_ball.position.y,
+                                planned_ball.position.z,
+                                ball.velocity.x,
+                                ball.velocity.y,
+                                ball.velocity.z,
+                                planned_ball.velocity.x,
+                                planned_ball.velocity.y,
+                                planned_ball.velocity.z,
+                                ball.angular_velocity.x,
+                                ball.angular_velocity.y,
+                                ball.angular_velocity.z,
+                                planned_ball.angular_velocity.x,
+                                planned_ball.angular_velocity.y,
+                                planned_ball.angular_velocity.z,
+                            ]
+                            .iter()
+                            .map(|x| x.to_string())
+                            .collect::<Vec<_>>();
                             csv_writer.write_record(&row).expect("Writing debug csv failed");
                         }
                     }
@@ -787,7 +818,12 @@ fn stitch_with_current_plan(game: &GameState, bot: &BotState, plan_result: &mut 
             }
 
             // we had compensated enough for the logic lag, now adjust the plan
-            let mut stitched_plan = last_plan.iter().cloned().skip(closest_index_now).take(closest_index_plan - closest_index_now).collect::<Vec<_>>();
+            let mut stitched_plan = last_plan
+                .iter()
+                .cloned()
+                .skip(closest_index_now)
+                .take(closest_index_plan - closest_index_now)
+                .collect::<Vec<_>>();
             stitched_plan.extend(plan.clone());
 
             plan_result.plan = Some(stitched_plan);
@@ -806,11 +842,14 @@ fn plan_is_valid(game: &GameState, plan: &Plan) -> bool {
     let closest_index = brain::play::closest_plan_index(&game.player, &plan);
     if let Some((player, _, _)) = plan.get(closest_index) {
         let ball_trajectory = predict::ball::ball_trajectory(&game.ball, (plan.len() - 1 - closest_index) as f32 * TICK);
-        let is_player_accurate = (player.position - game.player.position).norm() < 30.0 && (player.velocity - game.player.velocity).norm() < 200.0;
+        let is_player_accurate = (player.position - game.player.position).norm() < 30.0
+            && (player.velocity - game.player.velocity).norm() < 200.0;
 
         let last_player = &plan.last().unwrap().0;
         let last_ball = ball_trajectory.last().unwrap();
-        let is_ball_colliding = (predict::player::closest_point_for_collision(last_ball, last_player) - last_ball.position).norm() < (BALL_COLLISION_RADIUS + 20.0); // 20.0 fudge factor added
+        let is_ball_colliding = (predict::player::closest_point_for_collision(last_ball, last_player) - last_ball.position)
+            .norm()
+            < (BALL_COLLISION_RADIUS + 20.0); // 20.0 fudge factor added
         is_player_accurate && is_ball_colliding
     } else {
         false
@@ -823,9 +862,12 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
             let new_plan_cost = new_plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
 
             let closest_index = brain::play::closest_plan_index(&game.player, &existing_plan);
-            let existing_plan_cost = existing_plan.iter().enumerate().filter(|(index, _val)| {
-                *index > closest_index
-            }).map(|(_index, (_, _, cost))| cost).sum::<f32>();
+            let existing_plan_cost = existing_plan
+                .iter()
+                .enumerate()
+                .filter(|(index, _val)| *index > closest_index)
+                .map(|(_index, (_, _, cost))| cost)
+                .sum::<f32>();
 
             // bail, we got a worse plan!
             if new_plan_cost >= existing_plan_cost && plan_is_valid(&game, &existing_plan) {
@@ -900,7 +942,11 @@ fn update_simulation_visualization(bot: &BotState, plan_result: &PlanResult) {
 
 const VISUALIZATION_GROUP_ID: i32 = 7323; // trying to not overlap with other bots, though idk if they CAN overlap
 
-fn draw_lines(rlbot: &rlbot::RLBot, lines: &Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>, chunk_num: &mut i32) -> Result<(), Box<dyn Error>> {
+fn draw_lines(
+    rlbot: &rlbot::RLBot,
+    lines: &Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
+    chunk_num: &mut i32,
+) -> Result<(), Box<dyn Error>> {
     for chunk in lines.chunks(200) {
         // TODO in case of multiple bricks, add player index * 1000 to the group id
         let mut group = rlbot.begin_render_group(VISUALIZATION_GROUP_ID + *chunk_num);
@@ -923,33 +969,32 @@ fn draw_lines(rlbot: &rlbot::RLBot, lines: &Vec<(Point3<f32>, Point3<f32>, Point
 
 fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
     let mut vertices = [
-      Vector3::new(-0.262865, 0.00000, 0.42532500),
-      Vector3::new(0.262865, 0.00000, 0.42532500),
-      Vector3::new(-0.262865, 0.00000, -0.42532500),
-      Vector3::new(0.262865, 0.00000, -0.42532500),
-      Vector3::new(0.00000, 0.425325, 0.26286500),
-      Vector3::new(0.00000, 0.425325, -0.26286500),
-      Vector3::new(0.00000, -0.425325, 0.26286500),
-      Vector3::new(0.00000, -0.425325, -0.26286500),
-      Vector3::new(0.425325, 0.262865, 0.0000000),
-      Vector3::new(-0.425325, 0.262865, 0.0000000),
-      Vector3::new(0.425325, -0.262865, 0.0000000),
-      Vector3::new(-0.425325, -0.262865, 0.0000000),
-    ].iter().map(|v| {
-        ball.position + (BALL_COLLISION_RADIUS / 0.45) * v
-    }).collect::<Vec<_>>();
+        Vector3::new(-0.262865, 0.00000, 0.42532500),
+        Vector3::new(0.262865, 0.00000, 0.42532500),
+        Vector3::new(-0.262865, 0.00000, -0.42532500),
+        Vector3::new(0.262865, 0.00000, -0.42532500),
+        Vector3::new(0.00000, 0.425325, 0.26286500),
+        Vector3::new(0.00000, 0.425325, -0.26286500),
+        Vector3::new(0.00000, -0.425325, 0.26286500),
+        Vector3::new(0.00000, -0.425325, -0.26286500),
+        Vector3::new(0.425325, 0.262865, 0.0000000),
+        Vector3::new(-0.425325, 0.262865, 0.0000000),
+        Vector3::new(0.425325, -0.262865, 0.0000000),
+        Vector3::new(-0.425325, -0.262865, 0.0000000),
+    ]
+    .iter()
+    .map(|v| ball.position + (BALL_COLLISION_RADIUS / 0.45) * v)
+    .collect::<Vec<_>>();
     let mut lines = vec![];
     for vertex in vertices.clone().iter() {
         vertices.sort_by(|v1, v2| (vertex - v1).norm().partial_cmp(&(vertex - v2).norm()).unwrap());
         let closest = vertices.iter().skip(1).take(5);
         for v in closest {
-            lines.push(
-                (
-                    Point3::new(vertex.x, vertex.y, vertex.z),
-                    Point3::new(v.x, v.y, v.z),
-                    Point3::new(1.0, 1.0, 1.0),
-                )
-            );
+            lines.push((
+                Point3::new(vertex.x, vertex.y, vertex.z),
+                Point3::new(v.x, v.y, v.z),
+                Point3::new(1.0, 1.0, 1.0),
+            ));
         }
     }
     lines
@@ -957,35 +1002,38 @@ fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<
 
 fn hitbox_lines(player: &PlayerState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
     let mut vertices = [
-      Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
-      Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
-      Vector3::new(CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
-      Vector3::new(-CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
-      Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
-      Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
-      Vector3::new(CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
-      Vector3::new(-CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
-    ].iter().map(|v| {
-        player.hitbox_center() + player.rotation.to_rotation_matrix() * (0.5 * v)
-    }).collect::<Vec<_>>();
+        Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+        Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+        Vector3::new(CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+        Vector3::new(-CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
+        Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+        Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+        Vector3::new(CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+        Vector3::new(-CAR_DIMENSIONS.x, -CAR_DIMENSIONS.y, -CAR_DIMENSIONS.z),
+    ]
+    .iter()
+    .map(|v| player.hitbox_center() + player.rotation.to_rotation_matrix() * (0.5 * v))
+    .collect::<Vec<_>>();
     let mut lines = vec![];
     for vertex in vertices.clone().iter() {
         vertices.sort_by(|v1, v2| (vertex - v1).norm().partial_cmp(&(vertex - v2).norm()).unwrap());
         let closest = vertices.iter().skip(1).take(4);
         for v in closest {
-            lines.push(
-                (
-                    Point3::new(vertex.x, vertex.y, vertex.z),
-                    Point3::new(v.x, v.y, v.z),
-                    Point3::new(1.0, 1.0, 1.0),
-                )
-            );
+            lines.push((
+                Point3::new(vertex.x, vertex.y, vertex.z),
+                Point3::new(v.x, v.y, v.z),
+                Point3::new(1.0, 1.0, 1.0),
+            ));
         }
     }
     lines
 }
 
-fn update_in_game_visualization(rlbot: &rlbot::RLBot, bot: &BotState, plan_result: &PlanResult) -> Result<(), Box<dyn Error>> {
+fn update_in_game_visualization(
+    rlbot: &rlbot::RLBot,
+    bot: &BotState,
+    plan_result: &PlanResult,
+) -> Result<(), Box<dyn Error>> {
     let plan = &plan_result.plan;
     let mut chunk_num = 0;
 
@@ -1075,12 +1123,12 @@ fn send_to_bot_logic(sender: &Sender<(GameState, BotState)>, bot: &BotState, log
         if let Some((player, _, _)) = plan.get(index) {
             game.player = player.clone();
         }
-        game.ball = predict::ball::ball_trajectory(&game.ball, logic_lag as f32 * TICK).pop().expect("Missing ball trajectory");
+        game.ball = predict::ball::ball_trajectory(&game.ball, logic_lag as f32 * TICK)
+            .pop()
+            .expect("Missing ball trajectory");
     }
 
-    sender
-        .send((game, bot.clone()))
-        .expect("Sending to bot logic failed");
+    sender.send((game, bot.clone())).expect("Sending to bot logic failed");
 }
 
 #[allow(dead_code)]
@@ -1090,11 +1138,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
     let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
     let mut turn_controller = BrickControllerState::new();
     turn_controller.throttle = Throttle::Forward;
-    turn_controller.steer = if angle < 0.0 {
-        Steer::Right
-    } else {
-        Steer::Left
-    };
+    turn_controller.steer = if angle < 0.0 { Steer::Right } else { Steer::Left };
 
     let mut straight_controller = BrickControllerState::new();
     straight_controller.throttle = Throttle::Forward;
@@ -1116,8 +1160,10 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
         let long_turn_heading = long_turn_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let long_turn_dot = na::Matrix::dot(&long_turn_heading, &desired_heading);
 
-        let turn_then_straight_player = predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION)?;
-        let turn_then_straight_heading = turn_then_straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+        let turn_then_straight_player =
+            predict::player::next_player_state(&turn_player, &straight_controller, STRAIGHT_DURATION)?;
+        let turn_then_straight_heading =
+            turn_then_straight_player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let turn_then_straight_dot = na::Matrix::dot(&turn_then_straight_heading, &desired_heading);
 
         let straight_player = predict::player::next_player_state(&player, &straight_controller, STRAIGHT_DURATION)?;
@@ -1267,7 +1313,9 @@ fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
                 // TODO 1-tick if we can?
                 next_player = predict::player::next_player_state(&next_player, &controller, 2.0 * TICK)?;
                 plan.push((next_player.clone(), controller, 2.0 * TICK));
-                if get_steer(next_player.position.y) != controller.steer { break }
+                if get_steer(next_player.position.y) != controller.steer {
+                    break;
+                }
             }
         }
 
@@ -1276,7 +1324,6 @@ fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 
     Ok(plan)
 }
-
 
 #[allow(dead_code)]
 fn offset_forward_plan(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
@@ -1295,8 +1342,7 @@ fn simulate_over_time() {
     let mut bot = BotState::default();
     let mut model = brain::get_model();
 
-    let mut loop_helper = LoopHelper::builder()
-        .build_with_target_rate(120.0); // simulation limited to 120 FPS
+    let mut loop_helper = LoopHelper::builder().build_with_target_rate(120.0); // simulation limited to 120 FPS
 
     {
         let mut game_state = GAME_STATE.write().unwrap();
@@ -1353,9 +1399,7 @@ fn simulate_over_time() {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Docopt::new(USAGE)
-        .and_then(|dopt| dopt.parse())
-        .unwrap_or_else(|e| e.exit());
+    let args = Docopt::new(USAGE).and_then(|dopt| dopt.parse()).unwrap_or_else(|e| e.exit());
 
     let test_bot = args.get_bool("--bot-test");
     if args.get_bool("--bot") || test_bot {

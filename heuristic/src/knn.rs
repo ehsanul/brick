@@ -4,7 +4,7 @@ use self::kdtree::KdTree;
 use crate::{get_ball_position, get_normalization_rotation, HeuristicModel};
 use na::{Rotation3, Vector3};
 use ord_subset::OrdSubsetIterExt;
-use state::{DesiredContact, PlayerState, BallState};
+use state::{BallState, DesiredContact, PlayerState};
 use std::error::Error;
 use std::f32::consts::PI;
 use std::fs::File;
@@ -47,9 +47,7 @@ impl KnnHeuristic {
     pub fn try_new(path: &str) -> Result<Self, Box<dyn Error>> {
         let mut tree = KdTree::new(KNN_DIMENSIONS);
 
-        let mut rdr = csv::ReaderBuilder::new()
-            .has_headers(false)
-            .from_reader(File::open(path)?);
+        let mut rdr = csv::ReaderBuilder::new().has_headers(false).from_reader(File::open(path)?);
 
         for record in rdr.records() {
             let record = record?;
@@ -110,11 +108,7 @@ impl Default for KnnHeuristic {
 }
 
 impl HeuristicModel for KnnHeuristic {
-    fn unscaled_heuristic(
-        &mut self,
-        players: &[PlayerState],
-        costs: &mut [f32],
-    ) -> Result<(), Box<dyn Error>> {
+    fn unscaled_heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
@@ -124,7 +118,9 @@ impl HeuristicModel for KnnHeuristic {
         Ok(())
     }
 
-    fn scale(&self) -> f32 { self.scale }
+    fn scale(&self) -> f32 {
+        self.scale
+    }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.normalization_rotation = get_normalization_rotation(&desired.heading);

@@ -16,6 +16,6 @@ extern crate bincode;
 
 pub mod arena;
 pub mod ball;
+pub mod driving_model;
 pub mod player;
 pub mod sample;
-pub mod driving_model;

@@ -217,9 +217,7 @@ impl PlayerState {
         // the actual car with no rotation is sideways, pointed towards negative x. so we do an
         // additional rotation to convert to local coords with car pointing towards positive
         // y instead of negative x, since that's a lot more intuitive
-        Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0)
-            * self.rotation.to_rotation_matrix().inverse()
-            * self.velocity
+        Rotation3::from_euler_angles(0.0, 0.0, -PI / 2.0) * self.rotation.to_rotation_matrix().inverse() * self.velocity
     }
 }
 
@@ -381,12 +379,7 @@ impl Default for DesiredContact {
 
 /// updates our game state, which is a representation of the packet/ticket, but with our own data
 /// types etc
-pub fn update_game_state(
-    game_state: &mut GameState,
-    tick: &rlbot::GameTickPacket,
-    player_index: usize,
-    frame: u32,
-) {
+pub fn update_game_state(game_state: &mut GameState, tick: &rlbot::GameTickPacket, player_index: usize, frame: u32) {
     let ball = tick.ball.as_ref().expect("Missing ball");
     let players = &tick.players;
     let player = players.get(player_index).expect("Missing player");
@@ -412,9 +405,8 @@ pub fn update_game_state(
     let q = uq.quaternion();
     // converting from right handed to left handed coordinate system (goes with the x axis flip above)
     // https://stackoverflow.com/a/34366144/127219
-    game_state.player.rotation = UnitQuaternion::from_quaternion(
-        Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2])
-    );
+    game_state.player.rotation =
+        UnitQuaternion::from_quaternion(Quaternion::new(q.scalar(), -q.vector()[0], q.vector()[1], -q.vector()[2]));
 
     game_state.frame = frame;
 
@@ -456,7 +448,7 @@ mod tests {
         let mut player = PlayerState::default();
         player.velocity.y = 1000.0;
 
-        player.rotation =  UnitQuaternion::from_euler_angles(0.0, 0.0, 3.0 * -PI / 4.0);
+        player.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, 3.0 * -PI / 4.0);
         assert!((player.local_velocity().y - 707.1).abs() < 0.1);
         assert!((player.local_velocity().x - -707.1).abs() < 0.1);
 

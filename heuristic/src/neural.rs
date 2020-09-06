@@ -25,8 +25,7 @@ impl NeuralHeuristic {
     // export_dir is a directory like "./nn/simple_throttle_cost_saved_model/1551586435";
     pub fn try_new(export_dir: &str) -> Result<Self, Box<dyn Error>> {
         let mut graph = Graph::new();
-        let session =
-            Session::from_saved_model(&SessionOptions::new(), &["serve"], &mut graph, export_dir)?;
+        let session = Session::from_saved_model(&SessionOptions::new(), &["serve"], &mut graph, export_dir)?;
 
         let op_input = graph.operation_by_name_required("dense_input").unwrap();
 
@@ -66,11 +65,7 @@ fn scale_rot(val: f32) -> f32 {
 }
 
 impl HeuristicModel for NeuralHeuristic {
-    fn unscaled_heuristic(
-        &mut self,
-        players: &[PlayerState],
-        costs: &mut [f32],
-    ) -> Result<(), Box<dyn Error>> {
+    fn unscaled_heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
         let mut players_tensor = Tensor::new(&[players.len() as u64, 12u64]);
         for (i, player) in players.iter().enumerate() {
             let offset = i * 12;
@@ -129,7 +124,9 @@ impl HeuristicModel for NeuralHeuristic {
         Ok(())
     }
 
-    fn scale(&self) -> f32 { self.scale }
+    fn scale(&self) -> f32 {
+        self.scale
+    }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.normalization_rotation = get_normalization_rotation(desired);

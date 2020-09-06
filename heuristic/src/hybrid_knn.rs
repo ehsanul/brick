@@ -1,10 +1,10 @@
-use knn;
 use basic;
+use knn;
 
-use state::{DesiredContact, PlayerState, BallState};
-use na::Vector3;
-use std::error::Error;
 use crate::HeuristicModel;
+use na::Vector3;
+use state::{BallState, DesiredContact, PlayerState};
+use std::error::Error;
 
 #[derive(Debug)]
 pub struct HybridKnnHeuristic {
@@ -26,11 +26,7 @@ impl HybridKnnHeuristic {
 }
 
 impl HeuristicModel for HybridKnnHeuristic {
-    fn unscaled_heuristic(
-        &mut self,
-        players: &[PlayerState],
-        costs: &mut [f32],
-    ) -> Result<(), Box<dyn Error>> {
+    fn unscaled_heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
@@ -52,7 +48,9 @@ impl HeuristicModel for HybridKnnHeuristic {
         Ok(())
     }
 
-    fn scale(&self) -> f32 { self.scale }
+    fn scale(&self) -> f32 {
+        self.scale
+    }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.scale = scale;

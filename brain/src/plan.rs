@@ -151,7 +151,15 @@ pub extern "C" fn plan<H: HeuristicModel>(
     //     config.max_cost = (20.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
     // }
 
-    let mut plan_result = hybrid_a_star(model, player, ball_trajectory, initial_ball_trajectory_index, desired, cost_to_strive_for, &config);
+    let mut plan_result = hybrid_a_star(
+        model,
+        player,
+        ball_trajectory,
+        initial_ball_trajectory_index,
+        desired,
+        cost_to_strive_for,
+        &config,
+    );
 
     match explode_plan(&plan_result.plan) {
         Ok(exploded) => plan_result.plan = exploded,
@@ -168,7 +176,7 @@ pub extern "C" fn plan<H: HeuristicModel>(
 pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>> {
     if let Some(ref plan) = plan {
         if plan.get(0).is_none() {
-            return Ok(None)
+            return Ok(None);
         }
         let mut exploded_plan = Vec::with_capacity(plan.len()); // will be at least this long
         exploded_plan.push(plan[0].clone());
@@ -200,11 +208,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
                 } else {
                     (EXPLODED_STEP_DURATION, &last_player)
                 };
-                let next_player = predict::player::next_player_state(
-                    last,
-                    &controller,
-                    step,
-                )?;
+                let next_player = predict::player::next_player_state(last, &controller, step)?;
                 exploded_plan.push((next_player.clone(), controller, step));
                 last_player = next_player;
             }
@@ -213,11 +217,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
             // include/exlode it
             if remaining_ticks > 0 {
                 for _j in 1..=remaining_ticks {
-                    let next_player = predict::player::next_player_state(
-                        &last_player,
-                        &controller,
-                        TICK,
-                    )?;
+                    let next_player = predict::player::next_player_state(&last_player, &controller, TICK)?;
                     exploded_plan.push((next_player.clone(), controller, TICK));
                     last_player = next_player;
                 }
@@ -312,9 +312,16 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     config: &SearchConfig,
 ) -> PlanResult {
     // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
-    let is_ball_hit_towards_goal = |ball_trajectory: &[BallState], player: &PlayerState, next_vertex: &PlayerVertex, controller: &BrickControllerState, time_step: f32| -> Option<(PlayerState, BallState, f32)> {
+    let is_ball_hit_towards_goal = |ball_trajectory: &[BallState],
+                                    player: &PlayerState,
+                                    next_vertex: &PlayerVertex,
+                                    controller: &BrickControllerState,
+                                    time_step: f32|
+     -> Option<(PlayerState, BallState, f32)> {
         let index = ((next_vertex.cost_so_far - next_vertex.step_duration) / TICK).round() as usize;
-        if let Some((colliding_player, colliding_ball, collision_point, collision_time)) = predict::player::get_collision(&ball_trajectory[index..], player, controller, time_step) {
+        if let Some((colliding_player, colliding_ball, collision_point, collision_time)) =
+            predict::player::get_collision(&ball_trajectory[index..], player, controller, time_step)
+        {
             match predict::ball::calculate_hit(&colliding_ball, &colliding_player, &collision_point) {
                 Ok(next_ball) => {
                     if predict::ball::trajectory_enters_soccar_goal(&next_ball) {
@@ -422,16 +429,11 @@ pub fn hybrid_a_star<H: HeuristicModel>(
             let (_, (v1, maybe_v2)) = parents
                 .get_index(index)
                 .expect("missing index in parents, shouldn't be possible");
-            let vertex = if is_secondary {
-                maybe_v2.as_ref().unwrap()
-            } else {
-                v1
-            };
+            let vertex = if is_secondary { maybe_v2.as_ref().unwrap() } else { v1 };
             line_start = vertex.player.position;
 
             let mut parent_player;
-            if let Some((_, (parent_v1, maybe_parent_v2))) = parents.get_index(vertex.parent_index)
-            {
+            if let Some((_, (parent_v1, maybe_parent_v2))) = parents.get_index(vertex.parent_index) {
                 let parent_vertex = if vertex.parent_is_secondary {
                     maybe_parent_v2.as_ref().unwrap()
                 } else {
@@ -449,7 +451,14 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 parent_player.position.z += 0.1;
             }
 
-            if let Some((player, ball, cost)) = player_goal_reached(&vertex, &parent_player, ball_trajectory, &vertex.prev_controller, config.step_duration, is_ball_hit_towards_goal) {
+            if let Some((player, ball, cost)) = player_goal_reached(
+                &vertex,
+                &parent_player,
+                ball_trajectory,
+                &vertex.prev_controller,
+                config.step_duration,
+                is_ball_hit_towards_goal,
+            ) {
                 let plan = reverse_path(&parents, index, is_secondary, &player, cost);
 
                 let total_cost = plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
@@ -472,8 +481,15 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 // if we hit the ball but we didn't reach the goal, we skip instead of expanding
                 // this vertex
                 let index = ((vertex.cost_so_far - vertex.step_duration) / TICK).round() as usize;
-                if predict::player::get_collision(&ball_trajectory[index..], &parent_player, &vertex.prev_controller, config.step_duration).is_some() {
-                    continue
+                if predict::player::get_collision(
+                    &ball_trajectory[index..],
+                    &parent_player,
+                    &vertex.prev_controller,
+                    config.step_duration,
+                )
+                .is_some()
+                {
+                    continue;
                 }
             }
 
@@ -496,14 +512,19 @@ pub fn hybrid_a_star<H: HeuristicModel>(
             let index = first_new_vertex.ball_trajectory_index;
             let wtf: &[PlayerState] = &new_players;
             set_heuristic_costs(model, wtf, &mut cur_heuristic_costs, &ball_trajectory, index);
-            set_heuristic_costs(model, &new_players, &mut prev_heuristic_costs, &ball_trajectory, index.wrapping_sub(1));
+            set_heuristic_costs(
+                model,
+                &new_players,
+                &mut prev_heuristic_costs,
+                &ball_trajectory,
+                index.wrapping_sub(1),
+            );
             set_heuristic_costs(model, &new_players, &mut next_heuristic_costs, &ball_trajectory, index + 1);
         }
 
         let mut heuristic_index = 0;
         for mut new_vertex in new_vertices.drain(0..) {
-            let new_vertex_rounded =
-                round_player_state(&new_vertex.player, dur, new_vertex.player.velocity.norm());
+            let new_vertex_rounded = round_player_state(&new_vertex.player, dur, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
@@ -515,16 +536,15 @@ pub fn hybrid_a_star<H: HeuristicModel>(
             let cur_diff = (cur_heuristic_costs[i] - TICK * new_vertex.ball_trajectory_index as f32).abs();
             let prev_diff = (prev_heuristic_costs[i] - TICK * (new_vertex.ball_trajectory_index as f32 - 1.0)).abs();
             let next_diff = (next_heuristic_costs[i] - TICK * (new_vertex.ball_trajectory_index as f32 + 1.0)).abs();
-            let heuristic_cost =
-                if cur_diff < prev_diff && cur_diff <= next_diff {
-                    cur_heuristic_costs[i]
-                } else if prev_diff <= next_diff {
-                    new_vertex.ball_trajectory_index = new_vertex.ball_trajectory_index.wrapping_sub(1);
-                    prev_heuristic_costs[i]
-                } else {
-                    new_vertex.ball_trajectory_index += 1;
-                    next_heuristic_costs[i]
-                };
+            let heuristic_cost = if cur_diff < prev_diff && cur_diff <= next_diff {
+                cur_heuristic_costs[i]
+            } else if prev_diff <= next_diff {
+                new_vertex.ball_trajectory_index = new_vertex.ball_trajectory_index.wrapping_sub(1);
+                prev_heuristic_costs[i]
+            } else {
+                new_vertex.ball_trajectory_index += 1;
+                next_heuristic_costs[i]
+            };
 
             match parents.entry(new_vertex_rounded) {
                 Vacant(e) => {
@@ -546,8 +566,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                         (existing_vertex, Some(existing_secondary_vertex)) => {
                             // FIXME we seem to only be checking/replacing the secondary vertex..
                             // what about the primary?
-                            let mut new_cost_is_lower =
-                                existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
+                            let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
                                 // turns out that the index invalidation is a problem in general
                                 // with the IndexMap approach when replacing occupied entries: we
@@ -556,8 +575,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                                 // out on the best path, but at least doesn't give us corrupted
                                 // paths! if this causes us to lose too many good paths, we'll need
                                 // to reconsider the use of the IndexMap
-                                if existing_secondary_vertex.parent_index != new_vertex.parent_index
-                                {
+                                if existing_secondary_vertex.parent_index != new_vertex.parent_index {
                                     continue;
                                 }
 
@@ -586,9 +604,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                                 // if we're expanding in the same cell as the parent, but. the
                                 // parent was already a secondary, we want to ignore as there's no
                                 // spot to put ourselves in
-                                if e.index() == new_vertex.parent_index
-                                    && new_vertex.parent_is_secondary
-                                {
+                                if e.index() == new_vertex.parent_index && new_vertex.parent_is_secondary {
                                     continue;
                                 }
 
@@ -609,10 +625,15 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                                 // directly, but a sibling!
                                 new_estimated_cost = new_cost_so_far + heuristic_cost;
 
-                                set_heuristic_costs(model, &[existing_secondary_vertex.player.clone()], &mut single_heuristic_cost, &ball_trajectory, existing_secondary_vertex.ball_trajectory_index);
-                                let existing_secondary_estimated_cost = existing_secondary_vertex
-                                    .cost_so_far
-                                    + single_heuristic_cost[0];
+                                set_heuristic_costs(
+                                    model,
+                                    &[existing_secondary_vertex.player.clone()],
+                                    &mut single_heuristic_cost,
+                                    &ball_trajectory,
+                                    existing_secondary_vertex.ball_trajectory_index,
+                                );
+                                let existing_secondary_estimated_cost =
+                                    existing_secondary_vertex.cost_so_far + single_heuristic_cost[0];
 
                                 if new_estimated_cost < existing_secondary_estimated_cost {
                                     new_cost_is_lower = true;
@@ -690,7 +711,13 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     }
 }
 
-fn set_heuristic_costs<H: HeuristicModel>(model: &mut H, new_players: &[PlayerState], costs: &mut Vec<f32>, ball_trajectory: &[BallState], ball_trajectory_index: usize) {
+fn set_heuristic_costs<H: HeuristicModel>(
+    model: &mut H,
+    new_players: &[PlayerState],
+    costs: &mut Vec<f32>,
+    ball_trajectory: &[BallState],
+    ball_trajectory_index: usize,
+) {
     while costs.len() < new_players.len() {
         costs.push(0.0)
     }
@@ -700,8 +727,10 @@ fn set_heuristic_costs<H: HeuristicModel>(model: &mut H, new_players: &[PlayerSt
         model.ball_configure(&ball, &goal); // FIXME adjust this for ball velocity
     } else {
         // just make it a high cost as the ball doesn't exist in this offset as far as we know
-        for cost in costs.iter_mut() { *cost = 1000.0 }
-        return
+        for cost in costs.iter_mut() {
+            *cost = 1000.0
+        }
+        return;
     }
 
     model
@@ -719,7 +748,11 @@ fn coarse_collision(candidate_vertex: &PlayerVertex, previous_player: &PlayerSta
     // current is a straight line but it may be curved. this is offset by the fact that we use the
     // maximium car dimension to extend the bounding box though, so we may have fewer false
     // negatives than otherwise
-    line_collides_bounding_box(&coarse_box, previous_player.hitbox_center(), candidate_vertex.player.hitbox_center())
+    line_collides_bounding_box(
+        &coarse_box,
+        previous_player.hitbox_center(),
+        candidate_vertex.player.hitbox_center(),
+    )
 }
 
 fn player_goal_reached(
@@ -728,9 +761,19 @@ fn player_goal_reached(
     ball_trajectory: &[BallState],
     controller: &BrickControllerState,
     time_step: f32,
-    evaluator: fn(&[BallState], &PlayerState, &PlayerVertex, &BrickControllerState, f32) -> Option<(PlayerState, BallState, f32)>, // consider using Fn trait + generics to make this inlinable
+    evaluator: fn(
+        &[BallState],
+        &PlayerState,
+        &PlayerVertex,
+        &BrickControllerState,
+        f32,
+    ) -> Option<(PlayerState, BallState, f32)>, // consider using Fn trait + generics to make this inlinable
 ) -> Option<(PlayerState, BallState, f32)> {
-    let coarse_collision = coarse_collision(candidate_vertex, previous_player, &ball_trajectory[candidate_vertex.ball_trajectory_index]);
+    let coarse_collision = coarse_collision(
+        candidate_vertex,
+        previous_player,
+        &ball_trajectory[candidate_vertex.ball_trajectory_index],
+    );
     if !coarse_collision {
         return None;
     };
@@ -742,20 +785,30 @@ fn player_goal_reached(
 // actually execute this plan, one most look at the "prev_controller" of the next tuple in the
 // plan, which will correspond to the correspond to the controller action required now in ordert
 // to reach the next player state
-fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool, initial_player: &PlayerState, initial_cost: f32) -> Plan {
+fn reverse_path(
+    parents: &ParentsMap,
+    initial_index: usize,
+    initial_is_secondary: bool,
+    initial_player: &PlayerState,
+    initial_cost: f32,
+) -> Plan {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
         let is_secondary = (*vals).1;
         parents.get_index(index).map(|(_rounded, (v1, maybe_v2))| {
-            let vertex = if is_secondary {
-                maybe_v2.as_ref().unwrap()
-            } else {
-                v1
-            };
+            let vertex = if is_secondary { maybe_v2.as_ref().unwrap() } else { v1 };
             (*vals).0 = vertex.parent_index;
             (*vals).1 = vertex.parent_is_secondary;
-            let player = if index == initial_index { initial_player.clone() } else { vertex.player.clone() };
-            let cost = if index == initial_index { initial_cost } else { vertex.step_duration };
+            let player = if index == initial_index {
+                initial_player.clone()
+            } else {
+                vertex.player.clone()
+            };
+            let cost = if index == initial_index {
+                initial_cost
+            } else {
+                vertex.step_duration
+            };
             (player, vertex.prev_controller, cost)
         })
     })
@@ -802,11 +855,7 @@ impl BoundingBox {
 
 // https://bheisler.github.io/post/writing-gpu-accelerated-path-tracer-part-3/
 // https://gamedev.stackexchange.com/a/18459/4929
-pub fn ray_collides_bounding_box(
-    bounding_box: &BoundingBox,
-    start: Vector3<f32>,
-    end: Vector3<f32>,
-) -> bool {
+pub fn ray_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>, end: Vector3<f32>) -> bool {
     let dir = end - start;
     let dir_inv = Vector3::new(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
 
@@ -855,13 +904,8 @@ pub fn ray_collides_bounding_box(
 //// for point of origin, we just test it in both directions for a complete line test. minimize
 //// the overhead by using the previous position as the ray origin first, assuming we'll
 //// mostly be moving *towards* the desired position for most expanded a* paths
-pub fn line_collides_bounding_box(
-    bounding_box: &BoundingBox,
-    start: Vector3<f32>,
-    end: Vector3<f32>,
-) -> bool {
-    ray_collides_bounding_box(&bounding_box, start, end)
-        && ray_collides_bounding_box(&bounding_box, end, start)
+pub fn line_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>, end: Vector3<f32>) -> bool {
+    ray_collides_bounding_box(&bounding_box, start, end) && ray_collides_bounding_box(&bounding_box, end, start)
 }
 
 fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> RoundedPlayerState {
@@ -920,8 +964,7 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
 const BOUNDS_MARGIN: f32 = 200.0;
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
-    pos.x.abs() > SIDE_CURVE_DISTANCE + BOUNDS_MARGIN
-        || pos.y.abs() > BACK_CURVE_DISTANCE + BOUNDS_MARGIN
+    pos.x.abs() > SIDE_CURVE_DISTANCE + BOUNDS_MARGIN || pos.y.abs() > BACK_CURVE_DISTANCE + BOUNDS_MARGIN
 }
 
 fn expand_vertex(
@@ -1106,10 +1149,7 @@ mod tests {
         }
         println!("WORKED {} TIMES", count);
         println!("FAILED {} TIMES", failures.len());
-        println!(
-            "FAIL PERCENT {}%",
-            100.0 * failures.len() as f32 / count as f32
-        );
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
         println!("FAILURES: {:?}", failures);
         assert!(failures.len() == 0);
     }
@@ -1134,10 +1174,7 @@ mod tests {
         }
         println!("WORKED {} TIMES", count);
         println!("FAILED {} TIMES", failures.len());
-        println!(
-            "FAIL PERCENT {}%",
-            100.0 * failures.len() as f32 / count as f32
-        );
+        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
         //println!("FAILURES: {:?}", failures);
         assert!(failures.len() == 0);
     }

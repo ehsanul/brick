@@ -22,17 +22,9 @@ mod neural;
 pub use neural::NeuralHeuristic;
 
 pub trait HeuristicModel {
-    fn unscaled_heuristic(
-        &mut self,
-        players: &[PlayerState],
-        costs: &mut [f32],
-    ) -> Result<(), Box<dyn Error>>;
+    fn unscaled_heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>>;
 
-    fn heuristic(
-        &mut self,
-        players: &[PlayerState],
-        costs: &mut [f32],
-    ) -> Result<(), Box<dyn Error>> {
+    fn heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
         self.unscaled_heuristic(&players, costs)?;
 
         for c in costs.iter_mut() {

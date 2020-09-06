@@ -1,7 +1,7 @@
 extern crate brain;
 
-use std::error::Error;
 use brain::predict::sample;
+use std::error::Error;
 use std::fs;
 
 fn main() -> Result<(), Box<dyn Error>> {

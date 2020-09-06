@@ -1,5 +1,5 @@
-use std::f32;
 use std::error::Error;
+use std::f32;
 
 use na::{self, Isometry3, Unit, Vector3};
 use ncollide;
@@ -189,7 +189,9 @@ pub fn calculate_hit(ball: &BallState, player: &PlayerState, collision: &Vector3
     let player_rotation = player.rotation.to_rotation_matrix();
     let invI_c = player_rotation * (*CAR_INVERSE_INERTIA * player_rotation.transpose());
 
-    let invM = ((1.0 / BALL_MASS) + (1.0 / CAR_MASS)) * na::Matrix3::identity() - ((L_b * L_b) / BALL_INERTIA) - (L_c * (invI_c * L_c));
+    let invM = ((1.0 / BALL_MASS) + (1.0 / CAR_MASS)) * na::Matrix3::identity()
+        - ((L_b * L_b) / BALL_INERTIA)
+        - (L_c * (invI_c * L_c));
     let M = invM.try_inverse().ok_or("M matrix inversion failed")?;
 
     let delta_v = (player.velocity - (L_c * player.angular_velocity)) - (ball.velocity - (L_b * ball.angular_velocity));

@@ -37,11 +37,16 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
 
             // we can miss data at the edges, or not be able to extrapolate at the edges. ignore for now
             // TODO remove all these checks
-            if (player_start.angular_velocity.z.abs() / 0.2) >= 20.0 || player_start.local_velocity().y < 50.0 || player_start.local_velocity().x.abs() > 1000.0 {
+            if (player_start.angular_velocity.z.abs() / 0.2) >= 20.0
+                || player_start.local_velocity().y < 50.0
+                || player_start.local_velocity().x.abs() > 1000.0
+            {
                 continue;
             }
 
-            let predicted_player_end = predict::player::next_player_state(&player_start, &controller, NUM_TICKS as f32 * TICK).expect("failed prediction");
+            let predicted_player_end =
+                predict::player::next_player_state(&player_start, &controller, NUM_TICKS as f32 * TICK)
+                    .expect("failed prediction");
             let position_error = (predicted_player_end.position - player_end.position).norm();
             let velocity_error = (predicted_player_end.velocity - player_end.velocity).norm();
             let avz_error = (predicted_player_end.angular_velocity.z - player_end.angular_velocity.z).abs();
@@ -66,7 +71,10 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
                 let normalized = predict::sample::normalized_player_rounded(&player_start);
                 println!("");
                 println!("---------------------------------------------------------");
-                println!("position error: {}, velocity_error: {}, avz_error: {}", position_error, velocity_error, avz_error);
+                println!(
+                    "position error: {}, velocity_error: {}, avz_error: {}",
+                    position_error, velocity_error, avz_error
+                );
                 let v = player_start.velocity;
                 println!("rg '{},{},{}' -- *.csv", v.x, v.y, v.z);
                 println!("player_start normalized: {:?}", normalized);
@@ -83,17 +91,41 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
     println!("{:?}", controller);
     println!("max position error: {}", max_position_error);
     println!("rms position error: {}", rms(&position_errors));
-    println!("50th percentile position error: {}", percentile_value(&mut position_errors, 50.0));
-    println!("95th percentile position error: {}", percentile_value(&mut position_errors, 95.0));
-    println!("99th percentile position error: {}", percentile_value(&mut position_errors, 99.0));
-    println!("99.9th percentile position error: {}", percentile_value(&mut position_errors, 99.9));
+    println!(
+        "50th percentile position error: {}",
+        percentile_value(&mut position_errors, 50.0)
+    );
+    println!(
+        "95th percentile position error: {}",
+        percentile_value(&mut position_errors, 95.0)
+    );
+    println!(
+        "99th percentile position error: {}",
+        percentile_value(&mut position_errors, 99.0)
+    );
+    println!(
+        "99.9th percentile position error: {}",
+        percentile_value(&mut position_errors, 99.9)
+    );
 
     println!("max velocity error: {}", max_velocity_error);
     println!("rms velocity error: {}", rms(&velocity_errors));
-    println!("50th percentile velocity error: {}", percentile_value(&mut velocity_errors, 50.0));
-    println!("95th percentile velocity error: {}", percentile_value(&mut velocity_errors, 95.0));
-    println!("99th percentile velocity error: {}", percentile_value(&mut velocity_errors, 99.0));
-    println!("99.9th percentile velocity error: {}", percentile_value(&mut velocity_errors, 99.9));
+    println!(
+        "50th percentile velocity error: {}",
+        percentile_value(&mut velocity_errors, 50.0)
+    );
+    println!(
+        "95th percentile velocity error: {}",
+        percentile_value(&mut velocity_errors, 95.0)
+    );
+    println!(
+        "99th percentile velocity error: {}",
+        percentile_value(&mut velocity_errors, 99.0)
+    );
+    println!(
+        "99.9th percentile velocity error: {}",
+        percentile_value(&mut velocity_errors, 99.9)
+    );
 
     println!("max avz error: {}", max_avz_error);
     println!("rms avz error: {}", rms(&avz_errors));

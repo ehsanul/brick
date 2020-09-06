@@ -1,13 +1,13 @@
-extern crate csv;
 extern crate brain;
-extern crate state;
+extern crate csv;
 extern crate nalgebra as na;
+extern crate state;
 
-use std::error::Error;
 use brain::predict::sample;
+use na::{Quaternion, UnitQuaternion};
+use std::error::Error;
 use std::fs::create_dir_all;
 use std::path::Path;
-use na::{Quaternion, UnitQuaternion};
 
 fn main() -> Result<(), Box<dyn Error>> {
     for f in sample::csv_files("./data/samples/flat_ground") {
@@ -16,8 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("{}", f.to_string_lossy());
         let new_path = f.to_string_lossy().replace("flat_ground", "flat_ground_new");
         create_dir_all(&Path::new(&new_path).parent().expect("no parent for this f?"))?;
-        let mut wtr =
-            csv::Writer::from_path(new_path).expect("couldn't open file for writing csv");
+        let mut wtr = csv::Writer::from_path(new_path).expect("couldn't open file for writing csv");
 
         for player in sample {
             let pos = player.position;

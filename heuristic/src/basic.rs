@@ -39,17 +39,11 @@ impl BasicHeuristic {
         // out.
         let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let car_to_desired = Unit::new_normalize(self.goal_center - player.position).into_inner();
-        let mut penalty_time_cost = if distance < 800.0
-            && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.70
-        {
+        let mut penalty_time_cost = if distance < 800.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.70 {
             0.5
-        } else if distance < 1500.0
-            && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.88
-        {
+        } else if distance < 1500.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.88 {
             0.5
-        } else if distance < 2000.0
-            && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.95
-        {
+        } else if distance < 2000.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.95 {
             0.5
         } else {
             0.0
@@ -76,11 +70,7 @@ impl Default for BasicHeuristic {
 }
 
 impl HeuristicModel for BasicHeuristic {
-    fn unscaled_heuristic(
-        &mut self,
-        players: &[PlayerState],
-        costs: &mut [f32],
-    ) -> Result<(), Box<dyn Error>> {
+    fn unscaled_heuristic(&mut self, players: &[PlayerState], costs: &mut [f32]) -> Result<(), Box<dyn Error>> {
         assert!(players.len() == costs.len());
         for (i, cost) in costs.iter_mut().enumerate() {
             let player = unsafe { players.get_unchecked(i) };
@@ -90,7 +80,9 @@ impl HeuristicModel for BasicHeuristic {
         Ok(())
     }
 
-    fn scale(&self) -> f32 { self.scale }
+    fn scale(&self) -> f32 {
+        self.scale
+    }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
         self.desired_heading = Unit::new_normalize(desired.heading.clone()).into_inner();
@@ -100,6 +92,7 @@ impl HeuristicModel for BasicHeuristic {
 
     fn ball_configure(&mut self, ball: &BallState, ball_goal: &Vector3<f32>) {
         self.desired_heading = Unit::new_normalize(ball_goal - ball.position).into_inner();
-        self.goal_center = ball.position - (BALL_COLLISION_RADIUS + (CAR_DIMENSIONS.x / 2.0) + CAR_OFFSET.x.abs()) * self.desired_heading;
+        self.goal_center =
+            ball.position - (BALL_COLLISION_RADIUS + (CAR_DIMENSIONS.x / 2.0) + CAR_OFFSET.x.abs()) * self.desired_heading;
     }
 }

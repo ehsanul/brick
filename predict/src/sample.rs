@@ -1,14 +1,14 @@
+use csv;
 use fnv::FnvHasher;
 use na::{UnitQuaternion, Vector3};
 use state::*;
 use std::collections::hash_map::Entry::{Occupied, Vacant};
 use std::collections::HashMap;
+use std::ffi::OsStr;
 use std::fs;
 use std::hash::BuildHasherDefault;
-use csv;
-use walkdir::{DirEntry, WalkDir};
 use std::path::PathBuf;
-use std::ffi::OsStr;
+use walkdir::{DirEntry, WalkDir};
 
 type MyHasher = BuildHasherDefault<FnvHasher>;
 
@@ -19,105 +19,79 @@ pub const MIN_SAMPLE_LENGTH: usize = 1 + 16; // we want to simulate 16-tick step
 lazy_static! {
     pub static ref THROTTLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/throttle_straight/");
-    pub static ref THROTTLE_STRAIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&THROTTLE_STRAIGHT_ALL);
+    pub static ref THROTTLE_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_STRAIGHT_ALL);
     pub static ref THROTTLE_RIGHT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/throttle_right/");
-    pub static ref THROTTLE_RIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&THROTTLE_RIGHT_ALL);
-    pub static ref THROTTLE_LEFT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/throttle_left/");
-    pub static ref THROTTLE_LEFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&THROTTLE_LEFT_ALL);
+    pub static ref THROTTLE_RIGHT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_RIGHT_ALL);
+    pub static ref THROTTLE_LEFT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/throttle_left/");
+    pub static ref THROTTLE_LEFT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_LEFT_ALL);
     pub static ref BOOST_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/boost_straight/");
-    pub static ref BOOST_STRAIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&BOOST_STRAIGHT_ALL);
-    pub static ref BOOST_RIGHT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/boost_right/");
+    pub static ref BOOST_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_STRAIGHT_ALL);
+    pub static ref BOOST_RIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/boost_right/");
     pub static ref BOOST_RIGHT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_RIGHT_ALL);
-    pub static ref BOOST_LEFT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/boost_left/");
+    pub static ref BOOST_LEFT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/boost_left/");
     pub static ref BOOST_LEFT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_LEFT_ALL);
-    pub static ref IDLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/idle_straight/");
-    pub static ref IDLE_STRAIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&IDLE_STRAIGHT_ALL);
-    pub static ref IDLE_RIGHT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/idle_right/");
+    pub static ref IDLE_STRAIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/idle_straight/");
+    pub static ref IDLE_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_STRAIGHT_ALL);
+    pub static ref IDLE_RIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/idle_right/");
     pub static ref IDLE_RIGHT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_RIGHT_ALL);
-    pub static ref IDLE_LEFT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/idle_left/");
+    pub static ref IDLE_LEFT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/idle_left/");
     pub static ref IDLE_LEFT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_LEFT_ALL);
     pub static ref REVERSE_STRAIGHT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/reverse_straight/");
-    pub static ref REVERSE_STRAIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&REVERSE_STRAIGHT_ALL);
-    pub static ref REVERSE_RIGHT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/reverse_right/");
-    pub static ref REVERSE_RIGHT_INDEXED: SampleMap<'static> =
-        index_all_samples(&REVERSE_RIGHT_ALL);
-    pub static ref REVERSE_LEFT_ALL: Vec<Vec<PlayerState>> =
-        load_all_samples("./data/samples/flat_ground/reverse_left/");
+    pub static ref REVERSE_STRAIGHT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_STRAIGHT_ALL);
+    pub static ref REVERSE_RIGHT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/reverse_right/");
+    pub static ref REVERSE_RIGHT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_RIGHT_ALL);
+    pub static ref REVERSE_LEFT_ALL: Vec<Vec<PlayerState>> = load_all_samples("./data/samples/flat_ground/reverse_left/");
     pub static ref REVERSE_LEFT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_LEFT_ALL);
 }
 
 lazy_static! {
     pub static ref THROTTLE_STRAIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/throttle_straight_drift/");
-    pub static ref THROTTLE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&THROTTLE_STRAIGHT_DRIFT_ALL);
+    pub static ref THROTTLE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_STRAIGHT_DRIFT_ALL);
     pub static ref THROTTLE_RIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/throttle_right_drift/");
-    pub static ref THROTTLE_RIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&THROTTLE_RIGHT_DRIFT_ALL);
+    pub static ref THROTTLE_RIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_RIGHT_DRIFT_ALL);
     pub static ref THROTTLE_LEFT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/throttle_left_drift/");
-    pub static ref THROTTLE_LEFT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&THROTTLE_LEFT_DRIFT_ALL);
+    pub static ref THROTTLE_LEFT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&THROTTLE_LEFT_DRIFT_ALL);
     pub static ref BOOST_STRAIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/boost_straight_drift/");
-    pub static ref BOOST_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&BOOST_STRAIGHT_DRIFT_ALL);
+    pub static ref BOOST_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_STRAIGHT_DRIFT_ALL);
     pub static ref BOOST_RIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/boost_right_drift/");
-    pub static ref BOOST_RIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&BOOST_RIGHT_DRIFT_ALL);
+    pub static ref BOOST_RIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_RIGHT_DRIFT_ALL);
     pub static ref BOOST_LEFT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/boost_left_drift/");
-    pub static ref BOOST_LEFT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&BOOST_LEFT_DRIFT_ALL);
+    pub static ref BOOST_LEFT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&BOOST_LEFT_DRIFT_ALL);
     pub static ref IDLE_STRAIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/idle_straight_drift/");
-    pub static ref IDLE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&IDLE_STRAIGHT_DRIFT_ALL);
+    pub static ref IDLE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_STRAIGHT_DRIFT_ALL);
     pub static ref IDLE_RIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/idle_right_drift/");
-    pub static ref IDLE_RIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&IDLE_RIGHT_DRIFT_ALL);
+    pub static ref IDLE_RIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_RIGHT_DRIFT_ALL);
     pub static ref IDLE_LEFT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/idle_left_drift/");
-    pub static ref IDLE_LEFT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&IDLE_LEFT_DRIFT_ALL);
+    pub static ref IDLE_LEFT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&IDLE_LEFT_DRIFT_ALL);
     pub static ref REVERSE_STRAIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/reverse_straight_drift/");
-    pub static ref REVERSE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&REVERSE_STRAIGHT_DRIFT_ALL);
+    pub static ref REVERSE_STRAIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_STRAIGHT_DRIFT_ALL);
     pub static ref REVERSE_RIGHT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/reverse_right_drift/");
-    pub static ref REVERSE_RIGHT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&REVERSE_RIGHT_DRIFT_ALL);
+    pub static ref REVERSE_RIGHT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_RIGHT_DRIFT_ALL);
     pub static ref REVERSE_LEFT_DRIFT_ALL: Vec<Vec<PlayerState>> =
         load_all_samples("./data/samples/flat_ground/reverse_left_drift/");
-    pub static ref REVERSE_LEFT_DRIFT_INDEXED: SampleMap<'static> =
-        index_all_samples(&REVERSE_LEFT_DRIFT_ALL);
+    pub static ref REVERSE_LEFT_DRIFT_INDEXED: SampleMap<'static> = index_all_samples(&REVERSE_LEFT_DRIFT_ALL);
 }
 
 pub fn load_sample_file(path: &PathBuf) -> Vec<PlayerState> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
         .from_reader(fs::File::open(path).expect(&format!("File doesn't exist: {}", path.to_string_lossy())));
-    let data: Vec<PlayerState> = rdr.records()
+    let data: Vec<PlayerState> = rdr
+        .records()
         .map(|record| {
             let record = record.expect("CSV parse failed?");
             let _frame: f32 = record
@@ -127,38 +101,14 @@ pub fn load_sample_file(path: &PathBuf) -> Vec<PlayerState> {
                 .expect("Can't convert time to f32");
             PlayerState {
                 position: Vector3::new(
-                    record
-                        .get(1)
-                        .expect("Invalid row?")
-                        .parse()
-                        .expect("Can't convert x to f32"),
-                    record
-                        .get(2)
-                        .expect("Invalid row?")
-                        .parse()
-                        .expect("Can't convert y to f32"),
-                    record
-                        .get(3)
-                        .expect("Invalid row?")
-                        .parse()
-                        .expect("Can't convert z to f32"),
+                    record.get(1).expect("Invalid row?").parse().expect("Can't convert x to f32"),
+                    record.get(2).expect("Invalid row?").parse().expect("Can't convert y to f32"),
+                    record.get(3).expect("Invalid row?").parse().expect("Can't convert z to f32"),
                 ),
                 velocity: Vector3::new(
-                    record
-                        .get(4)
-                        .expect("Invalid row?")
-                        .parse()
-                        .expect("Can't convert vx to f32"),
-                    record
-                        .get(5)
-                        .expect("Invalid row?")
-                        .parse()
-                        .expect("Can't convert vy to f32"),
-                    record
-                        .get(6)
-                        .expect("Invalid row?")
-                        .parse()
-                        .expect("Can't convert vz to f32"),
+                    record.get(4).expect("Invalid row?").parse().expect("Can't convert vx to f32"),
+                    record.get(5).expect("Invalid row?").parse().expect("Can't convert vy to f32"),
+                    record.get(6).expect("Invalid row?").parse().expect("Can't convert vz to f32"),
                 ),
 
                 angular_velocity: Vector3::new(
@@ -230,11 +180,7 @@ fn files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .map(|s| s.starts_with("."))
-        .unwrap_or(false)
+    entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
 }
 
 pub type SampleMap<'a> = HashMap<NormalizedPlayerState, &'a [PlayerState], MyHasher>;
@@ -276,20 +222,13 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
                         let existing_sample = e.get();
 
                         let existing_lv = existing_sample[0].local_velocity();
-                        let existing_delta_x = (existing_lv.x
-                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32)
-                            .abs();
-                        let existing_delta_y = (existing_lv.y
-                            - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32)
-                            .abs();
-                        let existing_delta =
-                            (existing_delta_x.powf(2.0) + existing_delta_y.powf(2.0)).sqrt();
+                        let existing_delta_x = (existing_lv.x - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32).abs();
+                        let existing_delta_y = (existing_lv.y - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
+                        let existing_delta = (existing_delta_x.powf(2.0) + existing_delta_y.powf(2.0)).sqrt();
 
                         let new_lv = sample[j].local_velocity();
-                        let new_delta_x =
-                            (new_lv.x - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32).abs();
-                        let new_delta_y =
-                            (new_lv.y - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
+                        let new_delta_x = (new_lv.x - GROUND_SPEED_GRID_FACTOR * e.key().local_vx as f32).abs();
+                        let new_delta_y = (new_lv.y - GROUND_SPEED_GRID_FACTOR * e.key().local_vy as f32).abs();
                         let new_delta = (new_delta_x.powf(2.0) + new_delta_y.powf(2.0)).sqrt();
 
                         new_delta < existing_delta

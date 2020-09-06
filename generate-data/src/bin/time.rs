@@ -10,8 +10,8 @@ extern crate walkdir;
 use bincode::deserialize_from;
 use flate2::read::GzDecoder;
 use rand::prelude::*;
-use walkdir::{DirEntry, WalkDir};
 use state::*;
+use walkdir::{DirEntry, WalkDir};
 
 use std::env;
 use std::error::Error;
@@ -35,8 +35,7 @@ fn set_row(plan: &Plan, i: usize, row: &mut Vec<String>) {
 
     row.extend(
         [
-            total_cost, pos.x, pos.y, pos.z, lvel.x, lvel.y, lvel.z, avel.x, avel.y, avel.z, roll,
-            pitch, yaw,
+            total_cost, pos.x, pos.y, pos.z, lvel.x, lvel.y, lvel.z, avel.x, avel.y, avel.z, roll, pitch, yaw,
         ]
         .iter()
         .map(|x| x.to_string()),
@@ -58,11 +57,7 @@ fn files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
-    entry
-        .file_name()
-        .to_str()
-        .map(|s| s.starts_with("."))
-        .unwrap_or(false)
+    entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -96,8 +91,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let plan = plan_result.plan.unwrap();
 
         // choose randomly out of the last 2% of the exploded plan, since we are doing bad on that bit
-        let rand_i: usize =
-            (plan.len() as f32 * 0.98 + 0.02 * rng.gen::<f32>()).round() as usize - 1;
+        let rand_i: usize = (plan.len() as f32 * 0.98 + 0.02 * rng.gen::<f32>()).round() as usize - 1;
         row.clear();
         set_row(&plan, rand_i, &mut row);
         wtr.write_record(&row)?;
