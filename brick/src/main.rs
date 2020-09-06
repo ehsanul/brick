@@ -227,7 +227,7 @@ fn run_bot_test() {
             print_turn_errors: true,
             render_debug_info: true,
             save_debug_info: true,
-            start_match: false,
+            start_match: true,
             match_settings: Some(match_settings),
         };
 
@@ -730,7 +730,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                     if let Some((planned_player, planned_controller, _)) = plan.get((frame.wrapping_sub(bot.plan_source_frame)) as usize) {
                         if let Some(planned_ball) = bot.planned_ball.as_ref() {
                             let game = GAME_STATE.read().unwrap();
-                            let player = game.player;
+                            let player = &game.player;
                             let ball = game.ball;
                             //bot.clone())
                             let (roll, pitch, yaw) = player.rotation.euler_angles();
@@ -788,7 +788,7 @@ fn stitch_with_current_plan(game: &GameState, bot: &BotState, plan_result: &mut 
 
             // we had compensated enough for the logic lag, now adjust the plan
             let mut stitched_plan = last_plan.iter().cloned().skip(closest_index_now).take(closest_index_plan - closest_index_now).collect::<Vec<_>>();
-            stitched_plan.extend(plan);
+            stitched_plan.extend(plan.clone());
 
             plan_result.plan = Some(stitched_plan);
 
@@ -1126,16 +1126,16 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
 
         // if we aren't overshooting, add a turn
         if turn_dot > last_dot && long_turn_dot > turn_then_straight_dot {
-            plan.push((turn_player, turn_controller, TURN_DURATION));
+            plan.push((turn_player.clone(), turn_controller, TURN_DURATION));
             player = turn_player;
             last_dot = turn_dot;
         } else if turn_then_straight_dot > last_dot && turn_then_straight_dot > straight_dot {
             plan.push((turn_player, turn_controller, TURN_DURATION));
-            plan.push((turn_then_straight_player, straight_controller, STRAIGHT_DURATION));
+            plan.push((turn_then_straight_player.clone(), straight_controller, STRAIGHT_DURATION));
             player = turn_then_straight_player;
             last_dot = turn_then_straight_dot;
         } else if straight_dot > last_dot + 0.001 {
-            plan.push((straight_player, straight_controller, STRAIGHT_DURATION));
+            plan.push((straight_player.clone(), straight_controller, STRAIGHT_DURATION));
             player = straight_player;
             last_dot = straight_dot;
         } else {
@@ -1158,7 +1158,7 @@ fn forward_plan(current: &PlayerState, time: f32) -> Result<Plan, Box<dyn Error>
     while time_so_far < time {
         let step_duration = 16.0 * TICK;
         player = predict::player::next_player_state(&player, &controller, step_duration)?;
-        plan.push((player, controller, step_duration));
+        plan.push((player.clone(), controller, step_duration));
         time_so_far += step_duration;
     }
 
@@ -1200,26 +1200,26 @@ fn snek_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
-    plan.push((player, BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::new(), 0.0));
 
     let mut controller = BrickControllerState::new();
     controller.throttle = Throttle::Forward;
     for _ in 0..4 {
         player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-        plan.push((player, controller, 16.0 * TICK));
+        plan.push((player.clone(), controller, 16.0 * TICK));
     }
 
     for _ in 0..2 {
         controller.steer = Steer::Left;
         for _ in 0..4 {
             player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-            plan.push((player, controller, 16.0 * TICK));
+            plan.push((player.clone(), controller, 16.0 * TICK));
         }
 
         controller.steer = Steer::Right;
         for _ in 0..4 {
             player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-            plan.push((player, controller, 16.0 * TICK));
+            plan.push((player.clone(), controller, 16.0 * TICK));
         }
     }
 
@@ -1230,7 +1230,7 @@ fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
-    plan.push((player, BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::new(), 0.0));
 
     let mut controller = BrickControllerState::new();
     controller.throttle = Throttle::Forward;
@@ -1259,14 +1259,14 @@ fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
         let mut next_player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
 
         if get_steer(next_player.position.y) == controller.steer {
-            plan.push((next_player, controller, 16.0 * TICK));
+            plan.push((next_player.clone(), controller, 16.0 * TICK));
         } else {
             // simulate till the point steer is supposed to change
             next_player = player.clone();
             loop {
                 // TODO 1-tick if we can?
                 next_player = predict::player::next_player_state(&next_player, &controller, 2.0 * TICK)?;
-                plan.push((next_player, controller, 2.0 * TICK));
+                plan.push((next_player.clone(), controller, 2.0 * TICK));
                 if get_steer(next_player.position.y) != controller.steer { break }
             }
         }
@@ -1336,7 +1336,7 @@ fn simulate_over_time() {
             game_state.ball = predict::ball::next_ball_state(&game_state.ball, TICK);
             let i = brain::play::closest_plan_index(&game_state.player, &plan);
             if plan.len() >= i + 2 {
-                game_state.player = plan[i + 1].0;
+                game_state.player = plan[i + 1].0.clone();
             } else {
                 // we're at the goal, so start over
                 *game_state = initial_game_state.clone();

@@ -171,7 +171,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
             return Ok(None)
         }
         let mut exploded_plan = Vec::with_capacity(plan.len()); // will be at least this long
-        exploded_plan.push(plan[0]);
+        exploded_plan.push(plan[0].clone());
 
         // for every plan segment, we expand within that segment. using small ticks repeated causes
         // the errors to accumulate rapidly, so we start over with each plan segment starting with
@@ -185,7 +185,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
             // be applied to the *previous* player state in order to reach the player state in the
             // current tuple, we get the player from the period index and apply the controller from
             // the current tuple
-            let mut last_player = plan[i - 1].0;
+            let mut last_player = plan[i - 1].0.clone();
             let controller = plan[i].1;
 
             for j in 1..=num_steps {
@@ -205,7 +205,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
                     &controller,
                     step,
                 )?;
-                exploded_plan.push((next_player, controller, step));
+                exploded_plan.push((next_player.clone(), controller, step));
                 last_player = next_player;
             }
 
@@ -218,7 +218,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
                         &controller,
                         TICK,
                     )?;
-                    exploded_plan.push((next_player, controller, TICK));
+                    exploded_plan.push((next_player.clone(), controller, TICK));
                     last_player = next_player;
                 }
             }
@@ -437,7 +437,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                 } else {
                     parent_v1
                 };
-                parent_player = parent_vertex.player;
+                parent_player = parent_vertex.player.clone();
             } else {
                 // no parent, this can only happen on first expansion. we need to construct a fake
                 // one just so that goal detection works
@@ -490,11 +490,12 @@ pub fn hybrid_a_star<H: HeuristicModel>(
         };
 
         new_players.clear();
-        new_players.extend(new_vertices.iter().map(|v| v.player));
+        new_players.extend(new_vertices.iter().map(|v| v.player.clone()));
 
         if let Some(first_new_vertex) = new_vertices.get(0) {
             let index = first_new_vertex.ball_trajectory_index;
-            set_heuristic_costs(model, &new_players, &mut cur_heuristic_costs, &ball_trajectory, index);
+            let wtf: &[PlayerState] = &new_players;
+            set_heuristic_costs(model, wtf, &mut cur_heuristic_costs, &ball_trajectory, index);
             set_heuristic_costs(model, &new_players, &mut prev_heuristic_costs, &ball_trajectory, index.wrapping_sub(1));
             set_heuristic_costs(model, &new_players, &mut next_heuristic_costs, &ball_trajectory, index + 1);
         }
@@ -608,7 +609,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                                 // directly, but a sibling!
                                 new_estimated_cost = new_cost_so_far + heuristic_cost;
 
-                                set_heuristic_costs(model, &[existing_secondary_vertex.player], &mut single_heuristic_cost, &ball_trajectory, existing_secondary_vertex.ball_trajectory_index);
+                                set_heuristic_costs(model, &[existing_secondary_vertex.player.clone()], &mut single_heuristic_cost, &ball_trajectory, existing_secondary_vertex.ball_trajectory_index);
                                 let existing_secondary_estimated_cost = existing_secondary_vertex
                                     .cost_so_far
                                     + single_heuristic_cost[0];
@@ -753,7 +754,7 @@ fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary
             };
             (*vals).0 = vertex.parent_index;
             (*vals).1 = vertex.parent_is_secondary;
-            let player = if index == initial_index { initial_player.clone() } else { vertex.player };
+            let player = if index == initial_index { initial_player.clone() } else { vertex.player.clone() };
             let cost = if index == initial_index { initial_cost } else { vertex.step_duration };
             (player, vertex.prev_controller, cost)
         })

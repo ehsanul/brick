@@ -87,9 +87,9 @@ impl PlayerTransformation {
     }
 
     pub fn from_samples(samples: &[PlayerState], num_ticks: usize) -> PlayerTransformation {
-        let start = samples[0];
+        let start = &samples[0];
         let ratio = FPS as usize / sample::RECORD_FPS; // if we record at 60fps instead of 120fps, we should ensure we use the right index
-        let end = samples[num_ticks / ratio];
+        let end = &samples[num_ticks / ratio];
         let local_v = start.local_velocity();
         let normalization_rotation = start.rotation.to_rotation_matrix().inverse();
         let translation = normalization_rotation * (end.position - start.position);

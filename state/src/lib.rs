@@ -180,7 +180,7 @@ pub enum Team {
 }
 
 // TODO-perf remove Copy
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,

@@ -349,7 +349,7 @@ pub fn get_collision(ball_trajectory: &[BallState], player: &PlayerState, contro
     assert!(num_ticks % 2 == 0);
 
     // 2-tick steps
-    let mut last = *player;
+    let mut last = player.clone();
     for step in 1..=(num_ticks/2) {
         if let Ok(next) = next_player_state(&last, controller, TICK * 2.0) {
             if let Some(ball) = ball_trajectory.get(step * 2) {
@@ -359,12 +359,14 @@ pub fn get_collision(ball_trajectory: &[BallState], player: &PlayerState, contro
                         let single_tick_ball = ball_trajectory[step * 2 - 1];
                         if ball_collides(&single_tick_ball, &next_single_tick) {
                             let collision_time = (2 * step - 1) as f32 * TICK;
-                            return Some((next_single_tick, single_tick_ball.clone(), closest_point_for_collision(&single_tick_ball, &next_single_tick), collision_time))
+                            let point = closest_point_for_collision(&single_tick_ball, &next_single_tick);
+                            return Some((next_single_tick, single_tick_ball.clone(), point, collision_time))
                         }
                     }
 
                     let collision_time = (2 * step) as f32 * TICK;
-                    return Some((next, ball.clone(), closest_point_for_collision(ball, &next), collision_time))
+                    let point = closest_point_for_collision(ball, &next);
+                    return Some((next, ball.clone(), point, collision_time))
                 }
                 last = next;
             } else {

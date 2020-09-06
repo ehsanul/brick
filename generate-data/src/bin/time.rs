@@ -27,7 +27,7 @@ fn load_plan(path: &PathBuf) -> Result<Plan, Box<dyn Error>> {
 
 fn set_row(plan: &Plan, i: usize, row: &mut Vec<String>) {
     let total_cost: f32 = plan[i..].iter().map(|(_, _, cost)| cost).sum();
-    let player = plan[i].0;
+    let player = &plan[i].0;
     let pos = player.position;
     let lvel = player.local_velocity();
     let avel = player.angular_velocity;

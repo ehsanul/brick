@@ -210,8 +210,8 @@ pub extern "C" fn next_input(
         if index < plan.len() - 1 {
             let current_heading =
                 player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-            let (closest_player, _, _) = plan[index];
-            let (_next_player, controller, _) = plan[index + 1];
+            let (closest_player, _, _) = &plan[index];
+            let (_next_player, controller, _) = &plan[index + 1];
             //println!("index: {}, controller.steer: {:?}", index, controller.steer);
 
             // FIXME we should account for differences in the tick and interpolate between the two
@@ -239,7 +239,7 @@ pub extern "C" fn next_input(
             }
 
             //println!("controller: {:?}", controller);
-            let mut input = controller.into();
+            let mut input = (*controller).into();
             //println!("input before: {:?}", input);
             pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
