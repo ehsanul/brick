@@ -399,7 +399,7 @@ fn record_all_missing(
     // the value, like we do with SampleMap
     let mut index = HashMap::default();
     for (key, val) in sample_index.iter() {
-        index.insert(key.clone(), val[0].clone());
+        index.insert(*key, val[0].clone());
     }
 
     let min_avz = -(MAX_ANGULAR_SPEED as f32 / ANGULAR_GRID).round() as i16;

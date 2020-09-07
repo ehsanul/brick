@@ -782,6 +782,7 @@ fn player_goal_reached(
 // actually execute this plan, one most look at the "prev_controller" of the next tuple in the
 // plan, which will correspond to the correspond to the controller action required now in ordert
 // to reach the next player state
+#[allow(clippy::needless_collect)] // it's actually needed as rev does not work after unfold
 fn reverse_path(
     parents: &ParentsMap,
     initial_index: usize,

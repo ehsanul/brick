@@ -1245,7 +1245,7 @@ fn snek_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     Ok(plan)
 }
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::same_item_push)]
 fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
