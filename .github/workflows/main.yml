@@ -37,11 +37,6 @@ jobs:
 
       - uses: actions-rs/cargo@v1
         with:
-          command: test
-          args: --skip-integration
-
-      - uses: actions-rs/cargo@v1
-        with:
           command: fmt
           args: --all -- --check
 
@@ -49,3 +44,8 @@ jobs:
         with:
           command: clippy
           args: --all-targets -- -D warnings
+
+      #- uses: actions-rs/cargo@v1
+      #  with:
+      #    command: test
+      #    args: -- --skip-integration
