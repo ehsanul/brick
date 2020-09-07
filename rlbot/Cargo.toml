@@ -1,8 +1,0 @@
-[package]
-name = "rlbot"
-version = "0.1.0"
-authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
-
-[dependencies]
-lazy_static = "1.0"
-libloading = "0.5"

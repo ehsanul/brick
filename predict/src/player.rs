@@ -1,15 +1,9 @@
-use na::{self, Vector3, Translation3, UnitQuaternion, Rotation3};
-use std;
-use state::*;
+use driving_model;
+use na::{Rotation3, UnitQuaternion, Vector3};
 use sample;
+use state::*;
+use std::collections::VecDeque;
 use std::f32;
-use std::f32::consts::E;
-
-pub static NO_INPUT_DECELERATION: f32 = 100.0; // deceleration constant FIXME get actual value from graph
-pub static THROTTLE_ACCELERATION_FACTOR: f32 = 1575.0;
-pub static BOOST_ACCELERATION_FACTOR: f32 = 1000.0; // FIXME get actula value from graph
-pub static MAX_THROTTLE_SPEED: f32 = 1545.0; // max speed without boost/flipping FIXME get exact known value from graph
-pub static MAX_BOOST_SPEED: f32 = 1000.0; // max speed if boosting FIXME get exact known value from graph
 
 pub enum PredictionCategory {
     /// Wheels on ground
@@ -21,456 +15,447 @@ pub enum PredictionCategory {
     Wall,
     /// Wheels on ceiling
     Ceiling,
-    /// Wheels on curve. might want to expand this into top/bottom/corner/etc curves
+    /// Wheels on curve. might want to expand this into side/back/top/bottom/corner/etc curves
     CurveWall,
     /// Wheels not touching arena
     Air,
     */
 }
 
-pub fn find_prediction_category(current: &PlayerState) -> PredictionCategory {
+pub fn find_prediction_category(_current: &PlayerState) -> PredictionCategory {
     // hard-coded the only thing we can handle right now
     PredictionCategory::Ground
 }
 
 /// for now, doesn't handle landing sideways or at any angle really, nor drifting. collision with
 /// arena is also not handled. collisions with other players or ball will never be handled here
-fn next_player_state_grounded(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
+fn next_player_state_grounded(
+    current: &PlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+) -> Result<PlayerState, String> {
     let mut next = (*current).clone();
-    let mut next_speed;
-    let distance;
-    let current_speed = current.velocity.norm(); // current speed (norm is magnitude)
 
-    // probably make it a method on our player info
-    // TODO look at code from main.rs with this stuff to confirm it's right
-    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
+    let (translation, velocity, angular_velocity, rotation) = ground_turn_prediction(&current, &controller, time_step)?;
 
-    // TODO handle boost
-    match controller.throttle {
-        Throttle::Forward | Throttle::Reverse => {
-            // the acceleration factor is different if you are turning
-            let k = match controller.steer {
-                Steer::Straight => THROTTLE_ACCELERATION_FACTOR,
-                Steer::Right | Steer::Left => 1200.0, // TODO get this and confirm velocity curve while steering
-            };
-
-            let t1 = f32::ln(k) - f32::ln(k - current_speed); // confirm this, forgot
-            let t2 = t1 + time_step;
-            let t_intercept = 3.294; // FIXME get exact known value from graph. could also calculate: ln(1575) - ln(1575 - max_speed)
-            // FIXME doesn't handle braking, nor accelerating forwards when moving backwards
-            if current_speed > 1544.0 { // FIXME reference constant, find exact variance from RL
-                distance = (t2 - t1) * MAX_THROTTLE_SPEED;
-            } else if t2 > t_intercept {
-                // we are hitting max speed, so have to calculate distance in two sections for the two
-                // different curves
-                let d1 = k*t_intercept + k*E.powf(-t_intercept) - k*t1 - k*E.powf(-t1);
-                let d2 = (t2 - t_intercept) * MAX_THROTTLE_SPEED;
-                distance = d1 + d2;
-            } else {
-                distance = k*t2 + k*E.powf(-t2) - k*t1 - k*E.powf(-t1);
-            }
-
-            next_speed = k * (1.0 - E.powf(-t2));
-        },
-        Throttle::Idle => {
-            let speed_delta = NO_INPUT_DECELERATION * time_step;
-
-            if current_speed <= speed_delta {
-                next_speed = 0.0;
-                let time_to_rest = current_speed / NO_INPUT_DECELERATION;
-                distance = current_speed * time_to_rest / 2.0;
-            } else {
-                next_speed = current_speed - speed_delta;
-                distance = (current_speed + next_speed) * time_step / 2.0;
-            }
-        },
-    }
-
-    // next position/rotation
-    match controller.steer {
-        Steer::Straight => {
-            // straight line is easy
-            let mut translation = current_heading * distance;
-
-            // FIXME this will not work for braking
-            if controller.throttle == Throttle::Reverse {
-                translation *= -1.0;
-            }
-
-            next.position = current.position + translation;
-            next.rotation = current.rotation.clone(); // if we clone from current, this becomes no-op
-
-            let next_heading = next.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-
-            match controller.throttle {
-                Throttle::Forward | Throttle::Reverse => {
-                    if next_speed > MAX_THROTTLE_SPEED {
-                        next_speed = MAX_THROTTLE_SPEED;
-                    }
-                    next.velocity = next_heading * next_speed * controller.throttle.value();
-                },
-                Throttle::Idle => {
-                    next.velocity = next_heading * next_speed;
-                },
-            }
-        },
-        Steer::Right | Steer::Left => {
-            let (translation, acceleration, rotation) = ground_turn_prediction(&current, &controller, time_step);
-            next.position = current.position + translation;
-            next.velocity = current.velocity + acceleration;
-            next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
-        },
-    }
-
-    next
-}
-
-/// returns tuple of (translation, acceleration, rotation)
-// should we return angular acceleration too?
-fn ground_turn_prediction(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> (Vector3<f32>, Vector3<f32>, Rotation3<f32>) {
-    let translation = Vector3::new(0.0, 0.0, 0.0);
-    let rotation = Rotation3::new(Vector3::new(0.0, 0.0, 0.0));
-
-    let mut current_speed = current.velocity.norm();
-
-    // we round it so it's possible to find a row that matches! this is specifically an issue at
-    // a speed of 1240uu/s, which takes a long time to reach when turning from either direction,
-    // and seems like the asymptotic value
-    if current_speed.round() == 1240.0 { current_speed = 1239.5 } // HACK to avoid hitting end of sample file
-    let decelerating = current_speed > 1240.0;
-
-    // based on steer, throttle and boost, gets the right samples
-    let samples: &'static Vec<PlayerState> = sample::get_relevant_turn_samples(&controller, decelerating);
-
-    // find index of closest matching player state
-    let start_index = samples.binary_search_by(|player_state| {
-        let sample_speed = player_state.velocity.norm().round();
-        // `std::cmp::Ord` is not implemented for `f32`
-        // that's due to NaN and such. we don't care about that, so just do it.
-        if sample_speed == current_speed {
-            std::cmp::Ordering::Equal
-        } else if sample_speed < current_speed {
-            if decelerating { std::cmp::Ordering::Greater } else { std::cmp::Ordering::Less }
-        } else {
-            if decelerating { std::cmp::Ordering::Less } else { std::cmp::Ordering::Greater }
-        }
-    });
-    let start_index = match start_index {
-        Ok(i) => i,
-        Err(i) => {
-            // i is point we can insert into the tree. the value at i is lesser and the next value
-            // is greater. we just want the closest one for our purposes
-            let candidate1 = samples.get(i).expect(&format!("ground_turn_prediction sample first missing for: {:?} {:?}", current.velocity, controller));
-            let candidate2 = samples.get(i + 1).expect(&format!("ground_turn_prediction sample last missing for: {:?} {:?}", current.velocity, controller));
-            if candidate1.velocity.norm() - current_speed <= candidate2.velocity.norm() - current_speed {
-                i
-            } else {
-                i + 1
-            }
-        },
+    // because we extrapolate around the edges of our measurements, it's possible we calculate
+    // a velocity beyond what's possible in the game. so we must scale it down here.
+    let scale = if velocity.norm() > MAX_BOOST_SPEED {
+        MAX_BOOST_SPEED / velocity.norm()
+    } else {
+        1.0
     };
 
-    // NOTE strangely, the physics sample rate for these is 240fps for some reason, not same as the
-    // tick normally mentioned at 120fps
-    let end_index = start_index + (time_step * 240.0).floor() as usize;
+    // XXX NOTE using the velocity scaling for the translation isn't correct at all, but it's
+    // likely to be at least proportional, and likely closer to correct than not scaling at all.
+    next.position = current.position + scale * translation;
+    next.position.z = RESTING_Z; // avoid drifting upward/downward when we're just driving on the ground!
+    next.velocity = scale * velocity;
+    next.angular_velocity = angular_velocity;
+    next.rotation = UnitQuaternion::from_rotation_matrix(&rotation); // was easier to just return the end rotation directly. TODO stop using quaternion
 
-    let sample_start_state: &PlayerState = samples.get(start_index).expect(&format!("ground_turn_prediction start_index missing: {}, speed: {}, controller: {:?}", start_index, current_speed, controller));
-    let sample_end_state: &PlayerState = samples.get(end_index).expect(&format!("ground_turn_prediction end_index missing: {}, speed: {}, controller: {:?}", end_index, current_speed, controller));
-
-    // TODO use Rotation3 instead of UnitQuaternion for player.rotation
-    // get rotation that when multiplied with sample_start_state.rotation, gives us current_rotation
-    // normalization_rotation . sample_start_state.rotation = current_rotation
-    let normalization_rotation = current.rotation.to_rotation_matrix() * na::inverse(&sample_start_state.rotation.to_rotation_matrix());
-
-    // relative position is translation. same for velocity -> acceleration
-    let non_normalized_translation = sample_end_state.position - sample_start_state.position;
-    let non_normalized_acceleration = sample_end_state.velocity - sample_start_state.velocity;
-
-    (
-        normalization_rotation * non_normalized_translation,
-        normalization_rotation * non_normalized_acceleration,
-        normalization_rotation * sample_end_state.rotation.to_rotation_matrix(),
-    )
+    Ok(next)
 }
 
+fn ground_turn_matching_transformation(
+    normalized: sample::NormalizedPlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+    xrange: i16,
+    yrange: i16,
+    skipx: Option<i16>,
+    skipy: Option<i16>,
+) -> Option<&'static driving_model::PlayerTransformation> {
+    // based on current player state, and steer, throttle and boost, gets the right transformation,
+    // with some wiggle room based on xrange/yrange
+    let mut local_normalized = normalized;
+    let mut transformation: Option<&'static driving_model::PlayerTransformation> = None;
 
-#[no_mangle]
-pub extern fn predict_test() -> Vector3<f32> {
-    Vector3::new(0.0, 0.0, 0.0)
+    // step_by is not yet stabilized... so using plain loops instead
+    let ystep = if yrange < 0 { -1 } else { 1 };
+    let xstep = if xrange < 0 { -1 } else { 1 };
+    let mut dy = 0;
+    'outer: loop {
+        let mut dx = 0;
+        loop {
+            if skipy != Some(dy) || skipx != Some(dx) {
+                local_normalized.local_vy = normalized.local_vy + dy;
+                local_normalized.local_vx = normalized.local_vx + dx;
+                //println!("local_normalized: {:?}", local_normalized);
+
+                transformation = driving_model::get_relevant_transformation(local_normalized, &controller, time_step);
+                if transformation.is_some() {
+                    break 'outer;
+                }
+            }
+
+            dx += xstep;
+            if dx.abs() > xrange.abs() {
+                break;
+            }
+        }
+
+        dy += ystep;
+        if dy.abs() > yrange.abs() {
+            break;
+        }
+    }
+
+    transformation
 }
 
-#[no_mangle]
-pub extern fn next_player_state(current: &PlayerState, controller: &BrickControllerState, time_step: f32) -> PlayerState {
-    match find_prediction_category(&current) {
-        PredictionCategory::Ground => next_player_state_grounded(&current, &controller, time_step),
+fn interpolate_transformation_halfway(
+    transformation: driving_model::PlayerTransformation,
+    current: &PlayerState,
+) -> driving_model::PlayerTransformation {
+    let mut transformation = transformation;
+    transformation.translation_x /= 2;
+    transformation.translation_y /= 2;
+    transformation.end_yaw /= 2.0;
+    transformation.end_angular_velocity_z =
+        current.angular_velocity.z + (transformation.end_angular_velocity_z - current.angular_velocity.z) / 2.0;
+
+    // NOTE start local vx/vy is with car facing forwards in y direction, but end_velocity is with car
+    // facing leftwards, ie negative x direction. so we align them first before interpolation
+    let start_velocity = Vector3::new(
+        transformation.start_local_vx as f32,
+        transformation.start_local_vy as f32,
+        0.0,
+    );
+    let rotation = Rotation3::from_euler_angles(0.0, 0.0, std::f32::consts::PI / 2.0); // anti-clockwise
+    let start_velocity = rotation * start_velocity;
+
+    // NOTE this is an inaccurate interpolation while rotation changes improve this by inverse
+    // rotation of the end velocities using end_yaw, then interpolating, then rotating again, but
+    // it's unclear how big the problem is given we are only using this for going from 2 ticks to
+    // one: this basic linear interpolation should suffice for that, as long as this is used for
+    // plan explosion and other non-critical functions only
+    transformation.end_velocity_x = start_velocity.x as i16 + (transformation.end_velocity_x - start_velocity.x as i16) / 2;
+    transformation.end_velocity_y = start_velocity.y as i16 + (transformation.end_velocity_y - start_velocity.y as i16) / 2;
+
+    transformation
+}
+
+fn ground_turn_quad_tranformations(
+    current: &PlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+) -> [Option<&'static driving_model::PlayerTransformation>; 4] {
+    // TODO handle missing values properly: go lower/higher to find another point to use as an
+    // interpolation anchor
+    //println!("x1y1");
+    let normalized = sample::normalized_player(&current, false, false);
+    let mut x1y1 = ground_turn_matching_transformation(normalized, &controller, time_step, -3, -3, None, None);
+
+    //println!("x2y1");
+    let normalized = sample::normalized_player(&current, true, false);
+    let mut x2y1 = ground_turn_matching_transformation(normalized, &controller, time_step, 3, -3, None, None);
+
+    // when we fail in on direction, search in the other
+    if x1y1.is_some() && x2y1.is_none() {
+        //println!("-- x2y1 fallback --");
+        let x1y1_transformation = x1y1.as_ref().unwrap();
+        let skip = x1y1_transformation.normalized_player(current.angular_velocity.z);
+        x2y1 = ground_turn_matching_transformation(
+            normalized,
+            &controller,
+            time_step,
+            -3,
+            -3,
+            Some(skip.local_vx),
+            Some(skip.local_vy),
+        );
+    } else if x2y1.is_some() && x1y1.is_none() {
+        //println!("-- x1y1 fallback --");
+        let x2y1_transformation = x2y1.as_ref().unwrap();
+        let skip = x2y1_transformation.normalized_player(current.angular_velocity.z);
+        x1y1 = ground_turn_matching_transformation(
+            normalized,
+            &controller,
+            time_step,
+            3,
+            -3,
+            Some(skip.local_vx),
+            Some(skip.local_vy),
+        );
+    } else if x2y1.is_none() && x1y1.is_none() {
+        //println!("-- BOTH FAILED --");
+    }
+
+    //println!("x1y2");
+    let normalized = sample::normalized_player(&current, false, true);
+    let mut x1y2 = ground_turn_matching_transformation(normalized, &controller, time_step, -3, 3, None, None);
+
+    //println!("x2y2");
+    let normalized = sample::normalized_player(&current, true, true);
+    let mut x2y2 = ground_turn_matching_transformation(normalized, &controller, time_step, 3, 3, None, None);
+
+    // when we fail in on direction, search in the other
+    if x1y2.is_some() && x2y2.is_none() {
+        //println!("-- x2y2 fallback --");
+        let x1y2_transformation = x1y2.as_ref().unwrap();
+        let skip = x1y2_transformation.normalized_player(current.angular_velocity.z);
+        x2y2 = ground_turn_matching_transformation(
+            normalized,
+            &controller,
+            time_step,
+            -3,
+            3,
+            Some(skip.local_vx),
+            Some(skip.local_vy),
+        );
+    } else if x2y2.is_some() && x1y2.is_none() {
+        //println!("-- x1y2 fallback --");
+        let x2y2_transformation = x2y2.as_ref().unwrap();
+        let skip = x2y2_transformation.normalized_player(current.angular_velocity.z);
+        x1y2 = ground_turn_matching_transformation(
+            normalized,
+            &controller,
+            time_step,
+            3,
+            3,
+            Some(skip.local_vx),
+            Some(skip.local_vy),
+        );
+    } else if x2y2.is_none() && x1y2.is_none() {
+        //println!("-- BOTH FAILED 2 --");
+    }
+
+    [x1y1, x2y1, x1y2, x2y2]
+}
+
+/// tuple of (translation, acceleration, angular_acceleration, rotation)
+type PlayerPrediction = (Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>);
+
+fn ground_turn_prediction(
+    current: &PlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+) -> Result<PlayerPrediction, String> {
+    // we don't have transformations for single ticks, but we'll do some special handling of
+    // this case as we need it for car-ball collisions
+    let original_time_step = time_step;
+    let time_step = if time_step == TICK { 2.0 * TICK } else { time_step };
+
+    let quad = ground_turn_quad_tranformations(current, controller, time_step);
+
+    // TODO error
+    let mut x1y1 = quad[0].ok_or_else(|| {
+        format!(
+            "Missing turn x1y1 for player: {:?} & controller: {:?}",
+            sample::normalized_player(&current, false, false),
+            controller
+        )
+    })?;
+    let mut x2y1 = quad[1].ok_or_else(|| {
+        format!(
+            "Missing turn x2y1 for player: {:?} & controller: {:?}",
+            sample::normalized_player(&current, true, false),
+            controller
+        )
+    })?;
+    let mut x1y2 = quad[2].ok_or_else(|| {
+        format!(
+            "Missing turn x1y2 for player: {:?} & controller: {:?}",
+            sample::normalized_player(&current, false, true),
+            controller
+        )
+    })?;
+    let mut x2y2 = quad[3].ok_or_else(|| {
+        format!(
+            "Missing turn x2y2 for player: {:?} & controller: {:?}",
+            sample::normalized_player(&current, true, true),
+            controller
+        )
+    })?;
+
+    // interpolating for a single tick, for which we are lacking data currently
+    let interpolated_x1y1;
+    let interpolated_x1y2;
+    let interpolated_x2y1;
+    let interpolated_x2y2;
+    if original_time_step == TICK {
+        interpolated_x1y1 = interpolate_transformation_halfway(x1y1.clone(), &current);
+        interpolated_x1y2 = interpolate_transformation_halfway(x1y2.clone(), &current);
+        interpolated_x2y1 = interpolate_transformation_halfway(x2y1.clone(), &current);
+        interpolated_x2y2 = interpolate_transformation_halfway(x2y2.clone(), &current);
+        x1y1 = &interpolated_x1y1;
+        x1y2 = &interpolated_x1y2;
+        x2y1 = &interpolated_x2y1;
+        x2y2 = &interpolated_x2y2;
+    };
+    #[allow(unused_variables)]
+    let time_step = original_time_step;
+
+    let current_vx = current.local_velocity().x;
+    let current_vy = current.local_velocity().y;
+
+    let y1_vx1 = x1y1.start_local_vx as f32;
+    let y1_vx2 = x2y1.start_local_vx as f32;
+
+    let y1_vy1 = x1y1.start_local_vy as f32;
+    let y1_vy2 = x2y1.start_local_vy as f32;
+
+    let y2_vx1 = x1y2.start_local_vx as f32;
+    let y2_vx2 = x2y2.start_local_vx as f32;
+
+    let y2_vy1 = x1y2.start_local_vy as f32;
+    let y2_vy2 = x2y2.start_local_vy as f32;
+
+    // for interpolating along vx at y1 end
+    let y1_vx_diff = y1_vx2 - y1_vx1;
+    let y1_vx_factor = if y1_vx_diff == 0.0 {
+        0.0
+    } else {
+        (current_vx - y1_vx1) / y1_vx_diff
+    };
+
+    // for interpolating along vx at y2 end
+    let y2_vx_diff = y2_vx2 - y2_vx1;
+    let y2_vx_factor = if y2_vx_diff == 0.0 {
+        0.0
+    } else {
+        (current_vx - y2_vx1) / y2_vx_diff
+    };
+
+    // for final interpolation along vy
+    let y1_vy = interpolate_scalar(y1_vy1, y1_vy2, y1_vx_factor);
+    let y2_vy = interpolate_scalar(y2_vy1, y2_vy2, y2_vx_factor);
+    let vy_diff = y2_vy - y1_vy;
+    let vy_factor = if vy_diff == 0.0 { 0.0 } else { (current_vy - y1_vy) / vy_diff };
+
+    let current_rotation = current.rotation.to_rotation_matrix();
+
+    let translation_x1y1 = Vector3::new(x1y1.translation_x as f32, x1y1.translation_y as f32, 0.0);
+    let translation_x2y1 = Vector3::new(x2y1.translation_x as f32, x2y1.translation_y as f32, 0.0);
+    let translation_x1y2 = Vector3::new(x1y2.translation_x as f32, x1y2.translation_y as f32, 0.0);
+    let translation_x2y2 = Vector3::new(x2y2.translation_x as f32, x2y2.translation_y as f32, 0.0);
+    let translation_y1 = interpolate(translation_x1y1, translation_x2y1, y1_vx_factor);
+    let translation_y2 = interpolate(translation_x1y2, translation_x2y2, y2_vx_factor);
+    let translation = current_rotation * interpolate(translation_y1, translation_y2, vy_factor);
+
+    let end_velocity_x1y1 = Vector3::new(x1y1.end_velocity_x as f32, x1y1.end_velocity_y as f32, 0.0);
+    let end_velocity_x2y1 = Vector3::new(x2y1.end_velocity_x as f32, x2y1.end_velocity_y as f32, 0.0);
+    let end_velocity_x1y2 = Vector3::new(x1y2.end_velocity_x as f32, x1y2.end_velocity_y as f32, 0.0);
+    let end_velocity_x2y2 = Vector3::new(x2y2.end_velocity_x as f32, x2y2.end_velocity_y as f32, 0.0);
+    let end_velocity_y1 = interpolate(end_velocity_x1y1, end_velocity_x2y1, y1_vx_factor);
+    let end_velocity_y2 = interpolate(end_velocity_x1y2, end_velocity_x2y2, y2_vx_factor);
+    let end_velocity = current_rotation * interpolate(end_velocity_y1, end_velocity_y2, vy_factor);
+
+    Ok((
+        translation,
+        end_velocity,
+        // assuming they are all pretty similar
+        Vector3::new(0.0, 0.0, x1y1.end_angular_velocity_z),
+        // TODO interpolate yaw, but have to handle the fact that it's circular
+        current_rotation * Rotation3::from_euler_angles(0.0, 0.0, x1y1.end_yaw),
+    ))
+}
+
+/// factor: number from 0.0 to 1.0 for interpolation between start and end, 0.0 being 100% at
+/// start, 1.0 being 100% at end. Note that this actually also handles factors outside the 0.0 to
+/// 1.0 range, in which case it's a linear extrapolation
+fn interpolate(start: Vector3<f32>, end: Vector3<f32>, factor: f32) -> Vector3<f32> {
+    (1.0 - factor) * start + factor * end
+}
+
+fn interpolate_scalar(start: f32, end: f32, factor: f32) -> f32 {
+    (1.0 - factor) * start + factor * end
+}
+
+// rip-off of: https://github.com/samuelpmish/RLUtilities/blob/master/src/simulation/ball.cc#L82
+pub fn closest_point_for_collision(ball: &BallState, player: &PlayerState) -> Vector3<f32> {
+    let mut local_pos = player.rotation.to_rotation_matrix().inverse() * (ball.position - player.hitbox_center());
+    local_pos.x = na::clamp(local_pos.x, -CAR_DIMENSIONS.x / 2.0, CAR_DIMENSIONS.x / 2.0);
+    local_pos.y = na::clamp(local_pos.y, -CAR_DIMENSIONS.y / 2.0, CAR_DIMENSIONS.y / 2.0);
+    local_pos.z = na::clamp(local_pos.z, -CAR_DIMENSIONS.z / 2.0, CAR_DIMENSIONS.z / 2.0);
+    player.hitbox_center() + player.rotation.to_rotation_matrix() * local_pos
+}
+
+pub fn ball_collides(ball: &BallState, player: &PlayerState) -> bool {
+    (closest_point_for_collision(ball, player) - ball.position).norm() < BALL_COLLISION_RADIUS
+}
+
+pub fn next_player_state(
+    current: &PlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+) -> Result<PlayerState, String> {
+    let mut next_player = match find_prediction_category(&current) {
+        PredictionCategory::Ground => next_player_state_grounded(&current, &controller, time_step)?,
         //PredictionCategory::Ground2 => next_velocity_grounded2(&current, &controller, time_step),
         //PredictionCategory::Wall => next_velocity_walled(&current, &controller, time_step),
         //PredictionCategory::Ceiling => next_velocity_ceilinged(&current, &controller, time_step),
         //PredictionCategory::CurveWall => next_velocity_curve_walled(&current, &controller, time_step),
         //PredictionCategory::Air => next_velocity_flying(&current, &controller, time_step),
+    };
+
+    if next_player.position.z < CAR_DIMENSIONS.z / 2.0 {
+        next_player.position.z = CAR_DIMENSIONS.z / 2.0;
     }
+
+    Ok(next_player)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::f32::consts::PI;
+pub fn get_collision(
+    ball_trajectory: &[BallState],
+    player: &PlayerState,
+    controller: &BrickControllerState,
+    time_step: f32,
+) -> Option<(PlayerState, BallState, Vector3<f32>, f32)> {
+    let num_ticks: usize = (time_step / TICK).round() as usize;
+    assert!(num_ticks % 2 == 0);
 
-    fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
-    fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
-    fn resting_rotation() -> UnitQuaternion<f32> { UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0) }
+    // 2-tick steps
+    let mut last = player.clone();
+    for step in 1..=(num_ticks / 2) {
+        if let Ok(next) = next_player_state(&last, controller, TICK * 2.0) {
+            if let Some(ball) = ball_trajectory.get(step * 2) {
+                if ball_collides(ball, &next) {
+                    // check if one tick earlier collides, since we are using 2-tick steps
+                    if let Ok(next_single_tick) = next_player_state(&last, controller, TICK) {
+                        let single_tick_ball = &ball_trajectory[step * 2 - 1];
+                        if ball_collides(single_tick_ball, &next_single_tick) {
+                            let collision_time = (2 * step - 1) as f32 * TICK;
+                            let point = closest_point_for_collision(single_tick_ball, &next_single_tick);
+                            return Some((next_single_tick, single_tick_ball.clone(), point, collision_time));
+                        }
+                    }
 
-    fn resting_player_state() -> PlayerState {
-        PlayerState {
-            position: resting_position(),
-            velocity: resting_velocity(),
-            rotation: resting_rotation(),
-            team: Team::Blue,
+                    let collision_time = (2 * step) as f32 * TICK;
+                    let point = closest_point_for_collision(ball, &next);
+                    return Some((next, ball.clone(), point, collision_time));
+                }
+                last = next;
+            } else {
+                return None;
+            }
+        } else {
+            return None;
         }
     }
 
-    fn max_throttle_velocity() -> Vector3<f32> { Vector3::new(0.0, 1545.0, 0.0) } // FIXME reference constant/static
+    None
+}
 
-    fn max_throttle_player_state() -> PlayerState {
-        PlayerState {
-            position: resting_position(),
-            velocity: max_throttle_velocity(),
-            rotation: resting_rotation(),
-            team: Team::Blue,
+// hack: use trait to add methods since PlayerState belongs to another crate
+pub trait PredictPlayer {
+    fn lag_compensated_player(&self, controller_history: &VecDeque<BrickControllerState>, lag_frames: usize) -> PlayerState;
+}
+
+impl PredictPlayer for PlayerState {
+    /// applies lag_frames of latest controller history to the given player. if compensation
+    /// calculation fails for some steps, this failure is ignored and only printed to stderr
+    fn lag_compensated_player(&self, controller_history: &VecDeque<BrickControllerState>, lag_frames: usize) -> PlayerState {
+        let mut player = self.clone();
+        for offset in (0..lag_frames).rev() {
+            if let Some(controller) = controller_history.get(controller_history.len() - 1 - offset) {
+                match next_player_state(&player, &controller, TICK) {
+                    Ok(next_player) => player = next_player,
+                    Err(e) => eprintln!("Lag compensation error: {}", e),
+                }
+            }
         }
+        player
     }
-
-    fn round(v: Vector3<f32>) -> Vector3<f32> {
-        Vector3::new(v.x.round(), v.y.round(), v.z.round())
-    }
-
-    fn round_rotation(r: UnitQuaternion<f32>) -> UnitQuaternion<f32> {
-        let (roll, pitch, yaw) = r.to_euler_angles();
-        UnitQuaternion::from_euler_angles(
-            (roll * 100.0).round() / 100.0,
-            (pitch * 100.0).round() / 100.0,
-            (yaw * 100.0).round() / 100.0,
-        )
-    }
-
-    #[test]
-    fn no_input_from_resting() {
-        let current = resting_player_state();
-        let controller = BrickControllerState::new();
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(next.position, current.position);
-        assert_eq!(next.velocity, current.velocity);
-        assert_eq!(next.rotation, current.rotation);
-    }
-
-    #[test]
-    fn throttle_from_resting() {
-        let mut current = resting_player_state();
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(next.position, Vector3::new(0.0, 579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(next.velocity, Vector3::new(0.0, 995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn reverse_from_resting() {
-        let mut current = resting_player_state();
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Reverse;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(next.position, Vector3::new(0.0, -579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(next.velocity, Vector3::new(0.0, -995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_backwards() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(next.position, Vector3::new(0.0, -579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(next.velocity, Vector3::new(0.0, -995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn reverse_from_resting_backwards() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI/2.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Reverse;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(next.position, Vector3::new(0.0, 579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(next.velocity, Vector3::new(0.0, 995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q1_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI*3.0/4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(410.0, 410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(704.0, 704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q2_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI*3.0/4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(410.0, -410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(704.0, -704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q3_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, PI*1.0/4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(-410.0, -410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(-704.0, -704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn throttle_from_resting_q4_angle() {
-        let mut current = resting_player_state();
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, 0.0, -PI*1.0/4.0);
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        assert_eq!(round(next.position), Vector3::new(-410.0, 410.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(-704.0, 704.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-
-    #[test]
-    fn throttle_at_max_throttle() {
-        let mut current = max_throttle_player_state();
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 1545.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(0.0, 1545.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn no_input_at_max_throttle() {
-        let mut current = max_throttle_player_state();
-        let controller = BrickControllerState::new();
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 1495.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(0.0, 1445.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-    #[test]
-    fn no_input_roll_to_a_stop() {
-        let mut current = resting_player_state();
-        current.velocity.y = 50.0;
-        let controller = BrickControllerState::new();
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // FIXME reference static/constant
-        assert_eq!(round(next.position), Vector3::new(0.0, 12.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-        assert_eq!(next.rotation, current.rotation);
-        assert_eq!(round(next.velocity), Vector3::new(0.0, 0.0, 0.0)); // FIXME confirm if this value is actually correct in graph
-    }
-
-
-    // TODO need to graph/model this first
-    // #[test]
-    // fn reverse_at_max_throttle() {
-    //     let mut current = max_throttle_player_state();
-    //     let mut controller = BrickControllerState::new();
-    //     controller.throttle = Throttle::Reverse;
-    //     let next = next_player_state(&current, &controller, 1.0);
-
-    //     assert_eq!(next.position, Vector3::new(0.0, 579.4101, 0.0)); // FIXME confirm if this value is actually correct in graph
-    //     assert_eq!(next.rotation, current.rotation);
-    //     assert_eq!(next.velocity, Vector3::new(0.0, 995.5898, 0.0)); // FIXME confirm if this value is actually correct in graph
-    // }
-
-
-    #[test]
-    fn throttle_and_turn_from_resting() {
-        let mut current = resting_player_state();
-
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        controller.steer = Steer::Right;
-
-        // from data file, first line
-        // -2501.8398,-3171.19,18.65,0,0,8.32,0,-0.0059441756,-1.5382951
-        current.position = Vector3::new(-2501.8398, -3171.19, 18.65);
-        current.velocity = Vector3::new(0.0, 0.0, 8.32);
-        current.rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, -1.5382951);
-
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // from data file, 240th line
-        // -2087.7048,-2942.8396,18.65,866.1724,-262.35745,8.33,0,-0.0059441756,2.832112
-        let expected_position = Vector3::new(-2087.7048, -2942.8396, 18.65);
-        let expected_velocity = Vector3::new(866.1724, -262.35745, 8.33);
-        let expected_rotation = UnitQuaternion::from_euler_angles(0.0, -0.0059441756, 2.832112);
-
-        assert_eq!(round(next.position), round(expected_position));
-        assert_eq!(round_rotation(next.rotation), round_rotation(expected_rotation));
-        assert_eq!(round(next.velocity), round(expected_velocity));
-    }
-
-    fn throttle_and_turn_from_max_throttle_turning() {
-        let mut current = resting_player_state();
-
-        let mut controller = BrickControllerState::new();
-        controller.throttle = Throttle::Forward;
-        controller.steer = Steer::Left;
-
-        // from data file, 1000th line
-        // -482.672,-2684.1472,18.65,-263.5451,-1204.4678,8.33,-0.00009587344,-0.005944175,1.3977439
-        current.position = Vector3::new(-482.672, -2684.1472, 18.65);
-        current.velocity = Vector3::new(-263.5451, -1204.4678, 8.33);
-        current.rotation = UnitQuaternion::from_euler_angles(-0.00009587344, -0.005944175, 1.3977439);
-
-        let next = next_player_state(&current, &controller, 1.0);
-
-        // from data file, 1240th line
-        // 287.21667,-3266.7107,18.65,1081.4581,602.2005,8.33,0.00000000011641738,-0.0059441756,-2.5908935
-        let expected_position = Vector3::new(287.21667, -3266.7107, 18.65);
-        let expected_velocity = Vector3::new(1081.4581, 602.2005, 8.33);
-        let expected_rotation = UnitQuaternion::from_euler_angles(0.00000000011641738, -0.0059441756, -2.5908935);
-
-        assert_eq!(round(next.position), round(expected_position));
-        assert_eq!(round_rotation(next.rotation), round_rotation(expected_rotation));
-        assert_eq!(round(next.velocity), round(expected_velocity));
-    }
-
 }

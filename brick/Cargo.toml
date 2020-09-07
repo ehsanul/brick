@@ -1,0 +1,26 @@
+[package]
+name = "brick"
+version = "0.1.0"
+authors = ["Ehsanul"]
+
+[dependencies]
+docopt = "1"
+nalgebra = "*"
+kiss3d = "*"
+lazy_static = "1.0"
+crossbeam = "0.4"
+spin_sleep = "1"
+bincode = "*"
+flate2 = "1.0"
+csv = "1"
+#rlbot = "0.7.0"
+rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee", default-features = false }
+
+[dependencies.state]
+path = "../state"
+
+[dependencies.passthrough]
+path = "../passthrough"
+
+[dependencies.brain]
+path = "../brain"

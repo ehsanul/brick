@@ -1,16 +1,21 @@
-extern crate nalgebra as na;
-extern crate ncollide;
-extern crate obj;
 extern crate csv;
+extern crate flate2;
+extern crate fnv;
+extern crate nalgebra as na;
+extern crate ncollide3d as ncollide;
+extern crate obj;
 extern crate state;
+extern crate walkdir;
 
 #[macro_use]
 extern crate lazy_static;
 
-pub mod arena;
-pub mod player;
-pub mod ball;
-pub mod sample;
+#[macro_use]
+extern crate serde_derive;
+extern crate bincode;
 
-pub const FPS:f32 = 120.0;
-pub const TICK: f32 = 1.0 / 120.0; // matches RL's internal fixed physics tick rate
+pub mod arena;
+pub mod ball;
+pub mod driving_model;
+pub mod player;
+pub mod sample;

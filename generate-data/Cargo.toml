@@ -1,20 +1,19 @@
 [package]
-name = "predict"
+name = "generate-data"
 version = "0.1.0"
 authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
-serde = "1.0"
-serde_derive = "1.0"
+nalgebra = "*"
 bincode = "*"
 flate2 = "1.0"
-ncollide3d = "*"
-nalgebra = "*"
-fnv = "1.0"
-obj-rs = "0.4"
-lazy_static = "1.0"
-csv = "1"
+csv = "1.0"
+rand = "0.6.5"
+rayon = "1.1"
 walkdir = "2.0"
 
 [dependencies.state]
 path = "../state"
+
+[dependencies.brain]
+path = "../brain"

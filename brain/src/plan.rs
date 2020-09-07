@@ -1,199 +1,243 @@
-use state::*;
+use heuristic::HeuristicModel;
+use na::{Point3, Unit, Vector3};
 use predict;
-use predict::arena::*;
-use na::{ self, Unit, Vector3, Point3, Rotation3, UnitQuaternion };
+use state::*;
 use std::cmp::Ordering;
+use std::error::Error;
 use std::f32::consts::PI;
-use std;
 
-use std::collections::BinaryHeap;
-use std::mem;
 use indexmap::map::Entry::{Occupied, Vacant};
 use indexmap::IndexMap;
-use std::usize;
 use itertools;
-use itertools::Itertools;
+use std::collections::BinaryHeap;
+use std::mem;
+use std::usize;
 
-use std::hash::BuildHasherDefault;
 use fnv::FnvHasher;
+use std::hash::BuildHasherDefault;
 type MyHasher = BuildHasherDefault<FnvHasher>;
-
-
 
 lazy_static! {
     pub static ref GROUND_CONTROL_BRANCHES: Vec<BrickControllerState> = {
-        let mut left_boost = BrickControllerState::new();
+        // boost
+        let mut left_boost = BrickControllerState::default();
         left_boost.boost = true;
         left_boost.steer = Steer::Left;
 
-        let mut right_boost = BrickControllerState::new();
+        let mut right_boost = BrickControllerState::default();
         right_boost.boost = true;
         right_boost.steer = Steer::Right;
 
-        let mut straight_boost = BrickControllerState::new();
+        let mut straight_boost = BrickControllerState::default();
         straight_boost.boost = true;
 
-        let mut left_throttle = BrickControllerState::new();
+        // throttle
+        let mut left_throttle = BrickControllerState::default();
         left_throttle.throttle = Throttle::Forward;
         left_throttle.steer = Steer::Left;
 
-        let mut right_throttle = BrickControllerState::new();
+        let mut right_throttle = BrickControllerState::default();
         right_throttle.throttle = Throttle::Forward;
         right_throttle.steer = Steer::Right;
 
-        let mut straight_throttle = BrickControllerState::new();
+        let mut straight_throttle = BrickControllerState::default();
         straight_throttle.throttle = Throttle::Forward;
 
-        let mut left_idle = BrickControllerState::new();
+        // drift + boost
+        let mut left_drift_boost = left_boost.clone();
+        left_drift_boost.handbrake = true;
+
+        let mut right_drift_boost = right_boost.clone();
+        right_drift_boost.handbrake = true;
+
+        let mut straight_drift_boost = straight_boost.clone();
+        straight_drift_boost.handbrake = true;
+
+        // drift + throttle
+        let mut left_drift_throttle = left_throttle.clone();
+        left_drift_throttle.handbrake = true;
+
+        let mut right_drift_throttle = right_throttle.clone();
+        right_drift_throttle.handbrake = true;
+
+        let mut straight_drift_throttle = straight_throttle.clone();
+        straight_drift_throttle.handbrake = true;
+
+        // idle
+        let mut left_idle = BrickControllerState::default();
         left_idle.steer = Steer::Left;
 
-        let mut right_idle = BrickControllerState::new();
+        let mut right_idle = BrickControllerState::default();
         right_idle.steer = Steer::Right;
 
-        let mut straight_idle = BrickControllerState::new();
+        let _straight_idle = BrickControllerState::default();
 
-        let mut left_brake = BrickControllerState::new();
-        left_brake.throttle = Throttle::Reverse;
-        left_brake.steer = Steer::Left;
+        // reverse
+        let mut left_reverse = BrickControllerState::default();
+        left_reverse.throttle = Throttle::Reverse;
+        left_reverse.steer = Steer::Left;
 
-        let mut right_brake = BrickControllerState::new();
-        right_brake.throttle = Throttle::Reverse;
-        right_brake.steer = Steer::Right;
+        let mut right_reverse = BrickControllerState::default();
+        right_reverse.throttle = Throttle::Reverse;
+        right_reverse.steer = Steer::Right;
 
-        let mut straight_brake = BrickControllerState::new();
-        straight_brake.throttle = Throttle::Reverse;
+        let mut straight_reverse = BrickControllerState::default();
+        straight_reverse.throttle = Throttle::Reverse;
 
         vec![
-            //left_boost,
-            //right_boost,
-            //straight_boost,
+            left_boost,
+            right_boost,
+            straight_boost,
+
+            //left_drift_boost,
+            //right_drift_boost,
+            //straight_drift_boost,
 
             left_throttle,
             right_throttle,
             straight_throttle,
 
+            //left_drift_throttle,
+            //right_drift_throttle,
+            //straight_drift_throttle,
+
             //left_idle,
             //right_idle,
             //straight_idle,
 
-            //left_brake,
-            //right_brake,
-            //straight_brake,
+            //left_drift_idle,
+            //right_drift_idle,
+            //straight_drift_idle,
+
+            //left_reverse,
+            //right_reverse,
+            //straight_reverse,
+
+            //left_drift_reverse,
+            //right_drift_reverse,
+            //straight_drift_reverse,
         ]
     };
 }
 
-const FINE_STEP: f32 = 4.0 / predict::FPS;
-const MEDIUM_STEP: f32 = 10.0 / predict::FPS;
-const COARSE_STEP: f32 = 20.0 / predict::FPS;
-const VERY_COARSE_STEP: f32 = 60.0 / predict::FPS;
-pub(crate) fn appropriate_step(current: &PlayerState, desired: &DesiredContact) -> f32 {
-    let speed = current.velocity.norm();
-    let delta = desired.position - current.position;
-    let distance = delta.norm();
-    let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    let dot = na::dot(&current_heading, &Unit::new_normalize(delta).unwrap());
-    if distance < -200.0 {
-        // XXX this was attempted to be tuned per speed, but turns out that with lower speed, we
-        // don't go as far along any turning curves, and thus we end up in the same angle, just
-        // earlier
-        let min_dot = 0.95;
+const TICKS_PER_STEP: i32 = 1;
+const EXPLODED_STEP_DURATION: f32 = TICKS_PER_STEP as f32 * TICK;
 
-        // check if the desired state within a cone around our heading, whose angle is determined by the speed
-        if dot > min_dot {
-            FINE_STEP
-        } else {
-            // we'll probably have to go the long way around as we aren't facing the right way for
-            // this, so use a coarse step
-            COARSE_STEP
+/// wrapper around hybrid_a_star for convenience and some extra smarts. meant to be used by the
+/// live bot or bot simulation only, as it configures the serch paramters to favor speed over
+/// accuracy/optimality.
+// TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
+pub fn plan<H: HeuristicModel>(
+    model: &mut H,
+    player: &PlayerState,
+    ball_trajectory: &[BallState],
+    initial_ball_trajectory_index: usize,
+    desired: &DesiredContact,
+    cost_to_strive_for: f32,
+    _last_plan: Option<&Plan>,
+) -> PlanResult {
+    let mut config = SearchConfig::default();
+
+    // speed over optimality
+    config.scale_heuristic = 10.0;
+    config.max_iterations = 500;
+
+    // if we have a perfectly good plan, we can use it as benchmark of when to stop looking
+    // further, since if we get a worse plan now we'll ignore it.
+    // TODO let's check if the last plan is still valid before doing this
+    // XXX this can potentially block finding a higher quality (ie hits the ball accurately) plan,
+    // so disabling for now
+    // if let Some(last_plan) = last_plan {
+    //     config.max_cost = (20.0 + last_plan.len() as f32) * EXPLODED_STEP_DURATION;
+    // }
+
+    let mut plan_result = hybrid_a_star(
+        model,
+        player,
+        ball_trajectory,
+        initial_ball_trajectory_index,
+        desired,
+        cost_to_strive_for,
+        &config,
+    );
+
+    match explode_plan(&plan_result.plan) {
+        Ok(exploded) => plan_result.plan = exploded,
+        Err(e) => {
+            eprintln!("Exploding plan failed: {}", e);
+            plan_result.plan = None;
         }
-    } else if distance < -200.0 {
+    };
 
-        let min_dot = if speed < 400.0 {
-            // XXX in this measurement, it only managed to go 400uu total, so... we probably need
-            // to do something smarter here long-term
-            0.68
-        } else {
-            // fastest, so it's the tighest angle
-            0.75
-        };
-
-        // check if the desired state within a cone around our heading, whose angle is determined by the speed
-        if dot > min_dot {
-            MEDIUM_STEP
-        } else {
-            // we'll probably have to go the long way around as we aren't facing the right way for
-            // this, so use a coarse step
-            COARSE_STEP
-        }
-    } else if distance < 2000.0 && distance > 500.0 && dot > 0.5  {
-        COARSE_STEP
-    } else {
-        VERY_COARSE_STEP
-    }
-}
-
-/// given the current state and a desired state, return one frame of input that will take us to the
-/// desired state, if any is possible.
-// TODO maybe we should take the entire gamestate instead. we also need a history component
-#[no_mangle]
-pub extern fn plan(player: &PlayerState, ball: &BallState, desired_contact: &DesiredContact) -> PlanResult {
-    let mut controller = BrickControllerState::new();
-
-    let step_duration = appropriate_step(&player, &desired_contact);
-
-    let mut plan_result = hybrid_a_star(player, &desired_contact, step_duration);
-    explode_plan(&mut plan_result, step_duration);
     plan_result
 }
 
-/// changes the plan so that it covers 120fps ticks, in case it was created with larger steps
-fn explode_plan(plan_result: &mut PlanResult, step_duration: f32) {
-    // we would get slightly off results with the method below if we don't have an exact multiple
-    let ticks_per_step = (step_duration / predict::TICK).round() as usize;
-    assert!(120 % ticks_per_step == 0);
+/// modifies the plan to use finer-grained steps
+pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>> {
+    if let Some(ref plan) = plan {
+        if plan.get(0).is_none() {
+            return Ok(None);
+        }
+        let mut exploded_plan = Vec::with_capacity(plan.len()); // will be at least this long
+        exploded_plan.push(plan[0].clone());
 
-    if let Some(ref mut plan) = plan_result.plan {
-        if plan.get(0).is_none() { return }
-        let exploded_length = (plan.len() - 1) * ticks_per_step; // first item in plan is current position
-        let mut exploded_plan = vec![];
+        // for every plan segment, we expand within that segment. using small ticks repeated causes
+        // the errors to accumulate rapidly, so we start over with each plan segment starting with
+        // a more accurate base value
+        for i in 1..plan.len() {
+            let num_ticks = (plan[i].2 / TICK).round() as i32;
+            let num_steps = num_ticks / TICKS_PER_STEP;
+            #[allow(clippy::modulo_one)]
+            let remaining_ticks = num_ticks % TICKS_PER_STEP;
 
-        let mut last_index = 0;
-        let mut last_player = plan[0].0;
-        let mut last_controller = plan[0].1;
-        for i in 0..exploded_length {
-            let t = i as f32 * predict::TICK;
+            // NOTE since the controller value in each plan tuple is the controller that needs to
+            // be applied to the *previous* player state in order to reach the player state in the
+            // current tuple, we get the player from the period index and apply the controller from
+            // the current tuple
+            let mut last_player = plan[i - 1].0.clone();
+            let controller = &plan[i].1;
 
-            // index of the controller vlue we want to apply
-            // again, first item is current position, we need controller on next item
-            let original_index = 1 + (t / step_duration) as usize;
-            if original_index > last_index {
-                last_index = original_index;
-
-                // player is from iteration before. by setting it here, we are re-calibrating
-                // to the coarse path. this could help in case there is somehow a divergence in
-                // how we calculate at finer time steps (which wouldn't be good at all, but
-                // might happen regardless).
-                last_player = plan[original_index - 1].0;
+            for j in 1..=num_steps {
+                // when stepping by single ticks, still use 2-tick calculations when possible for better accuracy
+                let (step, last) = if EXPLODED_STEP_DURATION == TICK && j % 2 == 0 {
+                    if j == 2 {
+                        // use the more accurate value as a base to start expansion from
+                        (TICK * 2.0, &plan[i - 1].0)
+                    } else {
+                        (TICK * 2.0, &exploded_plan[exploded_plan.len() - 2].0)
+                    }
+                } else {
+                    (EXPLODED_STEP_DURATION, &last_player)
+                };
+                let next_player = predict::player::next_player_state(last, &controller, step)?;
+                exploded_plan.push((next_player.clone(), controller.clone(), step));
+                last_player = next_player;
             }
-            let controller = plan[original_index].1;
-            let next_player = predict::player::next_player_state(&last_player, &controller, predict::TICK);
-            exploded_plan.push((next_player, controller));
-            last_player = next_player;
 
-            // XXX HACK ALERT start turning a few frames early since there's a delay or something. but don't end turning early? tbd.
-            if i >= 4 && controller.steer != last_controller.steer {
-                exploded_plan[i-1].1.steer = controller.steer;
-                exploded_plan[i-2].1.steer = controller.steer;
-                if controller.steer != Steer::Straight  {
-                    exploded_plan[i-3].1.steer = controller.steer;
-                    exploded_plan[i-4].1.steer = controller.steer;
+            // if we are exploding into 2-tick steps, if there is a leftover tick we still want to
+            // include/exlode it
+            if remaining_ticks > 0 {
+                for _j in 1..=remaining_ticks {
+                    let next_player = predict::player::next_player_state(&last_player, &controller, TICK)?;
+                    exploded_plan.push((next_player.clone(), controller.clone(), TICK));
+                    last_player = next_player;
                 }
             }
-            last_controller = controller;
         }
-        plan.clear();
-        plan.append(&mut exploded_plan);
+
+        //println!("===================================");
+        //println!("PLAN: {:?}", plan.iter().map(|(p, c, s)| {
+        //    (p.position.x, p.position.y, p.local_velocity().x, p.local_velocity().y, p.rotation.euler_angles().2, p.angular_velocity.z, c.steer, c.boost, s)
+        //}).collect::<Vec<_>>());
+        //println!("-----------------------------------");
+        //println!("exploded: {:?}", exploded_plan.iter().map(|(p, c, s)| {
+        //    (p.position.x, p.position.y, p.velocity.x, p.velocity.y, p.rotation.euler_angles().2, p.angular_velocity.z, c.steer, s)
+        //}).collect::<Vec<_>>());
+        //println!("===================================");
+
+        Ok(Some(exploded_plan))
+    } else {
+        Ok(None)
     }
 }
 
@@ -203,6 +247,8 @@ struct PlayerVertex {
     player: PlayerState,
     /// the controller state in previous step that lead to this player vertex
     prev_controller: BrickControllerState,
+    ball_trajectory_index: usize,
+    step_duration: f32,
     parent_index: usize,
     parent_is_secondary: bool,
 }
@@ -225,6 +271,7 @@ impl Eq for SmallestCostHolder {}
 impl Ord for SmallestCostHolder {
     fn cmp(&self, other: &SmallestCostHolder) -> Ordering {
         // we flip the ordering here, to make the heap a min-heap
+        #[allow(clippy::float_cmp)]
         if self.estimated_cost == other.estimated_cost {
             Ordering::Equal
         } else if self.estimated_cost < other.estimated_cost {
@@ -255,141 +302,78 @@ struct RoundedPlayerState {
     yaw: i16,
 }
 
-
-// it's a lot more expensive to do the search with small step durations, so we impose a low max
-// cost in that case, which represents the amount of time we can simulate into the future. it is
-// expected that the caller specifies a low step duration only when the search space is supposed to
-// be quite small, and will fit in the below max cost
-fn max_cost(step_duration: f32) -> f32 {
-    match step_duration {
-        FINE_STEP => 0.6,
-        MEDIUM_STEP => 1.0,
-        COARSE_STEP | VERY_COARSE_STEP => 10.0,
-        _ => unimplemented!("max_cost step_duration") // we have only tuned for the values above, not allowing others for now
-    }
-}
-
-fn setup_goals(desired_contact: &Vector3<f32>, desired_hit_direction: &Unit<Vector3<f32>>, slop: f32) -> Vec<Goal> {
-    let contact_to_car = -(CAR_DIMENSIONS.x/2.0) * desired_hit_direction.as_ref();
-    let car_corner_distance = (CAR_DIMENSIONS.x.powf(2.0) + CAR_DIMENSIONS.y.powf(2.0)).sqrt();
-    let clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, PI/2.0);
-    let anti_clockwise_90_rotation = Rotation3::from_euler_angles(0.0, 0.0, -PI/2.0);
-
-    let mut goals = vec![];
-
-    // straight on basic hit
-    goals.push(Goal {
-        bounding_box: BoundingBox::new(&(desired_contact + contact_to_car), slop),
-        heading: -Unit::new_normalize(contact_to_car.clone()),
-        min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
-    });
-
-    // slightly off but straight hits
-    let mut offset = slop * 2.0;
-    while offset <= 21.0 {
-        let offset_right = offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_right), slop),
-            heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_right),
-            min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
-        });
-
-        let offset_left = -offset * (clockwise_90_rotation * Unit::new_normalize(contact_to_car.clone()).unwrap());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(&(desired_contact + contact_to_car + offset_left), slop),
-            heading: Unit::new_normalize(-contact_to_car - 2.5 * offset_left),
-            min_dot: (PI/8.0).cos(), // FIXME seems this should depend on the step size!
-        });
-
-        offset += slop * 2.0;
-    }
-    let num_straight_goals = goals.len();
-
-    // corner hits from right side of the ball (left side of the car)
-    let mut angle = -PI/2.0 + PI/8.0;
-    let mut i = 0;
-    while angle < -PI/8.0 {
-        // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
-        // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
-        // more goals with slightly different angles
-        // FIXME this weird log thingy is just a hack to get better coverage in the arc. we don't
-        // have good coverage because we are iterating over angles rotating about the wrong point!
-        // we need to rotate about the corner, not about front center
-        let max_arc_length = i as f32 * slop * 1.2 / (1.1 + (i as f32)).log(2.0);
-        i += 1;
-
-        // FIXME we should be rotating about the corner too instead of the front center
-        angle += max_arc_length / car_corner_distance;
-        let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
-        let rotated_contact_to_car = rotation * contact_to_car;
-        // corner offset from front center
-        let offset = (CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).unwrap());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(&(desired_contact + rotated_contact_to_car + offset), slop),
-            heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
-            min_dot: 0.0, // set later
-        });
-    }
-
-    // corner hits from left side of the ball (right side of car)
-    let mut angle = PI/2.0 - PI/8.0;
-    let mut i = 0;
-    while angle > PI/8.0 {
-        // largest arc allowed for bounding box furthest point, to ensure coverage of the entire
-        // bounding arc. XXX for larger slops, we may want to still have a smaller max arc, to create
-        // more goals with slightly different angles
-        // FIXME this weird log thingy is just a hack to get better coverage in the arc. we don't
-        // have good coverage because we are iterating over angles rotating about the wrong point!
-        // we need to rotate about the corner, not about front center
-        let max_arc_length = i as f32 * slop * 1.2 / (1.1 + (i as f32)).log(2.0);
-        i += 1;
-
-        // FIXME we should be rotating about the corner too instead of the front center
-        angle -= max_arc_length / car_corner_distance;
-        let rotation = Rotation3::from_euler_angles(0.0, 0.0, angle);
-        let rotated_contact_to_car = rotation * contact_to_car;
-        // corner offset from front center
-        let offset = -(CAR_DIMENSIONS.y/2.0) * (clockwise_90_rotation * Unit::new_normalize(rotated_contact_to_car.clone()).unwrap());
-        goals.push(Goal {
-            bounding_box: BoundingBox::new(&(desired_contact + rotated_contact_to_car + offset), slop),
-            heading: -Unit::new_normalize(rotated_contact_to_car.clone()),
-            min_dot: 0.0, // set later
-        });
-    }
-
-    // set the desired accuracy based on how many different angles we're checking for. the desired
-    // accuracy goes up as we check more angles
-    let num_angle_goals = goals.len() - num_straight_goals;
-    for goal in goals.iter_mut() {
-        if goal.min_dot == 0.0 {
-            (*goal).min_dot = ( (PI - PI/8.0 - PI/8.0) / num_angle_goals as f32 ).cos();
-        }
-    }
-
-    goals
-}
-
-fn known_unreachable(current: &PlayerState, desired: &DesiredContact) -> bool {
-    // we can't fly yet :(
-    desired.position.z > BALL_RADIUS + CAR_DIMENSIONS.z
-}
-
 type ParentsMap = IndexMap<RoundedPlayerState, (PlayerVertex, Option<PlayerVertex>), MyHasher>;
 
-#[no_mangle]
-pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, step_duration: f32) -> PlanResult {
+pub fn hybrid_a_star<H: HeuristicModel>(
+    model: &mut H,
+    current: &PlayerState,
+    ball_trajectory: &[BallState],
+    initial_ball_trajectory_index: usize,
+    desired: &DesiredContact,
+    cost_to_strive_for: f32,
+    config: &SearchConfig,
+) -> PlanResult {
+    // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
+    let is_ball_hit_towards_goal: Evaluator = |ball_trajectory: &[BallState],
+                                               player: &PlayerState,
+                                               next_vertex: &PlayerVertex,
+                                               controller: &BrickControllerState,
+                                               time_step: f32|
+     -> Option<(PlayerState, BallState, f32)> {
+        let index = ((next_vertex.cost_so_far - next_vertex.step_duration) / TICK).round() as usize;
+        if let Some((colliding_player, colliding_ball, collision_point, collision_time)) =
+            predict::player::get_collision(&ball_trajectory[index..], player, controller, time_step)
+        {
+            match predict::ball::calculate_hit(&colliding_ball, &colliding_player, &collision_point) {
+                Ok(next_ball) => {
+                    if predict::ball::trajectory_enters_soccar_goal(&next_ball) {
+                        // println!("collision point: {:?}, ball velocity: {:?}", collision_point, next_ball.velocity);
+                        Some((colliding_player, colliding_ball, collision_time))
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error calculating ball hit: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    };
+
     let mut visualization_lines = vec![];
+
+    #[allow(unused_mut)]
     let mut visualization_points = vec![];
 
-    if known_unreachable(&current, &desired) {
-        return PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
+    // we can't fly yet :(
+    if ball_trajectory[initial_ball_trajectory_index].position.z - BALL_COLLISION_RADIUS > CAR_DIMENSIONS.z + CAR_OFFSET.z {
+        return PlanResult::default();
     }
+
+    // sets up the model for this particular prediction. it can do some calculations upfront here
+    // instead of over and over again for each prediction.
+    model.configure(&desired, config.scale_heuristic);
 
     let mut to_see: BinaryHeap<SmallestCostHolder> = BinaryHeap::new();
     let mut parents: ParentsMap = IndexMap::default();
 
+    // buffers to avoid re-allocating in a loop
+    let mut new_vertices = vec![];
+    let mut new_players = vec![];
+    let mut cur_heuristic_costs: Vec<f32> = vec![];
+    let mut prev_heuristic_costs: Vec<f32> = vec![];
+    let mut next_heuristic_costs: Vec<f32> = vec![];
+    let mut single_heuristic_cost: Vec<f32> = vec![0.0];
+
+    model
+        .heuristic(&[current.clone()], &mut single_heuristic_cost[0..1])
+        .expect("Heuristic failed initial!");
+
     to_see.push(SmallestCostHolder {
-        estimated_cost: heuristic_cost(&current, &desired),
+        estimated_cost: single_heuristic_cost[0],
         cost_so_far: 0.0,
         index: 0,
         is_secondary: false,
@@ -398,72 +382,58 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
     let start = PlayerVertex {
         player: current.clone(),
         cost_so_far: 0.0,
-        prev_controller: BrickControllerState::new(),
+        prev_controller: BrickControllerState::default(),
+        ball_trajectory_index: initial_ball_trajectory_index,
+        step_duration: 0.0,
         parent_index: usize::MAX,
         parent_is_secondary: false,
     };
 
-    parents.insert(round_player_state(&current, step_duration, current.velocity.norm()), (start, None));
+    parents.insert(
+        round_player_state(&current, config.step_duration, current.velocity.norm()),
+        (start, None),
+    );
 
-    let slop = match step_duration {
-        FINE_STEP => 1.0, // TODO tune
-        MEDIUM_STEP => 20.0, // TODO tune
-        COARSE_STEP => 30.0, // TODO tune
-        VERY_COARSE_STEP => 100.0, // TODO tune
-        _ => unimplemented!("slop"),
-    };
-
-    let desired_contact = desired.position;
-    let desired_hit_direction = Unit::new_normalize(desired.heading.clone());
-    let goals = setup_goals(&desired_contact, &desired_hit_direction, slop);
-
-    let coarse_box = BoundingBox::from_boxes(&(goals.iter().map(|g| g.bounding_box.clone())).collect());
-    let coarse_goal = Goal {
-        bounding_box: coarse_box,
-        heading: desired_hit_direction,
-        min_dot: (PI/2.0 - PI/8.0).cos(),
-    };
-
-
-    for goal in goals.iter() {
-        let hit_pos = goal.bounding_box.center() + (slop + CAR_DIMENSIONS.x/2.0)*goal.heading.as_ref();
-        visualization_lines.append(&mut goal.bounding_box.lines());
-        for (l, ..) in goal.bounding_box.lines() {
-            visualization_lines.push((
-                Point3::new(l.x, l.y, l.z),
-                Point3::new(hit_pos.x, hit_pos.y, hit_pos.z),
-                Point3::new(0.0, 0.0, 1.0),
-            ));
-        }
-    }
-
-    let max_cost = max_cost(step_duration);
     let mut num_iterations = 0;
-    let max_iterations = match step_duration {
-        VERY_COARSE_STEP => 4000,
-        _ => 10_000,
-    };
-    while let Some(SmallestCostHolder { estimated_cost, cost_so_far, index, is_secondary, .. }) = to_see.pop() {
 
+    while let Some(SmallestCostHolder {
+        estimated_cost: _,
+        cost_so_far,
+        index,
+        is_secondary,
+        ..
+    }) = to_see.pop()
+    {
         // avoid an infinite graph search
-        if cost_so_far > max_cost {
-            println!("short circuit, hit max cost!");
+        if cost_so_far > config.max_cost {
+            //println!("short circuit, hit max cost!");
             break;
         }
 
         // HACK avoid very large searches completely
         num_iterations += 1;
-        if num_iterations > max_iterations {
-            println!("short circuit, too many iterations!");
+        if num_iterations > config.max_iterations {
+            //println!("short circuit, too many iterations!");
             break;
         }
 
-        let line_start;
-        let new_vertices = {
-            let (_, (v1, maybe_v2)) = parents.get_index(index).expect("missing index in parents, shouldn't be possible");
-            let vertex = if is_secondary { maybe_v2.as_ref().unwrap() }  else { v1 };
-            line_start = vertex.player.position;
+        // FIXME bring back 32-tick steps. we lost 32-tick steps in latest sample runs, which are only 16 steps long
+        let dur = config.step_duration;
+        // let dur = if estimated_cost - cost_so_far > 2.0 {
+        //     // if we're really far... yeah just make it super coarse to make it tractable, and the
+        //     // search config has no control over this for now
+        //     32.0 * TICK
+        // } else {
+        //     config.step_duration
+        // };
 
+        let line_start;
+        {
+            let (_, (v1, maybe_v2)) = parents
+                .get_index(index)
+                .expect("missing index in parents, shouldn't be possible");
+            let vertex = if is_secondary { maybe_v2.as_ref().unwrap() } else { v1 };
+            line_start = vertex.player.position;
 
             let mut parent_player;
             if let Some((_, (parent_v1, maybe_parent_v2))) = parents.get_index(vertex.parent_index) {
@@ -472,7 +442,7 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 } else {
                     parent_v1
                 };
-                parent_player = parent_vertex.player;
+                parent_player = parent_vertex.player.clone();
             } else {
                 // no parent, this can only happen on first expansion. we need to construct a fake
                 // one just so that goal detection works
@@ -484,17 +454,49 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 parent_player.position.z += 0.1;
             }
 
-            if player_goal_reached(&coarse_goal, &goals, &vertex.player, &parent_player) {
-                //println!("omg reached! step size: {} | expensions: {}", step_duration * 120.0, visualization_points.len());
+            if let Some((player, ball, cost)) = player_goal_reached(
+                &vertex,
+                &parent_player,
+                ball_trajectory,
+                &vertex.prev_controller,
+                config.step_duration,
+                is_ball_hit_towards_goal,
+            ) {
+                let plan = reverse_path(&parents, index, is_secondary, &player, cost);
+
+                let total_cost = plan.iter().map(|(_, _, cost)| cost).sum::<f32>();
+                // println!(
+                //     "omg reached! step size: {} | expansions: {} | cost: {}",
+                //     config.step_duration * 120.0,
+                //     visualization_lines.len(),
+                //     total_cost,
+                // );
                 return PlanResult {
-                    plan: Some(reverse_path(&parents, index, is_secondary)),
-                    desired: desired.clone(),
+                    plan: Some(plan),
+                    planned_ball: Some(ball),
+                    source_frame: 0, // caller sets it
+                    cost_diff: total_cost - cost_to_strive_for,
+                    ball_trajectory: ball_trajectory.to_vec(),
                     visualization_lines,
                     visualization_points,
                 };
+            } else if coarse_collision(&vertex, &parent_player, &ball_trajectory[vertex.ball_trajectory_index]) {
+                // if we hit the ball but we didn't reach the goal, we skip instead of expanding
+                // this vertex
+                let index = ((vertex.cost_so_far - vertex.step_duration) / TICK).round() as usize;
+                if predict::player::get_collision(
+                    &ball_trajectory[index..],
+                    &parent_player,
+                    &vertex.prev_controller,
+                    config.step_duration,
+                )
+                .is_some()
+                {
+                    continue;
+                }
             }
 
-            // We may have inserted a node several time into the binary heap if we found
+            // We may have inserted a node several times into the binary heap if we found
             // a better way to access it. Ensure that we are currently dealing with the
             // best path and discard the others.
             //
@@ -503,39 +505,84 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                 continue;
             }
 
-            expand_vertex(index, is_secondary, &vertex, step_duration, |_| true)
+            expand_vertex(index, is_secondary, &vertex, &mut new_vertices, dur, config.custom_filter)
         };
 
-        for new_vertex in new_vertices {
-            let new_vertex_rounded = round_player_state(&new_vertex.player, step_duration, new_vertex.player.velocity.norm());
+        new_players.clear();
+        new_players.extend(new_vertices.iter().map(|v| v.player.clone()));
+
+        if let Some(first_new_vertex) = new_vertices.get(0) {
+            let index = first_new_vertex.ball_trajectory_index;
+            let wtf: &[PlayerState] = &new_players;
+            set_heuristic_costs(model, wtf, &mut cur_heuristic_costs, &ball_trajectory, index);
+            set_heuristic_costs(
+                model,
+                &new_players,
+                &mut prev_heuristic_costs,
+                &ball_trajectory,
+                index.wrapping_sub(1),
+            );
+            set_heuristic_costs(model, &new_players, &mut next_heuristic_costs, &ball_trajectory, index + 1);
+        }
+
+        for (i, mut new_vertex) in new_vertices.drain(0..).enumerate() {
+            let new_vertex_rounded = round_player_state(&new_vertex.player, dur, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
             let line_end = new_vertex.player.position;
             let mut new_estimated_cost = 0.0;
 
+            let cur_diff = (cur_heuristic_costs[i] - TICK * new_vertex.ball_trajectory_index as f32).abs();
+            let prev_diff = (prev_heuristic_costs[i] - TICK * (new_vertex.ball_trajectory_index as f32 - 1.0)).abs();
+            let next_diff = (next_heuristic_costs[i] - TICK * (new_vertex.ball_trajectory_index as f32 + 1.0)).abs();
+            let heuristic_cost = if cur_diff < prev_diff && cur_diff <= next_diff {
+                cur_heuristic_costs[i]
+            } else if prev_diff <= next_diff {
+                new_vertex.ball_trajectory_index = new_vertex.ball_trajectory_index.wrapping_sub(1);
+                prev_heuristic_costs[i]
+            } else {
+                new_vertex.ball_trajectory_index += 1;
+                next_heuristic_costs[i]
+            };
+
             match parents.entry(new_vertex_rounded) {
                 Vacant(e) => {
                     new_index = e.index();
-                    new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
+                    new_estimated_cost = new_cost_so_far + heuristic_cost;
                     e.insert((new_vertex, None));
-
                 }
                 Occupied(mut e) => {
                     new_index = e.index();
                     new_is_secondary = true;
-                    let mut insertable = None; // make borrowck happy
+                    let insertable;
                     match e.get() {
                         (existing_vertex, None) => {
                             // basically just like the vacant case
-                            new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
+                            new_estimated_cost = new_cost_so_far + heuristic_cost;
+                            // TODO-perf avoid the clone here. nll? worst-case, can use mem::replace with an enum
                             insertable = Some((existing_vertex.clone(), Some(new_vertex)));
-                        },
+                        }
                         (existing_vertex, Some(existing_secondary_vertex)) => {
+                            // FIXME we seem to only be checking/replacing the secondary vertex..
+                            // what about the primary?
                             let mut new_cost_is_lower = existing_secondary_vertex.cost_so_far > new_vertex.cost_so_far;
                             if new_cost_is_lower {
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
-                            } else if e.index() == new_vertex.parent_index || new_vertex.parent_index == existing_secondary_vertex.parent_index {
+                                // turns out that the index invalidation is a problem in general
+                                // with the IndexMap approach when replacing occupied entries: we
+                                // end up with some nonsensical plan jumps otherwise. instead,
+                                // let's limit replacements to siblings. this does mean we may miss
+                                // out on the best path, but at least doesn't give us corrupted
+                                // paths! if this causes us to lose too many good paths, we'll need
+                                // to reconsider the use of the IndexMap
+                                if existing_secondary_vertex.parent_index != new_vertex.parent_index {
+                                    continue;
+                                }
+
+                                new_estimated_cost = new_cost_so_far + heuristic_cost;
+                            } else if e.index() == new_vertex.parent_index
+                                || new_vertex.parent_index == existing_secondary_vertex.parent_index
+                            {
                                 // same cell expansion. due to the consistent nature of the heuristic, a new
                                 // vertex that is closer to the goal will have a higher cost-so-far than its
                                 // parent, even if in the same cell. so this is the workaround from
@@ -561,14 +608,32 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                                     continue;
                                 }
 
+                                // turns out that the index invalidation is a problem in general,
+                                // since we end up with some nonsensical plan jumps otherwise,
+                                // though rarely.  instead, let's limit this extra logic to
+                                // same-cell expansion.  however, this prunes paths that may be the
+                                // path we want
+                                if e.index() != new_vertex.parent_index {
+                                    continue;
+                                }
+
                                 // now check if we are better than the secondary using the
                                 // whole estimate, given this scenario is mostly made for children
                                 // of the same parent, and thus pretty similar if not exactly the
                                 // same cost so far. we don't want a tie-breaker like Karl's
                                 // version had since we are not comparing against a parent
                                 // directly, but a sibling!
-                                new_estimated_cost = new_cost_so_far + heuristic_cost(&new_vertex.player, &desired);
-                                let existing_secondary_estimated_cost = existing_secondary_vertex.cost_so_far + heuristic_cost(&existing_secondary_vertex.player, &desired);
+                                new_estimated_cost = new_cost_so_far + heuristic_cost;
+
+                                set_heuristic_costs(
+                                    model,
+                                    &[existing_secondary_vertex.player.clone()],
+                                    &mut single_heuristic_cost,
+                                    &ball_trajectory,
+                                    existing_secondary_vertex.ball_trajectory_index,
+                                );
+                                let existing_secondary_estimated_cost =
+                                    existing_secondary_vertex.cost_so_far + single_heuristic_cost[0];
 
                                 if new_estimated_cost < existing_secondary_estimated_cost {
                                     new_cost_is_lower = true;
@@ -576,37 +641,46 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
                             }
 
                             if new_cost_is_lower {
+                                // TODO-perf avoid the clone here. can use mem::replace with an enum
                                 insertable = Some((existing_vertex.clone(), Some(new_vertex)));
                             } else {
-                                visualization_points.push((
-                                    Point3::new(line_end.x, line_end.y, line_end.z),
-                                    Point3::new(0.4, 0.0, 0.0),
-                                ));
-                                //visualization_lines.push((
-                                //    Point3::new(line_start.x, line_start.y, line_start.z),
+                                //visualization_points.push((
                                 //    Point3::new(line_end.x, line_end.y, line_end.z),
                                 //    Point3::new(0.4, 0.0, 0.0),
                                 //));
+                                visualization_lines.push((
+                                    Point3::new(line_start.x, line_start.y, line_start.z),
+                                    Point3::new(
+                                        0.1 * (line_end.x - line_start.x) + line_start.x,
+                                        0.1 * (line_end.y - line_start.y) + line_start.y,
+                                        0.1 * (line_end.z - line_start.z) + line_start.z,
+                                    ),
+                                    Point3::new(0.4, 0.0, 0.0),
+                                ));
                                 continue;
                             }
                         }
                     }
 
-                    if let Some(v) = insertable { e.insert(v); }
-
-
+                    if let Some(v) = insertable {
+                        e.insert(v);
+                    }
                 }
             }
 
-            visualization_points.push((
-                Point3::new(line_end.x, line_end.y, line_end.z),
-                Point3::new(0.6, 0.6, 0.6),
-            ));
-            //visualization_lines.push((
-            //    Point3::new(line_start.x, line_start.y, line_start.z),
+            //visualization_points.push((
             //    Point3::new(line_end.x, line_end.y, line_end.z),
             //    Point3::new(0.6, 0.6, 0.6),
             //));
+            visualization_lines.push((
+                Point3::new(line_start.x, line_start.y, line_start.z),
+                Point3::new(
+                    0.1 * (line_end.x - line_start.x) + line_start.x,
+                    0.1 * (line_end.y - line_start.y) + line_start.y,
+                    0.1 * (line_end.z - line_start.z) + line_start.z,
+                ),
+                Point3::new(0.6, 0.6, 0.6),
+            ));
 
             // rustc is forcing us to initialize this every time because it doesn't understand data
             // flow, so let's manually make sure we aren't in the initial state which is never right
@@ -623,65 +697,122 @@ pub extern fn hybrid_a_star(current: &PlayerState, desired: &DesiredContact, ste
         }
     }
 
-    //println!("omg failed! step size: {} | expensions: {}", step_duration * 120.0, visualization_points.len());
-    PlanResult { plan: None, desired: desired.clone(), visualization_lines, visualization_points }
+    // println!(
+    //     "omg failed! step size: {} | expansions: {} | left: {}",
+    //     config.step_duration * 120.0,
+    //     visualization_lines.len(),
+    //     to_see.len()
+    // );
+
+    PlanResult {
+        visualization_lines,
+        visualization_points,
+        ..PlanResult::default()
+    }
 }
 
-fn player_goal_reached(coarse_goal: &Goal, precise_goals: &Vec<Goal>, candidate: &PlayerState, previous: &PlayerState) -> bool {
-    let coarse_box = coarse_goal.bounding_box;
-    let coarse_heading = coarse_goal.heading;
+fn set_heuristic_costs<H: HeuristicModel>(
+    model: &mut H,
+    new_players: &[PlayerState],
+    costs: &mut Vec<f32>,
+    ball_trajectory: &[BallState],
+    ball_trajectory_index: usize,
+) {
+    while costs.len() < new_players.len() {
+        costs.push(0.0)
+    }
 
-    // NOTE we are just using the candidate. what we really want is the heading at the closest
-    // positions. well, what we really really want is the heading at every intermediate position.
-    // so we'd need to calculate intersection between the list of headings, and our desired
-    // heading, with some tolerance. but idk the math for that yet so we're just using the
-    // candidate heading
-    let candidate_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    // pretty broad angle check. does this actually make it faster?
-    let correct_coarse_direction = na::dot(coarse_heading.as_ref(), &candidate_heading) > coarse_goal.min_dot;
+    let goal = Vector3::new(0.0, BACK_WALL_DISTANCE, BALL_COLLISION_RADIUS); // FIXME don't hard-code
+    if let Some(ball) = ball_trajectory.get(ball_trajectory_index) {
+        model.ball_configure(&ball, &goal); // FIXME adjust this for ball velocity
+    } else {
+        // just make it a high cost as the ball doesn't exist in this offset as far as we know
+        for cost in costs.iter_mut() {
+            *cost = 1000.0
+        }
+        return;
+    }
 
-    if !correct_coarse_direction { return false };
-
-    let coarse_collision = line_collides_bounding_box(&coarse_box, previous.position, candidate.position);
-    if !coarse_collision { return false };
-
-    precise_goals.iter().any(|goal| {
-        let correct_precise_direction = na::dot(goal.heading.as_ref(), &candidate_heading) > goal.min_dot;
-        correct_precise_direction &&
-            line_collides_bounding_box(&goal.bounding_box, previous.position, candidate.position)
-    })
+    model
+        .heuristic(&new_players, &mut costs[0..new_players.len()])
+        .expect("Heuristic failed!");
 }
 
-fn reverse_path(parents: &ParentsMap, initial_index: usize, initial_is_secondary: bool) -> Vec<(PlayerState, BrickControllerState)> {
+fn coarse_collision(candidate_vertex: &PlayerVertex, previous_player: &PlayerState, ball: &BallState) -> bool {
+    // the bounding box size includes the car dimensions because we use the center of the car's
+    // position to create the line for the coarse collision check
+    let size = BALL_COLLISION_RADIUS + CAR_DIMENSIONS.norm() / 2.0;
+
+    let coarse_box = BoundingBox::new(&ball.position, size);
+    // XXX note if using large time steps, this will be especially  inaccurate as we assume prev to
+    // current is a straight line but it may be curved. this is offset by the fact that we use the
+    // maximium car dimension to extend the bounding box though, so we may have fewer false
+    // negatives than otherwise
+    line_collides_bounding_box(
+        &coarse_box,
+        previous_player.hitbox_center(),
+        candidate_vertex.player.hitbox_center(),
+    )
+}
+
+type Evaluator =
+    fn(&[BallState], &PlayerState, &PlayerVertex, &BrickControllerState, f32) -> Option<(PlayerState, BallState, f32)>; // consider using Fn trait + generics to make this inlinable
+
+fn player_goal_reached(
+    candidate_vertex: &PlayerVertex,
+    previous_player: &PlayerState,
+    ball_trajectory: &[BallState],
+    controller: &BrickControllerState,
+    time_step: f32,
+    evaluator: Evaluator,
+) -> Option<(PlayerState, BallState, f32)> {
+    let coarse_collision = coarse_collision(
+        candidate_vertex,
+        previous_player,
+        &ball_trajectory[candidate_vertex.ball_trajectory_index],
+    );
+    if !coarse_collision {
+        return None;
+    };
+
+    evaluator(ball_trajectory, previous_player, candidate_vertex, controller, time_step)
+}
+
+// NOTE this gets you a plan which consists of tuples of (player, prev_controller, cost). to
+// actually execute this plan, one most look at the "prev_controller" of the next tuple in the
+// plan, which will correspond to the correspond to the controller action required now in ordert
+// to reach the next player state
+#[allow(clippy::needless_collect)] // it's actually needed as rev does not work after unfold
+fn reverse_path(
+    parents: &ParentsMap,
+    initial_index: usize,
+    initial_is_secondary: bool,
+    initial_player: &PlayerState,
+    initial_cost: f32,
+) -> Plan {
     let path = itertools::unfold((initial_index, initial_is_secondary), |vals| {
         let index = (*vals).0;
         let is_secondary = (*vals).1;
         parents.get_index(index).map(|(_rounded, (v1, maybe_v2))| {
-            let vertex = if is_secondary { maybe_v2.as_ref().unwrap() }  else { v1 };
+            let vertex = if is_secondary { maybe_v2.as_ref().unwrap() } else { v1 };
             (*vals).0 = vertex.parent_index;
             (*vals).1 = vertex.parent_is_secondary;
-            (vertex.player, vertex.prev_controller)
+            let player = if index == initial_index {
+                initial_player.clone()
+            } else {
+                vertex.player.clone()
+            };
+            let cost = if index == initial_index {
+                initial_cost
+            } else {
+                vertex.step_duration
+            };
+            (player, vertex.prev_controller.clone(), cost)
         })
-    }).collect::<Vec<_>>();
+    })
+    .collect::<Vec<_>>();
 
     path.into_iter().rev().collect()
-}
-
-fn grid_factor(step_duration: f32, speed: f32) -> f32 {
-    match step_duration {
-        FINE_STEP => {
-            if speed < 400.0 {
-                0.4
-            } else if speed < 1000.0 {
-                0.12 // TODO tune
-            } else {
-                0.08
-            }
-        }
-        MEDIUM_STEP => 1.0, // TODO tune
-        COARSE_STEP | VERY_COARSE_STEP => 1.0, // TODO tune
-        _ => unimplemented!("grid factor") // we have only tuned for the values above, not allowing others for now
-    }
 }
 
 /// not the opponent's goal. this is the goal for our a* search!
@@ -713,62 +844,18 @@ impl BoundingBox {
             max_z: pos.z + slop,
         };
         // FIXME hack to extend bounds down to the ground, where the car can reach them
-        if bb.max_z - bb.min_z < BALL_RADIUS * 2.0 { bb.min_z = (bb.min_z + bb.max_z) / 2.0 - BALL_RADIUS }
+        if bb.max_z - bb.min_z < BALL_COLLISION_RADIUS * 2.0 {
+            bb.min_z = (bb.min_z + bb.max_z) / 2.0 - BALL_COLLISION_RADIUS
+        }
         bb
     }
-
-    fn from_boxes(boxes: &Vec<BoundingBox>) -> BoundingBox {
-        let mut min_x = std::f32::MAX;
-        let mut min_y = std::f32::MAX;
-        let mut min_z = std::f32::MAX;
-        let mut max_x = std::f32::MIN;
-        let mut max_y = std::f32::MIN;
-        let mut max_z = std::f32::MIN;
-        for b in boxes {
-            if b.min_x < min_x { min_x = b.min_x }
-            if b.min_y < min_y { min_y = b.min_y }
-            if b.min_z < min_z { min_z = b.min_z }
-            if b.max_x > max_x { max_x = b.max_x }
-            if b.max_y > max_y { max_y = b.max_y }
-            if b.max_z > max_z { max_z = b.max_z }
-        }
-        // FIXME hack to extend bounds down to the ground, where the car can reach them
-        if max_z - min_z < BALL_RADIUS * 2.0 { min_z = (min_z + max_z) / 2.0 - BALL_RADIUS }
-        BoundingBox { min_x, max_x, min_y, max_y, min_z, max_z }
-    }
-
-    fn center(&self) -> Vector3<f32> {
-        Vector3::new(
-            (self.min_x + self.max_x) / 2.0,
-            (self.min_y + self.max_y) / 2.0,
-            (self.min_z + self.max_z) / 2.0,
-        )
-    }
-
-    fn lines(&self) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
-        let mut corners = vec![];
-        for &x in [self.min_x, self.max_x].iter() {
-            for &y in [self.min_y, self.max_y].iter() {
-                for &z in [self.min_z, self.max_z].iter() {
-                    corners.push(Point3::new(x, y, z));
-                }
-            }
-        }
-
-        corners.clone().iter().flat_map(|c1: &Point3<f32>| {
-            corners.iter().map(|c2: &Point3<f32>| {
-                (Point3::new(c1.x, c1.y, c1.z), Point3::new(c2.x, c2.y, c2.z), Point3::new(0.0f32, 1.0f32, 0.3f32))
-            }).collect::<Vec<_>>()
-        }).collect::<Vec<_>>()
-    }
 }
-
 
 // https://bheisler.github.io/post/writing-gpu-accelerated-path-tracer-part-3/
 // https://gamedev.stackexchange.com/a/18459/4929
 pub fn ray_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>, end: Vector3<f32>) -> bool {
     let dir = end - start;
-    let dir_inv = Vector3::new(1.0/dir.x, 1.0/dir.y, 1.0/dir.z);
+    let dir_inv = Vector3::new(1.0 / dir.x, 1.0 / dir.y, 1.0 / dir.z);
 
     let mut txmin = (bounding_box.min_x - start.x) * dir_inv.x;
     let mut txmax = (bounding_box.max_x - start.x) * dir_inv.x;
@@ -816,8 +903,7 @@ pub fn ray_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>
 //// the overhead by using the previous position as the ray origin first, assuming we'll
 //// mostly be moving *towards* the desired position for most expanded a* paths
 pub fn line_collides_bounding_box(bounding_box: &BoundingBox, start: Vector3<f32>, end: Vector3<f32>) -> bool {
-    ray_collides_bounding_box(&bounding_box, start, end) &&
-        ray_collides_bounding_box(&bounding_box, end, start)
+    ray_collides_bounding_box(&bounding_box, start, end) && ray_collides_bounding_box(&bounding_box, end, start)
 }
 
 fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> RoundedPlayerState {
@@ -831,9 +917,9 @@ fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> R
     }
     let rounded_speed = rounded_speed * rounding_factor;
 
-    let mut grid_size = step_duration * rounded_speed * grid_factor(step_duration, speed);
-    let velocity_margin = 250.0; // TODO tune
-    let (roll, pitch, yaw) = player.rotation.to_euler_angles();
+    let grid_size = step_duration * rounded_speed;
+    //let velocity_margin = 250.0; // TODO tune
+    let (_roll, _pitch, yaw) = player.rotation.euler_angles();
 
     RoundedPlayerState {
         // TODO we could have individual grid sizes for x/y/z based on vx/vy/vz. not sure it's
@@ -854,11 +940,9 @@ fn round_player_state(player: &PlayerState, step_duration: f32, speed: f32) -> R
         //   // XXX including rotation in search space also seems like too much for now
         //   roll: 0, //(roll * 10.0).floor() as i16,
         //   pitch: 0, //(pitch * 10.0).floor() as i16,
-        yaw: (yaw / (PI/4.0)).round() as i16, // round to nearest pi/4 angle
+        yaw: (yaw / (PI / 8.0)).round() as i16, // round to nearest pi/4 angle
     }
-
 }
-
 
 fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> {
     match predict::player::find_prediction_category(&player) {
@@ -872,81 +956,54 @@ fn control_branches(player: &PlayerState) -> &'static Vec<BrickControllerState> 
     }
 }
 
+// the margin is to allow hitting on the curve or from inside the goal. this is only needed until
+// we get prediction for driving on the curves/walls
+// TODO well we should model the goal area as drivable too
+const BOUNDS_MARGIN: f32 = 200.0;
 fn out_of_bounds(player: &PlayerState) -> bool {
     let pos = player.position;
-    pos.x > SIDE_WALL_DISTANCE || pos.x < -SIDE_WALL_DISTANCE ||
-        pos.y > BACK_WALL_DISTANCE || pos.y < -BACK_WALL_DISTANCE
+    pos.x.abs() > SIDE_CURVE_DISTANCE + BOUNDS_MARGIN || pos.y.abs() > BACK_CURVE_DISTANCE + BOUNDS_MARGIN
 }
 
-fn expand_vertex(index: usize, is_secondary: bool, vertex: &PlayerVertex, step_duration: f32, custom_filter: fn(&PlayerVertex) -> bool) -> Vec<PlayerVertex> {
-    control_branches(&vertex.player).iter().map(|&controller| {
-        PlayerVertex {
-            player: predict::player::next_player_state(&vertex.player, &controller, step_duration),
-            cost_so_far: vertex.cost_so_far + step_duration,
-            prev_controller: controller,
-            parent_index: index,
-            parent_is_secondary: is_secondary,
-        }
-    }).filter(|new_vertex| {
-        // if parent (ie vertex) is already out of bounds, allow going out of bounds since we need
-        // to be able to move back in if we start planning from out of bounds (eg player inside
-        // goal)
-        // TODO ideally we'd only allow if we're getting *less* out of bounds than before
-        let outside_arena = out_of_bounds(&new_vertex.player) && !out_of_bounds(&vertex.player);
-        !outside_arena && custom_filter(&new_vertex)
-    }).collect::<Vec<PlayerVertex>>()
-}
+fn expand_vertex(
+    index: usize,
+    is_secondary: bool,
+    vertex: &PlayerVertex,
+    new_vertices: &mut Vec<PlayerVertex>,
+    step_duration: f32,
+    custom_filter: Option<fn(&PlayerState) -> bool>,
+) {
+    let iterator = control_branches(&vertex.player)
+        .iter()
+        .map(|controller: &BrickControllerState| -> Result<PlayerVertex, String> {
+            let next_player = predict::player::next_player_state(&vertex.player, &controller, step_duration);
+            if next_player.is_err() {
+                // print to stderr now since we're swallowing these errors right after this
+                eprintln!("Warning: failed to expand vertex: {}", next_player.as_ref().unwrap_err());
+            }
 
-fn heuristic_cost(candidate: &PlayerState, desired: &DesiredContact) -> f32 {
-    // basic heuristic cost is a lower-bound for how long it would take, given max boost, to reach
-    // the desired position and velocity. and we need to do rotation too.
-    //
-    // NOTE for now we ignore the fact that we are not starting at the max boost velocity pointed
-    // directly at the desired position. the heuristic just needs to be a lower bound, until we
-    // want to get it more accurate and thus ignore irrelevant branches more efficiently.
-    let towards_contact = desired.position - candidate.position;
-    let distance = towards_contact.norm();
-    //let towards_contact_heading = Unit::new_normalize(towards_contact).unwrap();
-    let movement_time_cost = distance / 1200.0; // FIXME should use predict::player::MAX_BOOST_SPEED, but it checks too many paths. we just get a slightly less optimal path, but get it a lot faster
-
-    // NOTE this is weird since we are not taking into account that some of the time cost here may
-    // overlap with the distance cost. what we really want to do is find the boost vector that
-    // would minimize time to reach the target, but seems complicated and we do need this heuristic
-    // function to be really cheap.
-    //
-    // so instead we do something dumb and have basically a second heuristic. we can take the max
-    // of the two heuristics
-    //
-    // FIXME this also assumes boosting is the highest acceleration action. braking or backflipping
-    // while at max speed may be higher, making this strictly not admissable
-    //let relative_velocity = (desired.velocity - candidate.velocity).norm();
-    //let acceleration_time_cost = relative_velocity / predict::player::BOOST_ACCELERATION_FACTOR;
-
-    // let current_heading = candidate.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
-    // let desired_contact_heading = Unit::new_normalize(desired.heading.clone()).unwrap(); // FIXME normalize before
-    // //let rotation_match_factor = 1.0 - na::dot(&current_heading, &desired_contact_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
-    // let rotation_match_factor = 1.0 - na::dot(&current_heading, &towards_contact_heading); // 0 for perfect match, -2 for exactly backwards, -1 for orthogonal
-    // let distance_factor = (1.0 - distance/1000.0).max(0.0); // linearly reduce rotation cost the further we are away. 0 at max distance, ie yaw mismatch is complete ignored if far enough (TODO tune)
-    // let rotation_cost = 1.1 * distance_factor * rotation_match_factor; // constant factor here is arbitrary (TODO tune)
-    // TODO angular velocity cost
-    // the distance between orientation R1 and R2 is:
-    //
-    //     || logm(dot(R1, transpose(R2))) ||
-    //
-    // where || . || is the Frobenius norm
-    // and logm is the matrix logarithm
-
-    //    // we can't add these times as they may be overlapping (eg imagine we just need to go straight
-    //    // from resting), and we must have an admissable heuristic. so it's just whichever one is
-    //    // bigger.
-    //    if movement_time_cost > acceleration_time_cost {
-    //        movement_time_cost
-    //    } else {
-    //        acceleration_time_cost
-    //    }
-    // FIXME acceleration_time_cost causing problems, removing temporarily. bring it back when
-    // round player state includes velocity again.
-    movement_time_cost //+ rotation_cost
+            Ok(PlayerVertex {
+                player: next_player?,
+                cost_so_far: vertex.cost_so_far + step_duration,
+                prev_controller: controller.clone(),
+                ball_trajectory_index: vertex.ball_trajectory_index,
+                step_duration,
+                parent_index: index,
+                parent_is_secondary: is_secondary,
+            })
+        })
+        .filter_map(Result::ok)
+        .filter(|new_vertex| {
+            if let Some(filter_func) = custom_filter {
+                filter_func(&new_vertex.player)
+            } else {
+                // if parent (ie vertex) is already out of bounds, allow going out of bounds since we need
+                // to be able to move back in if we start planning from out of bounds (eg player inside
+                // goal). we're  only allowing if we're getting *less* out of bounds than before
+                !out_of_bounds(&new_vertex.player) || out_of_bounds(&vertex.player)
+            }
+        });
+    new_vertices.extend(iterator);
 }
 
 #[cfg(test)]
@@ -954,16 +1011,47 @@ mod tests {
     use super::*;
     use std::f32::consts::PI;
 
-    fn resting_position() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
-    fn resting_velocity() -> Vector3<f32> { Vector3::new(0.0, 0.0, 0.0) }
-    fn resting_rotation() -> UnitQuaternion<f32> { UnitQuaternion::from_euler_angles(0.0, 0.0, -PI/2.0) }
+    fn get_model() -> impl HeuristicModel {
+        // TODO config file or something
+        //let path = "./heuristic/train/nn/simple_throttle_cost_saved_model/1552341051/";
+        //heuristic::NeuralHeuristic::try_new(path).expect("Failed to initialize NeuralHeuristic")
+
+        // TODO config file or something
+        //println!("{}", env!("CARGO_MANIFEST_DIR"));
+        //let path = &format!("{}/../time.csv", env!("CARGO_MANIFEST_DIR"));
+        //heuristic::KnnHeuristic::try_new(path).expect("Failed to initialize KnnHeuristic")
+
+        heuristic::BasicHeuristic::default()
+    }
+
+    fn resting_position() -> Vector3<f32> {
+        Vector3::new(0.0, 0.0, 0.0)
+    }
+    fn resting_velocity() -> Vector3<f32> {
+        Vector3::new(0.0, 0.0, 0.0)
+    }
+    fn resting_rotation() -> na::UnitQuaternion<f32> {
+        na::UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0)
+    }
 
     fn resting_player_state() -> PlayerState {
         PlayerState {
             position: resting_position(),
             velocity: resting_velocity(),
+            angular_velocity: resting_velocity(),
             rotation: resting_rotation(),
             team: Team::Blue,
+        }
+    }
+
+    fn test_ball() -> BallState {
+        BallState::default()
+    }
+
+    fn test_desired_contact() -> DesiredContact {
+        DesiredContact {
+            position: resting_position(),
+            heading: Vector3::new(0.0, 1.0, 0.0),
         }
     }
 
@@ -1055,19 +1143,23 @@ mod tests {
     fn just_drive_straight() {
         let mut count = 0;
         let mut failures = vec![];
-        for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-            let mut current = resting_player_state();
-            current.position.y = -1000.0;
-            let desired = resting_player_state();
-            let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-            //assert!(plan.is_some());
-            if plan.is_some(){ count += 1 } else { failures.push(step_duration) }
+        let mut current = resting_player_state();
+        current.position.y = -1000.0;
+        let desired = test_desired_contact();
+        let mut model = get_model();
+        let config = SearchConfig::default();
+        let PlanResult { plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+        //assert!(plan.is_some());
+        if plan.is_some() {
+            count += 1
+        } else {
+            failures.push(true)
         }
         println!("WORKED {} TIMES", count);
         println!("FAILED {} TIMES", failures.len());
         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
         println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
+        assert!(failures.is_empty());
     }
 
     #[test]
@@ -1075,97 +1167,100 @@ mod tests {
         let mut count = 0;
         let mut failures = vec![];
         for distance in -500..0 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+            let mut current = resting_player_state();
+            current.position.y = distance as f32;
+            let desired = test_desired_contact();
+            let mut model = get_model();
+            let config = SearchConfig::default();
+            let PlanResult { plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+            //assert!(plan.is_some());
+            if plan.is_some() {
+                count += 1
+            } else {
+                failures.push(distance)
             }
         }
         println!("WORKED {} TIMES", count);
         println!("FAILED {} TIMES", failures.len());
         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
         //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
-
-    #[test]
-    fn just_drive_straight_fuzz2() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -1000..-500 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
-
-    #[test]
-    fn just_drive_straight_fuzz3() {
-        let mut count = 0;
-        let mut failures = vec![];
-        //for distance in -2000..-1000 {
-        for distance in -2000..-1900 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-            //for &step_duration in [COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
-    }
-
-    #[test]
-    fn just_drive_straight_fuzz4() {
-        let mut count = 0;
-        let mut failures = vec![];
-        for distance in -4000..-2000 {
-            for &step_duration in [COARSE_STEP, VERY_COARSE_STEP].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = resting_player_state();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
-            }
-        }
-        println!("WORKED {} TIMES", count);
-        println!("FAILED {} TIMES", failures.len());
-        println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
-        //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
+        assert!(failures.is_empty());
     }
 
     // #[test]
-    // fn unreachable() {
+    // fn just_drive_straight_fuzz2() {
     //     let mut count = 0;
-    //     let distance = -10_000;
-    //     for &step_duration in [FINE_STEP, MEDIUM_STEP, COARSE_STEP, VERY_COARSE_STEP].iter() {
-    //         let mut current = resting_player_state();
-    //         current.position.y = distance as f32;
-    //         let desired = resting_player_state();
-    //         let PlanResult { mut plan, .. } = hybrid_a_star(&current, &desired, step_duration);
-    //         assert!(plan.is_none());
+    //     let mut failures = vec![];
+    //     for distance in -1000..-500 {
+    //         for &step_duration in [0.5].iter() {
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = test_desired_contact();
+    //             let PlanResult { plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
+    //             //assert!(plan.is_some());
+    //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+    //         }
     //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.is_empty());
     // }
+
+    // #[test]
+    // fn just_drive_straight_fuzz3() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     //for distance in -2000..-1000 {
+    //     for distance in -2000..-1900 {
+    //         for &step_duration in [0.5].iter() {
+    //         //for &step_duration in [COARSE_STEP].iter() {
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = test_desired_contact();
+    //             let PlanResult { plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
+    //             //assert!(plan.is_some());
+    //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.is_empty());
+    // }
+
+    // #[test]
+    // fn just_drive_straight_fuzz4() {
+    //     let mut count = 0;
+    //     let mut failures = vec![];
+    //     for distance in -4000..-2000 {
+    //         for &step_duration in [0.5].iter() {
+    //             let mut current = resting_player_state();
+    //             current.position.y = distance as f32;
+    //             let desired = test_desired_contact();
+    //             let PlanResult { plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
+    //             //assert!(plan.is_some());
+    //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
+    //         }
+    //     }
+    //     println!("WORKED {} TIMES", count);
+    //     println!("FAILED {} TIMES", failures.len());
+    //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
+    //     //println!("FAILURES: {:?}", failures);
+    //     assert!(failures.is_empty());
+    // }
+
+    #[test]
+    fn unreachable() {
+        let distance = -10_000;
+        let mut current = resting_player_state();
+        current.position.y = distance as f32;
+        let desired = test_desired_contact();
+        let mut model = get_model();
+        let config = SearchConfig::default();
+        let PlanResult { plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+        assert!(plan.is_none());
+    }
 }

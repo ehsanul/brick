@@ -1,14 +1,15 @@
 [package]
-name = "brain"
+name = "record"
 version = "0.1.0"
 authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 
 [dependencies]
-nalgebra = "*"
-lazy_static = "1.0"
-fnv = "1.0"
-indexmap = "1.0"
-itertools = "0.7"
+csv = "1"
+flatbuffers = "0.5.0"
+gilrs = "0.6.0"
+rand = "0.7"
+spin_sleep = "1"
+static_assertions = "1.1.0"
 #rlbot = "0.7.0"
 rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee", default-features = false }
 
@@ -17,9 +18,3 @@ path = "../state"
 
 [dependencies.predict]
 path = "../predict"
-
-[dependencies.heuristic]
-path = "../heuristic"
-
-[lib]
-crate-type = ["rlib", "dylib"]

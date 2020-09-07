@@ -1,17 +1,19 @@
-[package]
-name = "brick"
-version = "0.1.0"
-authors = ["Ehsanul"]
+[workspace]
 
-[dependencies]
-kiss3d = "0.13"
-nalgebra = "0.14"
-lazy_static = "1.0"
-dynamic_reload = "0.3.*"
-crossbeam = "0.4"
+members = [
+    "brick",
+    "brain",
+    "predict",
+    "state",
+    "passthrough",
+    "record",
+    "generate-data",
+    "heuristic",
+]
 
-[dependencies.state]
-path = "./state"
+[profile.dev]
+opt-level = 2
 
-[dependencies.rlbot]
-path = "./rlbot"
+[profile.release]
+lto = 'thin'
+codegen-units = 1
