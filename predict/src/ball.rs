@@ -43,8 +43,7 @@ fn find_prediction_category(ball: &BallState) -> PredictionCategory {
     }
 }
 
-#[no_mangle]
-pub extern "C" fn ball_trajectory(ball: &BallState, duration: f32) -> Vec<BallState> {
+pub fn ball_trajectory(ball: &BallState, duration: f32) -> Vec<BallState> {
     let mut t = 0.0;
     let mut trajectory = Vec::with_capacity((duration / TICK).ceil() as usize);
     let mut ball_now = ball.clone();
@@ -132,8 +131,7 @@ fn next_ball_state_rolling(ball: &BallState, time_step: f32) -> BallState {
 }
 
 /// returns normal at contact point if ball is currently colliding with the arena
-#[no_mangle]
-pub extern "C" fn arena_contact_normal(ball: &BallState) -> Option<Unit<Vector3<f32>>> {
+pub fn arena_contact_normal(ball: &BallState) -> Option<Unit<Vector3<f32>>> {
     let sphere = ncollide::shape::Ball::new(BALL_COLLISION_RADIUS);
     let ball_pos = Isometry3::new(ball.position, na::zero()); // TODO if we want to handle cube ball, track and pass on the rotation
     let arena_pos = Isometry3::new(na::zero(), na::zero());

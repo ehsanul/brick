@@ -376,8 +376,7 @@ pub fn ball_collides(ball: &BallState, player: &PlayerState) -> bool {
     (closest_point_for_collision(ball, player) - ball.position).norm() < BALL_COLLISION_RADIUS
 }
 
-#[no_mangle]
-pub extern "C" fn next_player_state(
+pub fn next_player_state(
     current: &PlayerState,
     controller: &BrickControllerState,
     time_step: f32,
