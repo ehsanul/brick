@@ -56,6 +56,7 @@ pub fn try_next_flat(rlbot: &rlbot::RLBot) -> Option<rlbot::GameTickPacket> {
     LAST_TIME.with(|last_time| {
         if let Some(packet) = rlbot.interface().update_live_data_packet_flatbuffer() {
             let game_time = packet.game_info.seconds_elapsed;
+            #[allow(clippy::float_cmp)]
             if game_time != *last_time.borrow() {
                 (*last_time.borrow_mut()) = game_time;
                 return Some(packet);
@@ -450,7 +451,7 @@ fn record_all_missing(
     Ok(())
 }
 
-fn record_missing_record_state<'a>(
+fn record_missing_record_state(
     rlbot: &rlbot::RLBot,
     input: &ControllerState,
     index: &mut HashMap<predict::sample::NormalizedPlayerState, PlayerState>,

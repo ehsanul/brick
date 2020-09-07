@@ -39,6 +39,8 @@ impl BasicHeuristic {
         // out.
         let current_heading = player.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
         let car_to_desired = Unit::new_normalize(self.goal_center - player.position).into_inner();
+
+        #[allow(clippy::if_same_then_else)]
         let mut penalty_time_cost = if distance < 800.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.70 {
             0.5
         } else if distance < 1500.0 && na::Matrix::dot(&self.desired_heading, &car_to_desired) < -0.88 {
@@ -48,6 +50,7 @@ impl BasicHeuristic {
         } else {
             0.0
         };
+
         // we have a tighter radius when slow, the numbers above are tuned for going fast
         if player.velocity.norm() < 800.0 {
             penalty_time_cost *= 0.2;

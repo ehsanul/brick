@@ -66,6 +66,7 @@ fn reachable_contact_and_time<H: HeuristicModel>(
         let ball_time2 = (*i2 as f32) * TICK;
         let diff1 = (ball_time - shooting_time).abs();
         let diff2 = (ball_time2 - shooting_time2).abs();
+        #[allow(clippy::float_cmp)]
         if diff1 == diff2 {
             std::cmp::Ordering::Equal
         } else if diff1 < diff2 {

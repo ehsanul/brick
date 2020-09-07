@@ -32,8 +32,8 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
             let sample = &full_sample[i..];
             i += 1;
 
-            let player_start = sample[0];
-            let player_end = sample[NUM_TICKS];
+            let player_start = &sample[0];
+            let player_end = &sample[NUM_TICKS];
 
             // we can miss data at the edges, or not be able to extrapolate at the edges. ignore for now
             // TODO remove all these checks

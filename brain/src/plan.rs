@@ -187,6 +187,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
         for i in 1..plan.len() {
             let num_ticks = (plan[i].2 / TICK).round() as i32;
             let num_steps = num_ticks / TICKS_PER_STEP;
+            #[allow(clippy::modulo_one)]
             let remaining_ticks = num_ticks % TICKS_PER_STEP;
 
             // NOTE since the controller value in each plan tuple is the controller that needs to
@@ -270,6 +271,7 @@ impl Eq for SmallestCostHolder {}
 impl Ord for SmallestCostHolder {
     fn cmp(&self, other: &SmallestCostHolder) -> Ordering {
         // we flip the ordering here, to make the heap a min-heap
+        #[allow(clippy::float_cmp)]
         if self.estimated_cost == other.estimated_cost {
             Ordering::Equal
         } else if self.estimated_cost < other.estimated_cost {
@@ -415,14 +417,15 @@ pub fn hybrid_a_star<H: HeuristicModel>(
             break;
         }
 
-        let dur = if estimated_cost - cost_so_far > 2.0 {
-            // if we're really far... yeah just make it super coarse to make it tractable, and the
-            // search config has no control over this for now
-            // FIXME we lost this so nah // 32.0 * TICK
-            config.step_duration
-        } else {
-            config.step_duration
-        };
+        // FIXME bring back 32-tick steps. we lost 32-tick steps in latest sample runs, which are only 16 steps long
+        let dur = config.step_duration;
+        // let dur = if estimated_cost - cost_so_far > 2.0 {
+        //     // if we're really far... yeah just make it super coarse to make it tractable, and the
+        //     // search config has no control over this for now
+        //     32.0 * TICK
+        // } else {
+        //     config.step_duration
+        // };
 
         let line_start;
         {
@@ -1018,14 +1021,27 @@ mod tests {
     const COARSE_STEP: f32 = 16.0 * TICK;
     const VERY_COARSE_STEP: f32 = 16.0 * TICK;
 
+    fn get_model() -> impl HeuristicModel {
+        // TODO config file or something
+        //let path = "./heuristic/train/nn/simple_throttle_cost_saved_model/1552341051/";
+        //heuristic::NeuralHeuristic::try_new(path).expect("Failed to initialize NeuralHeuristic")
+
+        // TODO config file or something
+        //println!("{}", env!("CARGO_MANIFEST_DIR"));
+        //let path = &format!("{}/../time.csv", env!("CARGO_MANIFEST_DIR"));
+        //heuristic::KnnHeuristic::try_new(path).expect("Failed to initialize KnnHeuristic")
+
+        heuristic::BasicHeuristic::default()
+    }
+
     fn resting_position() -> Vector3<f32> {
         Vector3::new(0.0, 0.0, 0.0)
     }
     fn resting_velocity() -> Vector3<f32> {
         Vector3::new(0.0, 0.0, 0.0)
     }
-    fn resting_rotation() -> UnitQuaternion<f32> {
-        UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0)
+    fn resting_rotation() -> na::UnitQuaternion<f32> {
+        na::UnitQuaternion::from_euler_angles(0.0, 0.0, -PI / 2.0)
     }
 
     fn resting_player_state() -> PlayerState {
@@ -1140,7 +1156,9 @@ mod tests {
         let mut current = resting_player_state();
         current.position.y = -1000.0;
         let desired = test_desired_contact();
-        let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, 0.5);
+        let mut model = get_model();
+        let mut config = SearchConfig::default();
+        let PlanResult { mut plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
         //assert!(plan.is_some());
         if plan.is_some() {
             count += 1
@@ -1159,17 +1177,17 @@ mod tests {
         let mut count = 0;
         let mut failures = vec![];
         for distance in -500..0 {
-            for &step_duration in [0.5].iter() {
-                let mut current = resting_player_state();
-                current.position.y = distance as f32;
-                let desired = test_desired_contact();
-                let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
-                //assert!(plan.is_some());
-                if plan.is_some() {
-                    count += 1
-                } else {
-                    failures.push((step_duration, distance))
-                }
+            let mut current = resting_player_state();
+            current.position.y = distance as f32;
+            let desired = test_desired_contact();
+            let mut model = get_model();
+            let mut config = SearchConfig::default();
+            let PlanResult { mut plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+            //assert!(plan.is_some());
+            if plan.is_some() {
+                count += 1
+            } else {
+                failures.push(distance)
             }
         }
         println!("WORKED {} TIMES", count);
@@ -1248,12 +1266,12 @@ mod tests {
     fn unreachable() {
         let mut count = 0;
         let distance = -10_000;
-        for &step_duration in [FINE_STEP, MEDIUM_STEP, COARSE_STEP, VERY_COARSE_STEP].iter() {
-            let mut current = resting_player_state();
-            current.position.y = distance as f32;
-            let desired = test_desired_contact();
-            let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
-            assert!(plan.is_none());
-        }
+        let mut current = resting_player_state();
+        current.position.y = distance as f32;
+        let desired = test_desired_contact();
+        let mut model = get_model();
+        let mut config = SearchConfig::default();
+        let PlanResult { mut plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+        assert!(plan.is_none());
     }
 }

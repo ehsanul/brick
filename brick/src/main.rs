@@ -540,6 +540,7 @@ fn bot_logic_loop_test(sender: Sender<PlanResult>, receiver: Receiver<(GameState
 pub fn try_next_flat(rlbot: &rlbot::RLBot, last_time: f32) -> Option<rlbot::GameTickPacket> {
     if let Some(packet) = rlbot.interface().update_live_data_packet_flatbuffer() {
         let game_time = packet.game_info.seconds_elapsed;
+        #[allow(clippy::float_cmp)]
         if game_time != last_time {
             return Some(packet);
         }
@@ -968,6 +969,7 @@ fn draw_lines(
 }
 
 fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+    #[allow(clippy::unreadable_literal)]
     let mut vertices = [
         Vector3::new(-0.262865, 0.00000, 0.42532500),
         Vector3::new(0.262865, 0.00000, 0.42532500),
@@ -1293,8 +1295,6 @@ fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
                 Steer::Left
             } else if y < 2000.0 {
                 Steer::Right
-            } else if y < 3000.0 {
-                Steer::Straight
             } else {
                 Steer::Straight
             }

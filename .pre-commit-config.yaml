@@ -1,0 +1,25 @@
+fail_fast: true
+
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: fmt
+        language: system
+        files: '[.]rs$'
+        entry: rustup run nightly rustfmt
+
+      - id: check
+        name: check
+        language: system
+        files: '[.]rs$'
+        entry: cargo clippy --all-targets
+        pass_filenames: false
+
+      # - id: test
+      #   name: test
+      #   language: system
+      #   files: '[.]rs$'
+      #   # Skip the slow tests that launch the game
+      #   entry: cargo test -- --skip integration
+      #   pass_filenames: false
