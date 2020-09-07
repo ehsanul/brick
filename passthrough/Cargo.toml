@@ -6,4 +6,4 @@ authors = ["Ehsanul Hoque <ehsanul@ehsanul.com>"]
 [dependencies]
 gilrs = "0.6.0"
 #rlbot = "0.7.0"
-rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee" }
+rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee", default-features = false }

@@ -14,7 +14,7 @@ bincode = "*"
 flate2 = "1.0"
 csv = "1"
 #rlbot = "0.7.0"
-rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee" }
+rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee", default-features = false }
 
 [dependencies.state]
 path = "../state"

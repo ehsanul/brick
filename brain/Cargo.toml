@@ -10,7 +10,7 @@ fnv = "1.0"
 indexmap = "1.0"
 itertools = "0.7"
 #rlbot = "0.7.0"
-rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee" }
+rlbot  = { git = "https://github.com/RLBot/rlbot-rust", rev = "01bafee", default-features = false }
 
 [dependencies.state]
 path = "../state"
