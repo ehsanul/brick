@@ -30,10 +30,8 @@ fn write_model(path: &Path, model: DrivingModel) -> Result<(), Box<dyn Error>> {
     Ok(serialize_into(&mut e, &model)?)
 }
 
-fn index_all_samples(indexed: &mut TransformationMap, all_samples: &Vec<Vec<PlayerState>>, num_ticks: usize) {
-    for i in 0..all_samples.len() {
-        let sample = &all_samples[i];
-
+fn index_all_samples(indexed: &mut TransformationMap, all_samples: &[Vec<PlayerState>], num_ticks: usize) {
+    for sample in all_samples {
         if sample.len() < sample::MIN_SAMPLE_LENGTH {
             println!("bad sample: {:?}", sample[0]);
         }
@@ -41,12 +39,12 @@ fn index_all_samples(indexed: &mut TransformationMap, all_samples: &Vec<Vec<Play
         let mut j = 0;
 
         let ratio = FPS as usize / sample::RECORD_FPS; // if we record at 60fps instead of 120fps, we should ensure we use the right index
-        while all_samples[i][j..].len() >= 1 + num_ticks / ratio {
+        while sample[j..].len() > num_ticks / ratio {
             let key = sample::normalized_player_rounded(&sample[j]);
 
             match indexed.entry(key) {
                 Vacant(e) => {
-                    e.insert(PlayerTransformation::from_samples(&all_samples[i][j..], num_ticks));
+                    e.insert(PlayerTransformation::from_samples(&sample[j..], num_ticks));
                 }
                 Occupied(mut e) => {
                     // replace the sample in case we have one closer to the intended normalized
@@ -71,7 +69,7 @@ fn index_all_samples(indexed: &mut TransformationMap, all_samples: &Vec<Vec<Play
                     };
 
                     if should_replace {
-                        e.insert(PlayerTransformation::from_samples(&all_samples[i][j..], num_ticks));
+                        e.insert(PlayerTransformation::from_samples(&sample[j..], num_ticks));
                     }
                 }
             };

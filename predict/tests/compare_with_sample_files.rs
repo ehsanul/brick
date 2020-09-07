@@ -12,7 +12,7 @@ fn percentile_value(numbers: &mut Vec<f32>, percentile: f32) -> f32 {
     numbers[i]
 }
 
-fn rms(numbers: &Vec<f32>) -> f32 {
+fn rms(numbers: &[f32]) -> f32 {
     let total_error_squared: f32 = numbers.iter().map(|x| x * x).sum();
     (total_error_squared / (numbers.len() as f32)).sqrt()
 }
@@ -28,7 +28,7 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
     for full_sample in all_samples {
         let mut i = 0;
         // offset by 32 frames to ensure minimum 32 frames of simulation ahead in the slice
-        while full_sample[i..].len() >= NUM_TICKS + 1 {
+        while full_sample[i..].len() > NUM_TICKS {
             let sample = &full_sample[i..];
             i += 1;
 
@@ -69,7 +69,7 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
             //if position_error > 20.0 {
             if velocity_error > 40.0 {
                 let normalized = predict::sample::normalized_player_rounded(&player_start);
-                println!("");
+                println!();
                 println!("---------------------------------------------------------");
                 println!(
                     "position error: {}, velocity_error: {}, avz_error: {}",
@@ -85,8 +85,8 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
         }
     }
 
-    println!("");
-    println!("");
+    println!();
+    println!();
     println!("---------------------------------------------------------");
     println!("{:?}", controller);
     println!("max position error: {}", max_position_error);
@@ -133,8 +133,8 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
     println!("95th percentile avz error: {}", percentile_value(&mut avz_errors, 95.0));
     println!("99th percentile avz error: {}", percentile_value(&mut avz_errors, 99.0));
     println!("99.9th percentile avz error: {}", percentile_value(&mut avz_errors, 99.9));
-    println!("");
-    println!("");
+    println!();
+    println!();
 
     // TODO investigate the worst offenders and reduce these values
     assert!(max_position_error < 20.0);
@@ -150,7 +150,7 @@ fn compare<'a>(controller: BrickControllerState, all_samples: impl Iterator<Item
 
 #[test]
 fn test_throttle_straight() {
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.throttle = Throttle::Forward;
     let all_samples = predict::sample::THROTTLE_STRAIGHT_ALL.iter();
     compare(controller, all_samples);
@@ -158,7 +158,7 @@ fn test_throttle_straight() {
 
 #[test]
 fn test_throttle_left() {
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.steer = Steer::Left;
     controller.throttle = Throttle::Forward;
     let all_samples = predict::sample::THROTTLE_LEFT_ALL.iter();
@@ -167,7 +167,7 @@ fn test_throttle_left() {
 
 #[test]
 fn test_throttle_right() {
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.steer = Steer::Right;
     controller.throttle = Throttle::Forward;
     let all_samples = predict::sample::THROTTLE_RIGHT_ALL.iter();
@@ -176,7 +176,7 @@ fn test_throttle_right() {
 
 #[test]
 fn test_boost_straight() {
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.boost = true;
     let all_samples = predict::sample::BOOST_STRAIGHT_ALL.iter();
     compare(controller, all_samples);
@@ -184,7 +184,7 @@ fn test_boost_straight() {
 
 #[test]
 fn test_boost_left() {
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.steer = Steer::Left;
     controller.boost = true;
     let all_samples = predict::sample::BOOST_LEFT_ALL.iter();
@@ -193,7 +193,7 @@ fn test_boost_left() {
 
 #[test]
 fn test_boost_right() {
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.steer = Steer::Right;
     controller.boost = true;
     let all_samples = predict::sample::BOOST_RIGHT_ALL.iter();

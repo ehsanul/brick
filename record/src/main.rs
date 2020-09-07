@@ -6,6 +6,9 @@ extern crate rlbot;
 extern crate spin_sleep;
 extern crate state;
 
+#[macro_use]
+extern crate static_assertions;
+
 use rand::{thread_rng, Rng};
 use rlbot::ControllerState;
 use spin_sleep::LoopHelper;
@@ -99,7 +102,7 @@ impl RecordState {
             }
         }
 
-        let latest = (game_state.frame, game_state.player.clone());
+        let latest = (game_state.frame, game_state.player);
         self.records.push(latest);
     }
 
@@ -339,7 +342,8 @@ impl RecordState {
         // there must be one physic tick between each measurement for the sample to be valid as
         // a whole, given a 120fps record rate. NOTE we can't reliably measure the ticks when going
         // very slowly, so we check distance travelled too
-        assert!(predict::sample::RECORD_FPS == 120);
+        const_assert!(predict::sample::RECORD_FPS == 120);
+
         self.records[1..].iter().all(|(_frame, player)| {
             let v = 0.5 * (player.velocity + last_player.velocity);
             let d = (player.position - last_player.position).norm();
@@ -383,7 +387,7 @@ fn record_all_missing(
         angular_speed: 0,
         started: false,
         records: vec![],
-        name: name,
+        name,
     };
 
     let mut adjustment = Adjustment::default();
@@ -407,11 +411,7 @@ fn record_all_missing(
             let mut all_failed = true;
 
             for avz in min_avz..=max_avz {
-                let normalized = predict::sample::NormalizedPlayerState {
-                    local_vy: local_vy,
-                    local_vx: local_vx,
-                    avz,
-                };
+                let normalized = predict::sample::NormalizedPlayerState { local_vy, local_vx, avz };
 
                 if let Some(player) = index.get(&normalized) {
                     // sample was found.

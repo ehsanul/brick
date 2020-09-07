@@ -58,7 +58,7 @@ fn next_player_state_grounded(
 }
 
 fn ground_turn_matching_transformation(
-    normalized: &sample::NormalizedPlayerState,
+    normalized: sample::NormalizedPlayerState,
     controller: &BrickControllerState,
     time_step: f32,
     xrange: i16,
@@ -68,7 +68,7 @@ fn ground_turn_matching_transformation(
 ) -> Option<&'static driving_model::PlayerTransformation> {
     // based on current player state, and steer, throttle and boost, gets the right transformation,
     // with some wiggle room based on xrange/yrange
-    let mut local_normalized = normalized.clone();
+    let mut local_normalized = normalized;
     let mut transformation: Option<&'static driving_model::PlayerTransformation> = None;
 
     // step_by is not yet stabilized... so using plain loops instead
@@ -83,7 +83,7 @@ fn ground_turn_matching_transformation(
                 local_normalized.local_vx = normalized.local_vx + dx;
                 //println!("local_normalized: {:?}", local_normalized);
 
-                transformation = driving_model::get_relevant_transformation(&local_normalized, &controller, time_step);
+                transformation = driving_model::get_relevant_transformation(local_normalized, &controller, time_step);
                 if transformation.is_some() {
                     break 'outer;
                 }
@@ -145,11 +145,11 @@ fn ground_turn_quad_tranformations(
     // interpolation anchor
     //println!("x1y1");
     let normalized = sample::normalized_player(&current, false, false);
-    let mut x1y1 = ground_turn_matching_transformation(&normalized, &controller, time_step, -3, -3, None, None);
+    let mut x1y1 = ground_turn_matching_transformation(normalized, &controller, time_step, -3, -3, None, None);
 
     //println!("x2y1");
     let normalized = sample::normalized_player(&current, true, false);
-    let mut x2y1 = ground_turn_matching_transformation(&normalized, &controller, time_step, 3, -3, None, None);
+    let mut x2y1 = ground_turn_matching_transformation(normalized, &controller, time_step, 3, -3, None, None);
 
     // when we fail in on direction, search in the other
     if x1y1.is_some() && x2y1.is_none() {
@@ -157,7 +157,7 @@ fn ground_turn_quad_tranformations(
         let x1y1_transformation = x1y1.as_ref().unwrap();
         let skip = x1y1_transformation.normalized_player(current.angular_velocity.z);
         x2y1 = ground_turn_matching_transformation(
-            &normalized,
+            normalized,
             &controller,
             time_step,
             -3,
@@ -170,7 +170,7 @@ fn ground_turn_quad_tranformations(
         let x2y1_transformation = x2y1.as_ref().unwrap();
         let skip = x2y1_transformation.normalized_player(current.angular_velocity.z);
         x1y1 = ground_turn_matching_transformation(
-            &normalized,
+            normalized,
             &controller,
             time_step,
             3,
@@ -184,11 +184,11 @@ fn ground_turn_quad_tranformations(
 
     //println!("x1y2");
     let normalized = sample::normalized_player(&current, false, true);
-    let mut x1y2 = ground_turn_matching_transformation(&normalized, &controller, time_step, -3, 3, None, None);
+    let mut x1y2 = ground_turn_matching_transformation(normalized, &controller, time_step, -3, 3, None, None);
 
     //println!("x2y2");
     let normalized = sample::normalized_player(&current, true, true);
-    let mut x2y2 = ground_turn_matching_transformation(&normalized, &controller, time_step, 3, 3, None, None);
+    let mut x2y2 = ground_turn_matching_transformation(normalized, &controller, time_step, 3, 3, None, None);
 
     // when we fail in on direction, search in the other
     if x1y2.is_some() && x2y2.is_none() {
@@ -196,7 +196,7 @@ fn ground_turn_quad_tranformations(
         let x1y2_transformation = x1y2.as_ref().unwrap();
         let skip = x1y2_transformation.normalized_player(current.angular_velocity.z);
         x2y2 = ground_turn_matching_transformation(
-            &normalized,
+            normalized,
             &controller,
             time_step,
             -3,
@@ -209,7 +209,7 @@ fn ground_turn_quad_tranformations(
         let x2y2_transformation = x2y2.as_ref().unwrap();
         let skip = x2y2_transformation.normalized_player(current.angular_velocity.z);
         x1y2 = ground_turn_matching_transformation(
-            &normalized,
+            normalized,
             &controller,
             time_step,
             3,
@@ -224,12 +224,14 @@ fn ground_turn_quad_tranformations(
     [x1y1, x2y1, x1y2, x2y2]
 }
 
-/// returns tuple of (translation, acceleration, angular_acceleration, rotation)
+/// tuple of (translation, acceleration, angular_acceleration, rotation)
+type PlayerPrediction = (Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>);
+
 fn ground_turn_prediction(
     current: &PlayerState,
     controller: &BrickControllerState,
     time_step: f32,
-) -> Result<(Vector3<f32>, Vector3<f32>, Vector3<f32>, Rotation3<f32>), String> {
+) -> Result<PlayerPrediction, String> {
     // we don't have transformations for single ticks, but we'll do some special handling of
     // this case as we need it for car-ball collisions
     let original_time_step = time_step;
@@ -413,10 +415,10 @@ pub fn get_collision(
                 if ball_collides(ball, &next) {
                     // check if one tick earlier collides, since we are using 2-tick steps
                     if let Ok(next_single_tick) = next_player_state(&last, controller, TICK) {
-                        let single_tick_ball = ball_trajectory[step * 2 - 1];
-                        if ball_collides(&single_tick_ball, &next_single_tick) {
+                        let single_tick_ball = &ball_trajectory[step * 2 - 1];
+                        if ball_collides(single_tick_ball, &next_single_tick) {
                             let collision_time = (2 * step - 1) as f32 * TICK;
-                            let point = closest_point_for_collision(&single_tick_ball, &next_single_tick);
+                            let point = closest_point_for_collision(single_tick_ball, &next_single_tick);
                             return Some((next_single_tick, single_tick_ball.clone(), point, collision_time));
                         }
                     }

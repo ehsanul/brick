@@ -24,8 +24,7 @@ pub fn opponent_goal_shoot_at(game: &GameState) -> Vector3<f32> {
 }
 
 /// guess best point on ball to hit, get the heading at that point
-#[no_mangle]
-pub extern "C" fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact {
+pub fn simple_desired_contact(ball: &BallState, desired_ball_position: &Vector3<f32>) -> DesiredContact {
     let desired_vector = Unit::new_normalize(desired_ball_position - ball.position);
     let desired_velocity = 3000.0 * desired_vector.into_inner();
     let velocity_delta = desired_velocity - ball.velocity;
@@ -170,9 +169,8 @@ pub fn play<H: HeuristicModel>(model: &mut H, game: &GameState, bot: &mut BotSta
     }
 }
 
-#[no_mangle]
-pub extern "C" fn closest_plan_index(given_player: &PlayerState, plan: &Plan) -> usize {
-    assert!(plan.len() != 0);
+pub fn closest_plan_index(given_player: &PlayerState, plan: &[PlanStep]) -> usize {
+    assert!(!plan.is_empty());
 
     let mut index = 0;
     let mut min_distance = std::f32::MAX;
@@ -188,8 +186,7 @@ pub extern "C" fn closest_plan_index(given_player: &PlayerState, plan: &Plan) ->
     index
 }
 
-#[no_mangle]
-pub extern "C" fn next_input(player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
+pub fn next_input(player: &PlayerState, bot: &mut BotState) -> rlbot::ControllerState {
     if let Some(ref plan) = bot.plan {
         // we need to take into account the inputs previously sent that will be processed
         // prior to finding where we are. instead of passing the current player, apply
@@ -215,7 +212,7 @@ pub extern "C" fn next_input(player: &PlayerState, bot: &mut BotState) -> rlbot:
                 bot.turn_errors.push_back(0.0);
             } else {
                 // NOTE positive for right, negative for left
-                let projection = na::Matrix::dot(&Unit::new_normalize(closest_delta.clone()).into_inner(), &relative_right);
+                let projection = na::Matrix::dot(&Unit::new_normalize(closest_delta).into_inner(), &relative_right);
                 //println!("projection: {}, distance: {}", projection, closest_distance);
                 let error = projection * closest_distance;
                 bot.turn_errors.push_back(error);
@@ -227,7 +224,7 @@ pub extern "C" fn next_input(player: &PlayerState, bot: &mut BotState) -> rlbot:
             }
 
             //println!("controller: {:?}", controller);
-            let mut input = (*controller).into();
+            let mut input = controller.into();
             //println!("input before: {:?}", input);
             pd_adjust(&mut input, &bot.turn_errors);
             //println!("input after: {:?}", input);
@@ -239,10 +236,8 @@ pub extern "C" fn next_input(player: &PlayerState, bot: &mut BotState) -> rlbot:
     // fallback
     let mut input = rlbot::ControllerState::default();
     input.throttle = 1.0;
-    if player.position.z > 150.0 {
-        if (player.position.z as i32 % 2) == 0 {
-            input.jump = true;
-        }
+    if player.position.z > 150.0 && (player.position.z as i32 % 2) == 0 {
+        input.jump = true;
     }
     input
 }

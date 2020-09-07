@@ -25,7 +25,7 @@ fn load_plan(path: &PathBuf) -> Result<Plan, Box<dyn Error>> {
     Ok(deserialize_from(&mut decoder)?)
 }
 
-fn set_row(plan: &Plan, i: usize, row: &mut Vec<String>) {
+fn set_row(plan: &[PlanStep], i: usize, row: &mut Vec<String>) {
     let total_cost: f32 = plan[i..].iter().map(|(_, _, cost)| cost).sum();
     let player = &plan[i].0;
     let pos = player.position;
@@ -57,7 +57,7 @@ fn files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
-    entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
+    entry.file_name().to_str().map(|s| s.starts_with('.')).unwrap_or(false)
 }
 
 fn main() -> Result<(), Box<dyn Error>> {

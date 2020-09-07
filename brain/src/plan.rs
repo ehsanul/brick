@@ -20,27 +20,27 @@ type MyHasher = BuildHasherDefault<FnvHasher>;
 lazy_static! {
     pub static ref GROUND_CONTROL_BRANCHES: Vec<BrickControllerState> = {
         // boost
-        let mut left_boost = BrickControllerState::new();
+        let mut left_boost = BrickControllerState::default();
         left_boost.boost = true;
         left_boost.steer = Steer::Left;
 
-        let mut right_boost = BrickControllerState::new();
+        let mut right_boost = BrickControllerState::default();
         right_boost.boost = true;
         right_boost.steer = Steer::Right;
 
-        let mut straight_boost = BrickControllerState::new();
+        let mut straight_boost = BrickControllerState::default();
         straight_boost.boost = true;
 
         // throttle
-        let mut left_throttle = BrickControllerState::new();
+        let mut left_throttle = BrickControllerState::default();
         left_throttle.throttle = Throttle::Forward;
         left_throttle.steer = Steer::Left;
 
-        let mut right_throttle = BrickControllerState::new();
+        let mut right_throttle = BrickControllerState::default();
         right_throttle.throttle = Throttle::Forward;
         right_throttle.steer = Steer::Right;
 
-        let mut straight_throttle = BrickControllerState::new();
+        let mut straight_throttle = BrickControllerState::default();
         straight_throttle.throttle = Throttle::Forward;
 
         // drift + boost
@@ -64,24 +64,24 @@ lazy_static! {
         straight_drift_throttle.handbrake = true;
 
         // idle
-        let mut left_idle = BrickControllerState::new();
+        let mut left_idle = BrickControllerState::default();
         left_idle.steer = Steer::Left;
 
-        let mut right_idle = BrickControllerState::new();
+        let mut right_idle = BrickControllerState::default();
         right_idle.steer = Steer::Right;
 
-        let _straight_idle = BrickControllerState::new();
+        let _straight_idle = BrickControllerState::default();
 
         // reverse
-        let mut left_reverse = BrickControllerState::new();
+        let mut left_reverse = BrickControllerState::default();
         left_reverse.throttle = Throttle::Reverse;
         left_reverse.steer = Steer::Left;
 
-        let mut right_reverse = BrickControllerState::new();
+        let mut right_reverse = BrickControllerState::default();
         right_reverse.throttle = Throttle::Reverse;
         right_reverse.steer = Steer::Right;
 
-        let mut straight_reverse = BrickControllerState::new();
+        let mut straight_reverse = BrickControllerState::default();
         straight_reverse.throttle = Throttle::Reverse;
 
         vec![
@@ -127,7 +127,7 @@ const EXPLODED_STEP_DURATION: f32 = TICKS_PER_STEP as f32 * TICK;
 /// live bot or bot simulation only, as it configures the serch paramters to favor speed over
 /// accuracy/optimality.
 // TODO maybe we should take the entire gamestate instead. we also need a history component, ie BotState
-pub extern "C" fn plan<H: HeuristicModel>(
+pub fn plan<H: HeuristicModel>(
     model: &mut H,
     player: &PlayerState,
     ball_trajectory: &[BallState],
@@ -195,7 +195,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
             // current tuple, we get the player from the period index and apply the controller from
             // the current tuple
             let mut last_player = plan[i - 1].0.clone();
-            let controller = plan[i].1;
+            let controller = &plan[i].1;
 
             for j in 1..=num_steps {
                 // when stepping by single ticks, still use 2-tick calculations when possible for better accuracy
@@ -210,7 +210,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
                     (EXPLODED_STEP_DURATION, &last_player)
                 };
                 let next_player = predict::player::next_player_state(last, &controller, step)?;
-                exploded_plan.push((next_player.clone(), controller, step));
+                exploded_plan.push((next_player.clone(), controller.clone(), step));
                 last_player = next_player;
             }
 
@@ -219,7 +219,7 @@ pub fn explode_plan(plan: &Option<Plan>) -> Result<Option<Plan>, Box<dyn Error>>
             if remaining_ticks > 0 {
                 for _j in 1..=remaining_ticks {
                     let next_player = predict::player::next_player_state(&last_player, &controller, TICK)?;
-                    exploded_plan.push((next_player.clone(), controller, TICK));
+                    exploded_plan.push((next_player.clone(), controller.clone(), TICK));
                     last_player = next_player;
                 }
             }
@@ -314,11 +314,11 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     config: &SearchConfig,
 ) -> PlanResult {
     // TODO take this fn as an argument, so different actions can have different goal_reached evaluation functions
-    let is_ball_hit_towards_goal = |ball_trajectory: &[BallState],
-                                    player: &PlayerState,
-                                    next_vertex: &PlayerVertex,
-                                    controller: &BrickControllerState,
-                                    time_step: f32|
+    let is_ball_hit_towards_goal: Evaluator = |ball_trajectory: &[BallState],
+                                               player: &PlayerState,
+                                               next_vertex: &PlayerVertex,
+                                               controller: &BrickControllerState,
+                                               time_step: f32|
      -> Option<(PlayerState, BallState, f32)> {
         let index = ((next_vertex.cost_so_far - next_vertex.step_duration) / TICK).round() as usize;
         if let Some((colliding_player, colliding_ball, collision_point, collision_time)) =
@@ -382,7 +382,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     let start = PlayerVertex {
         player: current.clone(),
         cost_so_far: 0.0,
-        prev_controller: BrickControllerState::new(),
+        prev_controller: BrickControllerState::default(),
         ball_trajectory_index: initial_ball_trajectory_index,
         step_duration: 0.0,
         parent_index: usize::MAX,
@@ -397,7 +397,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
     let mut num_iterations = 0;
 
     while let Some(SmallestCostHolder {
-        estimated_cost,
+        estimated_cost: _,
         cost_so_far,
         index,
         is_secondary,
@@ -476,7 +476,7 @@ pub fn hybrid_a_star<H: HeuristicModel>(
                     planned_ball: Some(ball),
                     source_frame: 0, // caller sets it
                     cost_diff: total_cost - cost_to_strive_for,
-                    ball_trajectory: ball_trajectory.iter().cloned().collect::<Vec<_>>(),
+                    ball_trajectory: ball_trajectory.to_vec(),
                     visualization_lines,
                     visualization_points,
                 };
@@ -525,16 +525,13 @@ pub fn hybrid_a_star<H: HeuristicModel>(
             set_heuristic_costs(model, &new_players, &mut next_heuristic_costs, &ball_trajectory, index + 1);
         }
 
-        let mut heuristic_index = 0;
-        for mut new_vertex in new_vertices.drain(0..) {
+        for (i, mut new_vertex) in new_vertices.drain(0..).enumerate() {
             let new_vertex_rounded = round_player_state(&new_vertex.player, dur, new_vertex.player.velocity.norm());
             let new_cost_so_far = new_vertex.cost_so_far;
             let new_index;
             let mut new_is_secondary = false;
             let line_end = new_vertex.player.position;
             let mut new_estimated_cost = 0.0;
-            let i = heuristic_index;
-            heuristic_index += 1;
 
             let cur_diff = (cur_heuristic_costs[i] - TICK * new_vertex.ball_trajectory_index as f32).abs();
             let prev_diff = (prev_heuristic_costs[i] - TICK * (new_vertex.ball_trajectory_index as f32 - 1.0)).abs();
@@ -758,19 +755,16 @@ fn coarse_collision(candidate_vertex: &PlayerVertex, previous_player: &PlayerSta
     )
 }
 
+type Evaluator =
+    fn(&[BallState], &PlayerState, &PlayerVertex, &BrickControllerState, f32) -> Option<(PlayerState, BallState, f32)>; // consider using Fn trait + generics to make this inlinable
+
 fn player_goal_reached(
     candidate_vertex: &PlayerVertex,
     previous_player: &PlayerState,
     ball_trajectory: &[BallState],
     controller: &BrickControllerState,
     time_step: f32,
-    evaluator: fn(
-        &[BallState],
-        &PlayerState,
-        &PlayerVertex,
-        &BrickControllerState,
-        f32,
-    ) -> Option<(PlayerState, BallState, f32)>, // consider using Fn trait + generics to make this inlinable
+    evaluator: Evaluator,
 ) -> Option<(PlayerState, BallState, f32)> {
     let coarse_collision = coarse_collision(
         candidate_vertex,
@@ -812,7 +806,7 @@ fn reverse_path(
             } else {
                 vertex.step_duration
             };
-            (player, vertex.prev_controller, cost)
+            (player, vertex.prev_controller.clone(), cost)
         })
     })
     .collect::<Vec<_>>();
@@ -980,7 +974,7 @@ fn expand_vertex(
 ) {
     let iterator = control_branches(&vertex.player)
         .iter()
-        .map(|&controller: &BrickControllerState| -> Result<PlayerVertex, String> {
+        .map(|controller: &BrickControllerState| -> Result<PlayerVertex, String> {
             let next_player = predict::player::next_player_state(&vertex.player, &controller, step_duration);
             if next_player.is_err() {
                 // print to stderr now since we're swallowing these errors right after this
@@ -990,9 +984,9 @@ fn expand_vertex(
             Ok(PlayerVertex {
                 player: next_player?,
                 cost_so_far: vertex.cost_so_far + step_duration,
-                prev_controller: controller,
+                prev_controller: controller.clone(),
                 ball_trajectory_index: vertex.ball_trajectory_index,
-                step_duration: step_duration,
+                step_duration,
                 parent_index: index,
                 parent_is_secondary: is_secondary,
             })
@@ -1015,11 +1009,6 @@ fn expand_vertex(
 mod tests {
     use super::*;
     use std::f32::consts::PI;
-
-    const FINE_STEP: f32 = 8.0 * TICK;
-    const MEDIUM_STEP: f32 = 16.0 * TICK;
-    const COARSE_STEP: f32 = 16.0 * TICK;
-    const VERY_COARSE_STEP: f32 = 16.0 * TICK;
 
     fn get_model() -> impl HeuristicModel {
         // TODO config file or something
@@ -1157,8 +1146,8 @@ mod tests {
         current.position.y = -1000.0;
         let desired = test_desired_contact();
         let mut model = get_model();
-        let mut config = SearchConfig::default();
-        let PlanResult { mut plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+        let config = SearchConfig::default();
+        let PlanResult { plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
         //assert!(plan.is_some());
         if plan.is_some() {
             count += 1
@@ -1169,7 +1158,7 @@ mod tests {
         println!("FAILED {} TIMES", failures.len());
         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
         println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
+        assert!(failures.is_empty());
     }
 
     #[test]
@@ -1181,8 +1170,8 @@ mod tests {
             current.position.y = distance as f32;
             let desired = test_desired_contact();
             let mut model = get_model();
-            let mut config = SearchConfig::default();
-            let PlanResult { mut plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+            let config = SearchConfig::default();
+            let PlanResult { plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
             //assert!(plan.is_some());
             if plan.is_some() {
                 count += 1
@@ -1194,7 +1183,7 @@ mod tests {
         println!("FAILED {} TIMES", failures.len());
         println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
         //println!("FAILURES: {:?}", failures);
-        assert!(failures.len() == 0);
+        assert!(failures.is_empty());
     }
 
     // #[test]
@@ -1206,7 +1195,7 @@ mod tests {
     //             let mut current = resting_player_state();
     //             current.position.y = distance as f32;
     //             let desired = test_desired_contact();
-    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
+    //             let PlanResult { plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
     //             //assert!(plan.is_some());
     //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
     //         }
@@ -1215,7 +1204,7 @@ mod tests {
     //     println!("FAILED {} TIMES", failures.len());
     //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
     //     //println!("FAILURES: {:?}", failures);
-    //     assert!(failures.len() == 0);
+    //     assert!(failures.is_empty());
     // }
 
     // #[test]
@@ -1229,7 +1218,7 @@ mod tests {
     //             let mut current = resting_player_state();
     //             current.position.y = distance as f32;
     //             let desired = test_desired_contact();
-    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
+    //             let PlanResult { plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
     //             //assert!(plan.is_some());
     //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
     //         }
@@ -1238,7 +1227,7 @@ mod tests {
     //     println!("FAILED {} TIMES", failures.len());
     //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
     //     //println!("FAILURES: {:?}", failures);
-    //     assert!(failures.len() == 0);
+    //     assert!(failures.is_empty());
     // }
 
     // #[test]
@@ -1250,7 +1239,7 @@ mod tests {
     //             let mut current = resting_player_state();
     //             current.position.y = distance as f32;
     //             let desired = test_desired_contact();
-    //             let PlanResult { mut plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
+    //             let PlanResult { plan, .. } = hybrid_a_star(&current, test_ball(), &desired, step_duration);
     //             //assert!(plan.is_some());
     //             if plan.is_some(){ count += 1 } else { failures.push((step_duration, distance)) }
     //         }
@@ -1259,19 +1248,18 @@ mod tests {
     //     println!("FAILED {} TIMES", failures.len());
     //     println!("FAIL PERCENT {}%", 100.0 * failures.len() as f32 / count as f32);
     //     //println!("FAILURES: {:?}", failures);
-    //     assert!(failures.len() == 0);
+    //     assert!(failures.is_empty());
     // }
 
     #[test]
     fn unreachable() {
-        let mut count = 0;
         let distance = -10_000;
         let mut current = resting_player_state();
         current.position.y = distance as f32;
         let desired = test_desired_contact();
         let mut model = get_model();
-        let mut config = SearchConfig::default();
-        let PlanResult { mut plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
+        let config = SearchConfig::default();
+        let PlanResult { plan, .. } = hybrid_a_star(&mut model, &current, &[test_ball()], 0, &desired, 0.0, &config);
         assert!(plan.is_none());
     }
 }

@@ -89,7 +89,7 @@ lazy_static! {
 pub fn load_sample_file(path: &PathBuf) -> Vec<PlayerState> {
     let mut rdr = csv::ReaderBuilder::new()
         .has_headers(false)
-        .from_reader(fs::File::open(path).expect(&format!("File doesn't exist: {}", path.to_string_lossy())));
+        .from_reader(fs::File::open(path).unwrap_or_else(|_| panic!("File doesn't exist: {}", path.to_string_lossy())));
     let data: Vec<PlayerState> = rdr
         .records()
         .map(|record| {
@@ -180,7 +180,7 @@ fn files<'a>(dir: &'a str) -> impl Iterator<Item = PathBuf> + 'a {
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
-    entry.file_name().to_str().map(|s| s.starts_with(".")).unwrap_or(false)
+    entry.file_name().to_str().map(|s| s.starts_with('.')).unwrap_or(false)
 }
 
 pub type SampleMap<'a> = HashMap<NormalizedPlayerState, &'a [PlayerState], MyHasher>;
@@ -196,24 +196,22 @@ pub type SampleMap<'a> = HashMap<NormalizedPlayerState, &'a [PlayerState], MyHas
 //    return true
 //}
 
-pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMap<'a> {
+pub fn index_all_samples<'a>(all_samples: &'a [Vec<PlayerState>]) -> SampleMap<'a> {
     let mut indexed = SampleMap::default();
 
-    for i in 0..all_samples.len() {
-        let sample = &all_samples[i];
-
+    for sample in all_samples {
         if sample.len() < MIN_SAMPLE_LENGTH {
             println!("bad sample: {:?}", sample[0]);
         }
 
         let mut j = 0;
 
-        while all_samples[i][j..].len() >= MIN_SAMPLE_LENGTH {
+        while sample[j..].len() >= MIN_SAMPLE_LENGTH {
             let key = normalized_player_rounded(&sample[j]);
 
             match indexed.entry(key) {
                 Vacant(e) => {
-                    e.insert(&all_samples[i][j..]);
+                    e.insert(&sample[j..]);
                 }
                 Occupied(mut e) => {
                     // replace the sample in case we have one closer to the intended normalized
@@ -235,7 +233,7 @@ pub fn index_all_samples<'a>(all_samples: &'a Vec<Vec<PlayerState>>) -> SampleMa
                     };
 
                     if should_replace {
-                        e.insert(&all_samples[i][j..]);
+                        e.insert(&sample[j..]);
                     }
                 }
             };

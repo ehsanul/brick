@@ -130,8 +130,8 @@ impl From<&rlbot::ControllerState> for BrickControllerState {
     }
 }
 
-impl From<BrickControllerState> for rlbot::ControllerState {
-    fn from(controller: BrickControllerState) -> Self {
+impl From<&BrickControllerState> for rlbot::ControllerState {
+    fn from(controller: &BrickControllerState) -> Self {
         rlbot::ControllerState {
             throttle: match controller.throttle {
                 Throttle::Idle => 0.0,
@@ -179,7 +179,6 @@ pub enum Team {
     Orange,
 }
 
-// TODO-perf remove Copy
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerState {
     pub position: Vector3<f32>,
@@ -221,7 +220,7 @@ impl PlayerState {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BallState {
     pub position: Vector3<f32>,
     pub velocity: Vector3<f32>,
@@ -247,8 +246,8 @@ pub enum Steer {
 }
 
 impl Steer {
-    pub fn value(&self) -> f32 {
-        match *self {
+    pub fn value(self) -> f32 {
+        match self {
             Steer::Right => 1.0,
             Steer::Left => -1.0,
             Steer::Straight => 0.0,
@@ -264,8 +263,8 @@ pub enum Throttle {
 }
 
 impl Throttle {
-    pub fn value(&self) -> f32 {
-        match *self {
+    pub fn value(self) -> f32 {
+        match self {
             Throttle::Forward => 1.0,
             Throttle::Reverse => -1.0,
             Throttle::Idle => 0.0,
@@ -273,7 +272,7 @@ impl Throttle {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BrickControllerState {
     pub throttle: Throttle,
     pub steer: Steer,
@@ -285,8 +284,8 @@ pub struct BrickControllerState {
     pub handbrake: bool,
 }
 
-impl BrickControllerState {
-    pub fn new() -> BrickControllerState {
+impl Default for BrickControllerState {
+    fn default() -> BrickControllerState {
         BrickControllerState {
             throttle: Throttle::Forward,
             steer: Steer::Straight,
@@ -300,7 +299,8 @@ impl BrickControllerState {
     }
 }
 
-pub type Plan = Vec<(PlayerState, BrickControllerState, f32)>;
+pub type PlanStep = (PlayerState, BrickControllerState, f32);
+pub type Plan = Vec<PlanStep>;
 
 #[derive(Serialize, Deserialize)]
 pub struct SerializablePlan(pub Plan);

@@ -86,8 +86,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
                             if let Some(plan) = plan::hybrid_a_star(
                                 &mut model,
-                                &mut player.clone(),
-                                &vec![ball],
+                                &player,
+                                &[ball.clone()],
                                 0,
                                 &desired_contact,
                                 0.0, // doesn't matter, used just to keep track of when we think we should hit it

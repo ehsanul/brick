@@ -1,4 +1,4 @@
-const USAGE: &'static str = "
+const USAGE: &str = "
 Brick
 
 Usage:
@@ -56,19 +56,19 @@ use kiss3d::window::Window;
 use na::{Point3, Quaternion, Rotation3, Translation3, UnitQuaternion, Vector3};
 use spin_sleep::LoopHelper;
 
+type IoManipulator = fn(
+    &mut u32,
+    &rlbot::RLBot,
+    &GameState,
+    &mut BotState,
+    &mut rlbot::ControllerState,
+    &VecDeque<(GameState, BotState)>,
+    &mut Gamepad,
+) -> Result<(), Box<dyn Error>>;
+
 #[derive(Default)]
 struct BotIoConfig<'a> {
-    manipulator: Option<
-        fn(
-            &mut u32,
-            &rlbot::RLBot,
-            &GameState,
-            &mut BotState,
-            &mut rlbot::ControllerState,
-            &VecDeque<(GameState, BotState)>,
-            &mut Gamepad,
-        ) -> Result<(), Box<dyn Error>>,
-    >,
+    manipulator: Option<IoManipulator>,
     print_turn_errors: bool,
     render_debug_info: bool,
     save_debug_info: bool,
@@ -77,10 +77,12 @@ struct BotIoConfig<'a> {
     match_settings: Option<rlbot::MatchSettings<'a>>,
 }
 
+type Line = (Point3<f32>, Point3<f32>, Point3<f32>);
+
 lazy_static! {
-    static ref GAME_STATE: RwLock<GameState> = { RwLock::new(GameState::default()) };
-    static ref LINES: RwLock<Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>> = { RwLock::new(vec![]) };
-    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = { RwLock::new(vec![]) };
+    static ref GAME_STATE: RwLock<GameState> = RwLock::new(GameState::default());
+    static ref LINES: RwLock<Vec<Line>> = RwLock::new(vec![]);
+    static ref POINTS: RwLock<Vec<(Point3<f32>, Point3<f32>)>> = RwLock::new(vec![]);
 }
 
 fn run_visualization() {
@@ -98,8 +100,7 @@ fn run_visualization() {
         .expect("Can't load arena obj file")
         .pop()
         .expect("Missing arena mesh")
-        .1
-        .clone();
+        .1;
     let mut arena = window.add_mesh(arena_mesh, Vector3::new(0.0, 0.0, 0.0));
     arena.set_surface_rendering_activation(false);
     arena.set_points_size(0.1);
@@ -177,8 +178,8 @@ fn run_visualization() {
 /// main bot playing loop
 /// this is the entry point for custom logic for this specific bot
 fn run_bot() {
-    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
-    let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
+    let (state_sender, state_receiver) = mpsc::channel();
+    let (plan_sender, plan_receiver) = mpsc::channel();
     thread::spawn(move || {
         bot_io_loop(state_sender, plan_receiver, BotIoConfig::default());
     });
@@ -186,8 +187,8 @@ fn run_bot() {
 }
 
 fn run_bot_test() {
-    let (state_sender, state_receiver): (Sender<(GameState, BotState)>, Receiver<(GameState, BotState)>) = mpsc::channel();
-    let (plan_sender, plan_receiver): (Sender<PlanResult>, Receiver<PlanResult>) = mpsc::channel();
+    let (state_sender, state_receiver) = mpsc::channel();
+    let (plan_sender, plan_receiver) = mpsc::channel();
     thread::spawn(move || {
         let _batmobile = rlbot::PlayerLoadout::new().car_id(803);
         let fennec = rlbot::PlayerLoadout::new().car_id(4284); // TODO get recordings of driving fennec for model
@@ -645,25 +646,23 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 human_input(&gamepad)
             };
 
-            if bot_io_config.print_turn_errors {
-                if bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
-                    // last 20
-                    let errors = bot
-                        .turn_errors
-                        .iter()
-                        .skip(bot.turn_errors.len() - 20)
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    //let sum = errors.iter().map(f32::abs).sum::<f32>();
-                    //let avg = sum / 20.0;
-                    let squared_sum = errors.iter().map(|x| x * x).sum::<f32>();
-                    let rms = (squared_sum / 20.0).powf(0.5);
-                    let max = errors.iter().map(|x| x.abs()).fold(-1.0f32 / 0.0 /* -inf */, f32::max);
-                    let min = errors.iter().map(|x| x.abs()).fold(1.0f32 / 0.0 /* inf */, f32::min);
-                    //println!("errors: {:?}", errors);
-                    println!("rms: {}, min: {}, max: {}", rms, min, max);
-                    //println!("first error: {}", bot.turn_errors[0]);
-                }
+            if bot_io_config.print_turn_errors && bot.turn_errors.len() % 20 == 0 && bot.turn_errors.len() >= 20 {
+                // last 20
+                let errors = bot
+                    .turn_errors
+                    .iter()
+                    .skip(bot.turn_errors.len() - 20)
+                    .cloned()
+                    .collect::<Vec<_>>();
+                //let sum = errors.iter().map(f32::abs).sum::<f32>();
+                //let avg = sum / 20.0;
+                let squared_sum = errors.iter().map(|x| x * x).sum::<f32>();
+                let rms = (squared_sum / 20.0).powf(0.5);
+                let max = errors.iter().map(|x| x.abs()).fold(-1.0f32 / 0.0 /* -inf */, f32::max);
+                let min = errors.iter().map(|x| x.abs()).fold(1.0f32 / 0.0 /* inf */, f32::min);
+                //println!("errors: {:?}", errors);
+                println!("rms: {}, min: {}, max: {}", rms, min, max);
+                //println!("first error: {}", bot.turn_errors[0]);
             }
 
             // let's some kind of testing mode update the game state
@@ -703,7 +702,7 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                 group.draw_string_2d((10.0, 5.0), (1, 1), format!("Steer: {}", input.steer), white);
                 group.draw_string_2d((10.0, 20.0), (1, 1), format!("Boost: {}", input.boost), white);
                 group.draw_string_2d((10.0, 35.0), (1, 1), format!("Throttle: {}", input.throttle), white);
-                if bot.turn_errors.len() > 0 {
+                if !bot.turn_errors.is_empty() {
                     group.draw_string_2d(
                         (10.0, 50.0),
                         (1, 1),
@@ -726,11 +725,11 @@ fn bot_io_loop(sender: Sender<(GameState, BotState)>, receiver: Receiver<PlanRes
                         if let Some(planned_ball) = bot.planned_ball.as_ref() {
                             let game = GAME_STATE.read().unwrap();
                             let player = &game.player;
-                            let ball = game.ball;
+                            let ball = &game.ball;
                             //bot.clone())
                             let (roll, pitch, yaw) = player.rotation.euler_angles();
                             let (planned_roll, planned_pitch, planned_yaw) = planned_player.rotation.euler_angles();
-                            let planned_input: rlbot::ControllerState = (*planned_controller).into();
+                            let planned_input: rlbot::ControllerState = planned_controller.into();
                             let row: Vec<String> = [
                                 frame as f32,
                                 bot.plan_source_frame as f32,
@@ -839,7 +838,7 @@ fn stitch_with_current_plan(game: &GameState, bot: &BotState, plan_result: &mut 
     }
 }
 
-fn plan_is_valid(game: &GameState, plan: &Plan) -> bool {
+fn plan_is_valid(game: &GameState, plan: &[PlanStep]) -> bool {
     let closest_index = brain::play::closest_plan_index(&game.player, &plan);
     if let Some((player, _, _)) = plan.get(closest_index) {
         let ball_trajectory = predict::ball::ball_trajectory(&game.ball, (plan.len() - 1 - closest_index) as f32 * TICK);
@@ -897,7 +896,7 @@ fn update_bot_state(game: &GameState, bot: &mut BotState, plan_result: &PlanResu
     }
 }
 
-fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+fn plan_lines(plan: &[PlanStep], color: Point3<f32>) -> Vec<Line> {
     let mut lines = Vec::with_capacity(plan.len());
     let pos = plan
         .get(0)
@@ -906,7 +905,7 @@ fn plan_lines(plan: &Plan, color: Point3<f32>) -> Vec<(Point3<f32>, Point3<f32>,
     let mut last_point = Point3::new(pos.x, pos.y, pos.z);
     for (ps, _, _) in plan {
         let point = Point3::new(ps.position.x, ps.position.y, ps.position.z + 0.1);
-        lines.push((last_point.clone(), point.clone(), color));
+        lines.push((last_point, point, color));
         last_point = point;
     }
     lines
@@ -943,11 +942,7 @@ fn update_simulation_visualization(bot: &BotState, plan_result: &PlanResult) {
 
 const VISUALIZATION_GROUP_ID: i32 = 7323; // trying to not overlap with other bots, though idk if they CAN overlap
 
-fn draw_lines(
-    rlbot: &rlbot::RLBot,
-    lines: &Vec<(Point3<f32>, Point3<f32>, Point3<f32>)>,
-    chunk_num: &mut i32,
-) -> Result<(), Box<dyn Error>> {
+fn draw_lines(rlbot: &rlbot::RLBot, lines: &[Line], chunk_num: &mut i32) -> Result<(), Box<dyn Error>> {
     for chunk in lines.chunks(200) {
         // TODO in case of multiple bricks, add player index * 1000 to the group id
         let mut group = rlbot.begin_render_group(VISUALIZATION_GROUP_ID + *chunk_num);
@@ -968,27 +963,28 @@ fn draw_lines(
     Ok(())
 }
 
-fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+fn icosahedron_lines(ball: &BallState) -> Vec<Line> {
     #[allow(clippy::unreadable_literal)]
     let mut vertices = [
-        Vector3::new(-0.262865, 0.00000, 0.42532500),
-        Vector3::new(0.262865, 0.00000, 0.42532500),
-        Vector3::new(-0.262865, 0.00000, -0.42532500),
-        Vector3::new(0.262865, 0.00000, -0.42532500),
-        Vector3::new(0.00000, 0.425325, 0.26286500),
-        Vector3::new(0.00000, 0.425325, -0.26286500),
-        Vector3::new(0.00000, -0.425325, 0.26286500),
-        Vector3::new(0.00000, -0.425325, -0.26286500),
-        Vector3::new(0.425325, 0.262865, 0.0000000),
-        Vector3::new(-0.425325, 0.262865, 0.0000000),
-        Vector3::new(0.425325, -0.262865, 0.0000000),
-        Vector3::new(-0.425325, -0.262865, 0.0000000),
+        Vector3::new(-0.262_865, 0.0, 0.425_325),
+        Vector3::new(0.262_865, 0.0, 0.425_325),
+        Vector3::new(-0.262_865, 0.0, -0.425_325),
+        Vector3::new(0.262_865, 0.0, -0.4253_25),
+        Vector3::new(0.0, 0.425_325, 0.262_865),
+        Vector3::new(0.0, 0.425_325, -0.262_865),
+        Vector3::new(0.0, -0.425_325, 0.262_865),
+        Vector3::new(0.0, -0.425_325, -0.262_865),
+        Vector3::new(0.425_325, 0.262_865, 0.0),
+        Vector3::new(-0.425_325, 0.262_865, 0.0),
+        Vector3::new(0.425_325, -0.262_865, 0.0),
+        Vector3::new(-0.425_325, -0.262_865, 0.0),
     ]
     .iter()
     .map(|v| ball.position + (BALL_COLLISION_RADIUS / 0.45) * v)
     .collect::<Vec<_>>();
     let mut lines = vec![];
-    for vertex in vertices.clone().iter() {
+    let original_vertices = vertices.clone();
+    for vertex in original_vertices.iter() {
         vertices.sort_by(|v1, v2| (vertex - v1).norm().partial_cmp(&(vertex - v2).norm()).unwrap());
         let closest = vertices.iter().skip(1).take(5);
         for v in closest {
@@ -1002,7 +998,7 @@ fn icosahedron_lines(ball: &BallState) -> Vec<(Point3<f32>, Point3<f32>, Point3<
     lines
 }
 
-fn hitbox_lines(player: &PlayerState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f32>)> {
+fn hitbox_lines(player: &PlayerState) -> Vec<Line> {
     let mut vertices = [
         Vector3::new(CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
         Vector3::new(-CAR_DIMENSIONS.x, CAR_DIMENSIONS.y, CAR_DIMENSIONS.z),
@@ -1017,7 +1013,8 @@ fn hitbox_lines(player: &PlayerState) -> Vec<(Point3<f32>, Point3<f32>, Point3<f
     .map(|v| player.hitbox_center() + player.rotation.to_rotation_matrix() * (0.5 * v))
     .collect::<Vec<_>>();
     let mut lines = vec![];
-    for vertex in vertices.clone().iter() {
+    let original_vertices = vertices.clone();
+    for vertex in original_vertices.iter() {
         vertices.sort_by(|v1, v2| (vertex - v1).norm().partial_cmp(&(vertex - v2).norm()).unwrap());
         let closest = vertices.iter().skip(1).take(4);
         for v in closest {
@@ -1070,7 +1067,7 @@ fn update_in_game_visualization(
 // - simulate turn error correction
 fn adjusted_plan(player: &PlayerState, plan: Plan) -> Result<Plan, Box<dyn Error>> {
     let mut adjusted = Vec::with_capacity(plan.len());
-    adjusted.push((player.clone(), BrickControllerState::new(), 0.0));
+    adjusted.push((player.clone(), BrickControllerState::default(), 0.0));
     let mut last_player: PlayerState = player.clone();
     plan.iter().filter(|(_, _, cost)| *cost > 0.0).map(|(_, controller, cost): &(PlayerState, BrickControllerState, f32)| -> Result<(PlayerState, BrickControllerState, f32), Box<dyn Error>> {
         let next_player = predict::player::next_player_state(&last_player, &controller, *cost);
@@ -1101,7 +1098,7 @@ fn adjusted_plan_or_fallback(game: &GameState, bot: &BotState) -> Option<Plan> {
             Ok(fallback_plan) => {
                 // handles fallback case where there isn't a plan and we just throttle forward
                 if let Ok(exploded) = brain::plan::explode_plan(&Some(fallback_plan)) {
-                    exploded.clone()
+                    exploded
                 } else {
                     eprintln!("Failed to explode fallback plan for logic lag compensation");
                     None
@@ -1138,11 +1135,11 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
     let mut plan = vec![];
     let current_heading = current.rotation.to_rotation_matrix() * Vector3::new(-1.0, 0.0, 0.0);
     let desired_heading = Rotation3::from_euler_angles(0.0, 0.0, angle) * current_heading;
-    let mut turn_controller = BrickControllerState::new();
+    let mut turn_controller = BrickControllerState::default();
     turn_controller.throttle = Throttle::Forward;
     turn_controller.steer = if angle < 0.0 { Steer::Right } else { Steer::Left };
 
-    let mut straight_controller = BrickControllerState::new();
+    let mut straight_controller = BrickControllerState::default();
     straight_controller.throttle = Throttle::Forward;
 
     const TURN_DURATION: f32 = 16.0 * TICK;
@@ -1174,16 +1171,20 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
 
         // if we aren't overshooting, add a turn
         if turn_dot > last_dot && long_turn_dot > turn_then_straight_dot {
-            plan.push((turn_player.clone(), turn_controller, TURN_DURATION));
+            plan.push((turn_player.clone(), turn_controller.clone(), TURN_DURATION));
             player = turn_player;
             last_dot = turn_dot;
         } else if turn_then_straight_dot > last_dot && turn_then_straight_dot > straight_dot {
-            plan.push((turn_player, turn_controller, TURN_DURATION));
-            plan.push((turn_then_straight_player.clone(), straight_controller, STRAIGHT_DURATION));
+            plan.push((turn_player, turn_controller.clone(), TURN_DURATION));
+            plan.push((
+                turn_then_straight_player.clone(),
+                straight_controller.clone(),
+                STRAIGHT_DURATION,
+            ));
             player = turn_then_straight_player;
             last_dot = turn_then_straight_dot;
         } else if straight_dot > last_dot + 0.001 {
-            plan.push((straight_player.clone(), straight_controller, STRAIGHT_DURATION));
+            plan.push((straight_player.clone(), straight_controller.clone(), STRAIGHT_DURATION));
             player = straight_player;
             last_dot = straight_dot;
         } else {
@@ -1198,7 +1199,7 @@ fn turn_plan(current: &PlayerState, angle: f32) -> Result<Plan, Box<dyn Error>> 
 fn forward_plan(current: &PlayerState, time: f32) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
 
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.throttle = Throttle::Forward;
 
     let mut player = current.clone();
@@ -1206,7 +1207,7 @@ fn forward_plan(current: &PlayerState, time: f32) -> Result<Plan, Box<dyn Error>
     while time_so_far < time {
         let step_duration = 16.0 * TICK;
         player = predict::player::next_player_state(&player, &controller, step_duration)?;
-        plan.push((player.clone(), controller, step_duration));
+        plan.push((player.clone(), controller.clone(), step_duration));
         time_so_far += step_duration;
     }
 
@@ -1216,7 +1217,7 @@ fn forward_plan(current: &PlayerState, time: f32) -> Result<Plan, Box<dyn Error>
 #[allow(dead_code)]
 fn square_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
-    plan.push((player.clone(), BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::default(), 0.0));
     for _ in 0..4 {
         let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 1000.0)?;
         plan.append(&mut plan_part);
@@ -1230,7 +1231,7 @@ fn square_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 #[allow(dead_code)]
 fn snek_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
-    plan.push((player.clone(), BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::default(), 0.0));
 
     let mut plan_part = forward_plan(&plan[plan.len() - 1].0, 500.0)?;
     plan.append(&mut plan_part);
@@ -1248,26 +1249,26 @@ fn snek_plan(player: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
-    plan.push((player.clone(), BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::default(), 0.0));
 
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.throttle = Throttle::Forward;
     for _ in 0..4 {
         player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-        plan.push((player.clone(), controller, 16.0 * TICK));
+        plan.push((player.clone(), controller.clone(), 16.0 * TICK));
     }
 
     for _ in 0..2 {
         controller.steer = Steer::Left;
         for _ in 0..4 {
             player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-            plan.push((player.clone(), controller, 16.0 * TICK));
+            plan.push((player.clone(), controller.clone(), 16.0 * TICK));
         }
 
         controller.steer = Steer::Right;
         for _ in 0..4 {
             player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
-            plan.push((player.clone(), controller, 16.0 * TICK));
+            plan.push((player.clone(), controller.clone(), 16.0 * TICK));
         }
     }
 
@@ -1278,41 +1279,40 @@ fn snek_plan2(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
 fn snek_plan3(current: &PlayerState) -> Result<Plan, Box<dyn Error>> {
     let mut plan = vec![];
     let mut player = current.clone();
-    plan.push((player.clone(), BrickControllerState::new(), 0.0));
+    plan.push((player.clone(), BrickControllerState::default(), 0.0));
 
-    let mut controller = BrickControllerState::new();
+    let mut controller = BrickControllerState::default();
     controller.throttle = Throttle::Forward;
 
+    let get_steer = |y| -> Steer {
+        if y < 400.0 {
+            Steer::Straight
+        } else if y < 800.0 {
+            Steer::Left
+        } else if y < 1200.0 {
+            Steer::Right
+        } else if y < 1600.0 {
+            Steer::Left
+        } else if y < 2000.0 {
+            Steer::Right
+        } else {
+            Steer::Straight
+        }
+    };
+
     while player.position.y < 3000.0 {
-        let get_steer = |y| -> Steer {
-            if y < 400.0 {
-                Steer::Straight
-            } else if y < 800.0 {
-                Steer::Left
-            } else if y < 1200.0 {
-                Steer::Right
-            } else if y < 1600.0 {
-                Steer::Left
-            } else if y < 2000.0 {
-                Steer::Right
-            } else {
-                Steer::Straight
-            }
-        };
-
         controller.steer = get_steer(player.position.y);
-
         let mut next_player = predict::player::next_player_state(&player, &controller, 16.0 * TICK)?;
 
         if get_steer(next_player.position.y) == controller.steer {
-            plan.push((next_player.clone(), controller, 16.0 * TICK));
+            plan.push((next_player.clone(), controller.clone(), 16.0 * TICK));
         } else {
             // simulate till the point steer is supposed to change
             next_player = player.clone();
             loop {
                 // TODO 1-tick if we can?
                 next_player = predict::player::next_player_state(&next_player, &controller, 2.0 * TICK)?;
-                plan.push((next_player.clone(), controller, 2.0 * TICK));
+                plan.push((next_player.clone(), controller.clone(), 2.0 * TICK));
                 if get_steer(next_player.position.y) != controller.steer {
                     break;
                 }

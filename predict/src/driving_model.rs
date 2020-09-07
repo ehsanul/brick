@@ -122,14 +122,14 @@ impl PlayerTransformation {
             translation_y: translation.y.round() as i16,
             end_velocity_x: end_velocity.x.round() as i16,
             end_velocity_y: end_velocity.y.round() as i16,
-            end_yaw: end_yaw,
+            end_yaw,
             end_angular_velocity_z: end.angular_velocity.z,
         }
     }
 }
 
 pub(crate) fn get_relevant_transformation(
-    normalized: &sample::NormalizedPlayerState,
+    normalized: sample::NormalizedPlayerState,
     controller: &BrickControllerState,
     time_step: f32,
 ) -> Option<&'static PlayerTransformation> {

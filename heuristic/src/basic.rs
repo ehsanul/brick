@@ -88,7 +88,7 @@ impl HeuristicModel for BasicHeuristic {
     }
 
     fn configure(&mut self, desired: &DesiredContact, scale: f32) {
-        self.desired_heading = Unit::new_normalize(desired.heading.clone()).into_inner();
+        self.desired_heading = Unit::new_normalize(desired.heading).into_inner();
         self.goal_center = desired.position - (CAR_DIMENSIONS.x / 2.0) * self.desired_heading;
         self.scale = scale;
     }

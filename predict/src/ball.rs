@@ -86,10 +86,10 @@ fn next_ball_state_soaring(ball: &BallState, time_step: f32) -> BallState {
             next = calculate_bounce(&ball, &normal);
         } else {
             // already bounced
-            next = (*ball).clone();
+            next = ball.clone();
         }
     } else {
-        next = (*ball).clone();
+        next = ball.clone();
     }
 
     // FIXME rl utils uses prev velocity instead of next velocity, we should too?
@@ -135,7 +135,7 @@ fn next_ball_state_rolling(ball: &BallState, time_step: f32) -> BallState {
 #[no_mangle]
 pub extern "C" fn arena_contact_normal(ball: &BallState) -> Option<Unit<Vector3<f32>>> {
     let sphere = ncollide::shape::Ball::new(BALL_COLLISION_RADIUS);
-    let ball_pos = Isometry3::new(ball.position.clone(), na::zero()); // TODO if we want to handle cube ball, track and pass on the rotation
+    let ball_pos = Isometry3::new(ball.position, na::zero()); // TODO if we want to handle cube ball, track and pass on the rotation
     let arena_pos = Isometry3::new(na::zero(), na::zero());
 
     let margin = 0.0;
